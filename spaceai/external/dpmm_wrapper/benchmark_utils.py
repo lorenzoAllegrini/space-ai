@@ -6,14 +6,16 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_s
 from pyod.utils.data import precision_n_scores
 
 def evaluate_metrics(y_test, y_pred, y_proba=None, digits=3):
-    res = {"Accuracy": round(accuracy_score(y_test, y_pred), digits),
-           "Precision": precision_score(y_test, y_pred).round(digits),
-           "Recall": recall_score(y_test, y_pred).round(digits),
-           "F1": f1_score(y_test, y_pred).round(digits),
-           "MCC": round(matthews_corrcoef(y_test, y_pred), ndigits=digits)}
+    res = {
+        "Accuracy": round(accuracy_score(y_test, y_pred), digits),
+        "Precision": round(precision_score(y_test, y_pred), digits),
+        "Recall": round(recall_score(y_test, y_pred), digits),
+        "F1": round(f1_score(y_test, y_pred), digits),
+        "MCC": round(matthews_corrcoef(y_test, y_pred), digits),
+    }
     if y_proba is not None:
-        res["AUC_PR"] = average_precision_score(y_test, y_proba).round(digits)
-        res["AUC_ROC"] = roc_auc_score(y_test, y_proba).round(digits)
+        res["AUC_PR"] = round(average_precision_score(y_test, y_proba), digits)
+        res["AUC_ROC"] = round(roc_auc_score(y_test, y_proba), digits)
         res["PREC_N_SCORES"] = precision_n_scores(y_test, y_proba).round(digits)
     return res
 
