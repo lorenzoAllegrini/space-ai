@@ -18,7 +18,7 @@ from torch.utils.data import (
 )
 from tqdm import tqdm
 
-from spaceai.data import NASA
+from spaceai.data import OPSSAT
 from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
@@ -30,36 +30,35 @@ if TYPE_CHECKING:
 
 import logging
 
-import more_itertools as mit
 from .benchmark import Benchmark
-from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
+import more_itertools as mit
+from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 
-
-class NASABenchmark(Benchmark):
+class OPSSATBenchmark(Benchmark):
 
     def __init__(
         self,
         run_id: str,
         exp_dir: str,
-        segmentator: Optional[NasaDatasetSegmentator] = None,
+        segmentator: Optional[OPSSATDatasetSegmentator] = None,
         seq_length: int = 250,
         n_predictions: int = 1,
-        data_root: str = "data/nasa",
+        data_root: str = "data/ops_sat",
     ):
-        """Initializes a new NASA benchmark run.
+        """Initializes a new OPSSAT benchmark run.
 
         Args:
             run_id (str): A unique identifier for this run.
             exp_dir (str): The directory where the results of this run are stored.
             seq_length (int): The length of the sequences used for training and testing.
-            data_root (str): The root directory of the NASA dataset.
+            data_root (str): The root directory of the OPSSAT dataset.
         """
         super().__init__(run_id, exp_dir)
         self.data_root: str = data_root
         self.seq_length: int = seq_length
         self.n_predictions: int = n_predictions
         self.all_results: List[Dict[str, Any]] = []
-        self.segmentator: NasaDatasetSegmentator = segmentator 
+        self.segmentator = segmentator
 
     def run(
         self,
@@ -225,7 +224,6 @@ class NASABenchmark(Benchmark):
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
         )
-
     def run_classifier(
         self,
         channel_id: str,
@@ -233,6 +231,7 @@ class NASABenchmark(Benchmark):
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: Optional[int] = 100,
+        supervised = True
     ):
         """Esegue il benchmark diretto per classificazione di anomalie su segmenti.
 
@@ -251,18 +250,30 @@ class NASABenchmark(Benchmark):
         )
         callback_handler.start()
         if self.segmentator is not None:
-            train_channel, _ = self.segmentator.segment(train_channel)
+            train_channel, train_anomalies = self.segmentator.segment(train_channel)
             test_channel, test_anomalies = self.segmentator.segment(test_channel)
         callback_handler.stop()
+        num_segments = len(train_channel)
+        train_labels = np.zeros(num_segments, dtype=int)
+
+        # Etichetta 1 tutti gli eventi (anomalie o rare)
+        for start, end in train_anomalies:
+            start = max(0, start)
+            end = min(num_segments - 1, end)
+            train_labels[start:end + 1] = 1
+
 
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
-        logging.info(f"Fitting the classifier for channel {channel_id}...")
-        callback_handler.start()
-        classifier.fit(X=train_channel) 
+        logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
         callback_handler.start()
 
+        if supervised:
+            classifier.fit(X=train_channel, y=train_labels) 
+        else:
+            classifier.fit(X=train_channel) 
+        callback_handler.start()
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = np.where(y_pred == 1)[0]
 
@@ -275,13 +286,18 @@ class NASABenchmark(Benchmark):
         else:
             pred_anomalies = []
 
-        true_anomalies = test_anomalies
 
+        print("---------------------------------------------")
         print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {true_anomalies}")
+        print(f"true_anomalies: {test_anomalies}")
+
         classification_results = self.compute_classification_metrics(
-            true_anomalies, pred_anomalies
+            test_anomalies, pred_anomalies
         )
+        print(f"precision: {classification_results['precision']}")
+        print(f"recall: {classification_results['recall']}")
+
+        print("---------------------------------------------")
         results.update(classification_results)
 
         logging.info(f"Results for channel {channel_id}")
@@ -292,9 +308,10 @@ class NASABenchmark(Benchmark):
             os.path.join(self.run_dir, "results.csv"), index=False
         )
 
+
     def load_channel(
         self, channel_id: str, overlapping_train: bool = True
-    ) -> Tuple[NASA, NASA]:
+    ) -> Tuple[OPSSAT, OPSSAT]:
         """Load the training and testing datasets for a given channel.
 
         Args:
@@ -302,18 +319,18 @@ class NASABenchmark(Benchmark):
             overlapping_train (bool): whether to use overlapping sequences for training
 
         Returns:
-            Tuple[NASA, NASA]: training and testing datasets
+            Tuple[OPSSAT, OPSSAT]: training and testing datasets
         """
-        train_channel = NASA(
+        train_channel = OPSSAT(
             root=self.data_root,
             channel_id=channel_id,
-            mode="prediction",
+            mode="anomaly",
             overlapping=overlapping_train,
             seq_length=self.seq_length,
             n_predictions=self.n_predictions,
         )
 
-        test_channel = NASA(
+        test_channel = OPSSAT(
             root=self.data_root,
             channel_id=channel_id,
             mode="anomaly",

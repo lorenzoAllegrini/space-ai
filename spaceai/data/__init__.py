@@ -5,5 +5,6 @@ from .esa import (
     ESAMissions,
     ESAMission,
 )
+from .ops_sat import OPSSAT
 
-__all__ = ["AnomalyDataset", "NASA", "ESA", "ESAMissions", "ESAMission"]
+__all__ = ["AnomalyDataset", "NASA", "ESA", "ESAMissions", "ESAMission", "OPSSAT"]

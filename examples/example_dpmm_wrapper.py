@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from spaceai.models.anomaly.dpmm_detector import DPMMWrapperDetector
+from spaceai.models.anomaly.dpmm_detector2 import DPMMWrapperDetector2
 from spaceai.external.dpmm_wrapper.benchmark_utils import evaluate_metrics, set_seed_numpy
 
 
@@ -30,13 +30,13 @@ set_seed_numpy(2137)
 # -----------------------
 # Inizializzo e uso il detector
 # -----------------------
-detector = DPMMWrapperDetector(
+detector = DPMMWrapperDetector2(
     mode="likelihood",      # oppure "new_cluster"
     model_type="Full",
     K=100,
     num_iterations=50,
     lr=0.8,
-    python_executable="C:/Users/manet/anaconda3/envs/dpmm_env/python.exe"  # Inserisci il percorso corretto del tuo ambiente Python
+    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  # Inserisci il percorso corretto del tuo ambiente Python
 )
 
 y_pred = detector(X_test_scaled, y_test.values, X_train_nominal=X_train_nominal_scaled)

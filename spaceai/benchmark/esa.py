@@ -235,6 +235,136 @@ class ESABenchmark(Benchmark):
             os.path.join(self.run_dir, "results.csv"), index=False
         )
 
+    def run_classifier(
+        self,
+        mission: ESAMission,
+        channel_id: str,
+        classifier,
+        pred_buffer: int = 0,
+        overlapping_train: Optional[bool] = True,
+        callbacks: Optional[List[Callback]] = None,
+        call_every_ms: int = 100,
+
+    ) -> Dict[str, Any]:
+        """
+        Runs the anomaly classifier benchmark for a given channel.
+        
+        Args:
+            mission (ESAMission): The mission configuration to use.
+            channel_id (str): The channel ID to process.
+            classifier (AnomalyClassifier): The supervised anomaly classifier to train and test.
+            pred_buffer (int): A buffer to add to the predicted anomaly indices.
+            overlapping_train (bool): Whether to use overlapping sequences for training.
+            callbacks (Optional[List[Callback]]): Optional list of callbacks for monitoring.
+            call_every_ms (int): Interval (in milliseconds) for calling callbacks.
+        
+        Returns:
+            Dict[str, Any]: A dictionary containing the benchmark results.
+        """
+        callback_handler = CallbackHandler(
+            callbacks=callbacks if callbacks is not None else [],
+            call_every_ms=call_every_ms,
+        )
+        train_channel, test_channel = self.load_channel(mission, channel_id, overlapping_train=overlapping_train)
+        
+        callback_handler.start()
+        if self.segmentator is not None:
+            train_channel, train_anomalies, train_rare_events = self.segmentator.segment(train_channel)
+            test_channel, test_anomalies, test_rare_events = self.segmentator.segment(test_channel)
+        callback_handler.stop()
+
+        os.makedirs(self.run_dir, exist_ok=True)
+        results: Dict[str, Any] = {"channel_id": channel_id}
+
+        logging.info(f"Fitting the classifier for channel {channel_id}...")
+
+        num_segments = len(train_channel)
+        train_labels = np.zeros(num_segments, dtype=int)
+        all_events = train_anomalies + train_rare_events
+
+        # Etichetta 1 tutti gli eventi (anomalie o rare)
+        for start, end in all_events:
+            start = max(0, start)
+            end = min(num_segments - 1, end)
+            train_labels[start:end + 1] = 1
+
+        # Train the classifier
+        callback_handler.start()
+        classifier.stateful = False
+        classifier.fit(X=train_channel, y=train_labels)
+        callback_handler.stop()
+
+        # Evaluate the classifier on test data
+        logging.info(f"Predicting the test data for channel {channel_id}...")
+        callback_handler.start()
+        y_pred = classifier.predict(X=test_channel)
+        callback_handler.stop()
+
+        pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
+
+        print(f"pred_anomalies: {pred_anomalies}")
+        print(f"true_anomalies: {[[int(start), int(end)] for start, end in test_anomalies]}")
+        print(f"rare_events: {[[int(start), int(end)] for start, end in test_rare_events]}")
+
+        classification_results = self.compute_classification_metrics(test_anomalies, pred_anomalies)
+
+        esa_classification_results = self.compute_esa_classification_metrics(
+            classification_results, test_anomalies, pred_anomalies, total_length=len(y_pred)
+        )
+        classification_results.update(esa_classification_results)
+        results.update(classification_results)
+
+        logging.info(f"Results for channel {channel_id}: {results}")
+
+        self.all_results.append(results)
+        pd.DataFrame.from_records(self.all_results).to_csv(os.path.join(self.run_dir, "results.csv"), index=False)
+        return results
+
+    def classifier_model_selection( 
+        self,
+        mission: ESAMission,
+        channel_id: str,
+        search_cv: Optional[Any],
+        overlapping_train: Optional[bool] = True,
+        callbacks: Optional[List[Callback]] = None,
+        call_every_ms: Optional[int] = 100,
+        test: bool = False
+    ):
+        callback_handler = CallbackHandler(
+            callbacks=callbacks if callbacks is not None else [],
+            call_every_ms=call_every_ms,
+        )
+        train_channel, test_channel = self.load_channel(
+            mission,
+            channel_id, 
+            overlapping_train=overlapping_train
+        )
+        if self.segmentator is not None:
+            train_channel, anomalies, rare_events = self.segmentator.segment(train_channel)
+            test_channel, _, _ = self.segmentator.segment(test_channel)
+
+        num_segments = len(train_channel)
+        labels = np.zeros(num_segments, dtype=int)
+
+        all_events = anomalies + rare_events
+        for start, end in all_events:
+            start = max(0, start)
+            end = min(num_segments - 1, end)
+            labels[start:end + 1] = 1
+
+        callback_handler.start()
+        search_cv.fit(X=train_channel, y=labels)
+        callback_handler.stop()
+
+        best_estimator = search_cv.best_estimator_
+        test_pred = best_estimator.predict(test_channel)
+        print(self.process_pred_anomalies(test_pred, 0))
+        results = {
+            "best_params": search_cv.best_params_,
+            "valid_score": search_cv.best_score_,
+        }
+        return results
+
     def load_channel(
         self, mission: ESAMission, channel_id: str, overlapping_train: bool = True
     ) -> Tuple[ESA, ESA]:

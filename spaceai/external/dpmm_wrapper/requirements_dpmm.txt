@@ -1,11 +1,10 @@
-```
+
 numpy==1.26.4
 scikit-learn==1.3.2
 scipy==1.11.1
 numba==0.60.0
-torch
-torch-dpmm
+torch==2.0.1
+git+https://github.com/danielecastellana22/torch_dpmm.git@main
 pyod
 pandas
 tqdm
-```
