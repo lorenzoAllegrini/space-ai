@@ -24,13 +24,23 @@ class NearestNeighborOCC():
         elif dist in metrics.values():
             self.dist = dist
         elif False:
-
+            # TODO: allow time series distance measures such as DTW or Matrix Profile
             pass
         else:
             raise Exception("Distance metric not supported.")
     
+    def _as_column_array(self, x) -> np.ndarray:
+        """
+        Converte qualunque x (DataFrame, Series, list, scalar, ndarray)
+        in un array float32 shape (n, 1).
+        """
+        if isinstance(x, (pd.DataFrame, pd.Series)):
+            x = x.to_numpy()          # estrae i valori
+        x = np.asarray(x, dtype=np.float32)
+        return x
     
     def fit(self, scores_train):
+        scores_train = self._as_column_array(scores_train)
         _scores_train = scores_train
         
         if type(_scores_train) is not np.array:
@@ -51,6 +61,7 @@ class NearestNeighborOCC():
         """
         
         predictions = []
+        print(f"scores_test: {scores_test}")
         for score in scores_test:
             predictions.append(self.predict_score(score))
         return np.array(predictions)
@@ -58,9 +69,8 @@ class NearestNeighborOCC():
     
     def predict_score(self, anomaly_score):
         prediction = None
-        
         anomaly_score_arr = np.array([anomaly_score for i in range(len(self.scores_train))])
-        
+
         _scores_train = self.scores_train.copy().reshape(-1, 1)
         anomaly_score_arr = anomaly_score_arr.reshape(-1, 1)
         nearest_neighbor_idx = np.argmin(self.dist(anomaly_score_arr, _scores_train))
@@ -112,7 +122,6 @@ class NN:
         self.dist = dist
         self.random_state = random_state
 
-
     def fit(self, X):
         self.nn = NearestNeighbors(
             n_neighbors = self.n_neighbors,
@@ -123,13 +132,11 @@ class NN:
         
         self.nn.fit(X)
 
-
     def predict_proba(self, X, y=None):
         scores = self.nn.kneighbors(X)
         scores = scores[0].mean(axis=1).reshape(-1,1)
         
         return scores
-
 
 class ROCKAD():
     
@@ -276,17 +283,16 @@ class ROCKAD():
             self.n_inf_cols.extend(X.columns.to_series()[np.isinf(X).any()])
             self.fit_estimators()
             return True
-         
     
 class RockadClassifier(AnomalyClassifier):
     """
-    A wrapper that applies the ROCKAD ensemble to time series data
-    and fits a given one-class classifier on the resulting anomaly scores.
+    A fully unsupervised wrapper: costruisce un ensemble ROCKAD su X,
+    poi allena un OCC sui punteggi di anomalia.
     """
 
     def __init__(
         self,
-        base_model: Any = NearestNeighborOCC(),             
+        base_model: Any = NearestNeighborOCC,             
         num_kernels: int = 10000,
         n_estimators: int = 100
     ):
@@ -294,34 +300,32 @@ class RockadClassifier(AnomalyClassifier):
         self.num_kernels = num_kernels
         self.n_estimators = n_estimators
         self.rockad: Optional[ROCKAD] = None
+        self.oc_model: Optional[Any] = None
 
-    def fit(self, X: np.ndarray, y:np.ndarray) -> None:
+    def fit(self, X: np.ndarray) -> None:
         """
-        Trasforma X con ROCKAD e addestra il base_model sui punteggi di anomalia.
+        1) Applica ROCKAD su X a scapito di y.
+        2) Prende i punteggi di anomalia e allena il one‐class model.
         """
-        X = self._prepare_input(X)
-        # Inizializza e addestra ROCKAD
+        X_proc = self._prepare_input(X)
+
+        # 1) Fit del solo ensemble ROCKAD (unsupervised)
         self.rockad = ROCKAD(
             n_estimators=self.n_estimators,
             n_kernels=self.num_kernels,
             n_jobs=-1,
-            power_transform=False
+            power_transform=False,
         )
-        self.rockad.fit(X)
+        # rockad.fit si aspetta solo X
+        self.rockad.fit(X_proc)
 
-        # Calcola i punteggi di anomalia e addestra il classificatore
-        scores = self.rockad.predict_proba(X)
-        self.base_model.fit(scores,y)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
-        Applica ROCKAD a X e restituisce array binario: 1 = normale, 0 = anomalia.
+        Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
         """
-        if self.rockad is None:
-            raise RuntimeError("You must call `fit` before `predict`.")
 
-        X = self._prepare_input(X)
-        scores = self.rockad.predict_proba(X)
-        preds = self.base_model.predict(scores)
-        # Converte -1→0, +1→1
-        return np.where(preds == -1, 0, 1)
+        X_proc = self._prepare_input(X)
+        raw_scores = self.rockad.predict_proba(X_proc)
+
+        return (raw_scores > 0.5).astype(int)

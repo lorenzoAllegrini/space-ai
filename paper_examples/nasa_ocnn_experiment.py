@@ -5,16 +5,16 @@ from spaceai.data import NASA
 from spaceai.benchmark import NASABenchmark
 
 from spaceai.benchmark.callbacks import SystemMonitorCallback
-from sklearn.svm import OneClassSVM
-from spaceai.models.anomaly.dpmm_detector2 import DPMMWrapperDetector2
+from spaceai.models.anomaly_classifier import NearestNeighborOCC
+from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
-
+from spaceai.models.anomaly_classifier import RocketClassifier
 def main():
-    run_id = "dpmm"
+    run_id = "nasa_rocket_ocnn_experiment"
     nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
-        extract_features=True,
+        extract_features=False,
     )
     benchmark = NASABenchmark(
         run_id=run_id, 
@@ -23,23 +23,17 @@ def main():
         segmentator = nasa_segmentator,
     )
     callbacks = [SystemMonitorCallback()]
-
     channels = NASA.channel_ids
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        detector = DPMMWrapperDetector2(
-            mode="likelihood",      # oppure "new_cluster"
-            model_type="Full",
-            K=100,
-            num_iterations=50,
-            lr=0.8,
-            python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  # Inserisci il percorso corretto del tuo ambiente Python
-        )
-
+        base_classifier = NearestNeighborOCC()
         benchmark.run_classifier(
             channel_id,
-            classifier=detector,
+            classifier=RocketClassifier(
+                base_model=base_classifier,
+                num_kernels=50
+                ),
             callbacks=callbacks,
         )
         

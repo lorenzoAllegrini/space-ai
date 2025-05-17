@@ -1,4 +1,5 @@
-
+from scipy import signal as sig
+from scipy.stats import kurtosis, skew
 def number_of_peaks_finding(array):
     if array.size == 0:
         print("dio be")
@@ -301,36 +302,56 @@ def spectral_slope(values, nperseg=80):
     slope, _, _, _, _ = linregress(f, magnitudes)
     return slope
 
-def wavelet_features(values, wavelet_name='db4', levels=3):
-    """Calcola MAX e PPV per ogni livello di decomposizione wavelet su una serie
-    temporale, adattando automaticamente il numero di livelli per evitare boundary
-    effects.
 
-    Args:
-    - values (array): Segmento di serie temporale.
-    - wavelet_name (str): Nome della wavelet Daubechies (es. 'db4').
-    - levels (int): Numero massimo di livelli di decomposizione.
+def number_of_peaks_finding(array):
+    prominence = 0.1 * (np.max(array)-np.min(array))
+    peaks = sig.find_peaks(array, prominence=prominence)[0]
+    return len(peaks)
 
-    Returns:
-    - dict: Contiene MAX e PPV per ogni livello.
-    """
-    values = np.array(values)
-    
-    # Calcola il numero massimo di livelli sicuro per evitare boundary effects
-    max_levels = pywt.dwt_max_level(len(values), pywt.Wavelet(wavelet_name).dec_len)
-    levels = min(levels, max_levels)  # Usa il minimo tra quello richiesto e quello massimo possibile
 
-    coeffs = pywt.wavedec(values, wavelet=wavelet_name, level=levels)
+def duration(df):
+    t1 = pd.Timestamp(df.head(1).timestamp.values[0])
+    t2 = pd.Timestamp(df.tail(1).timestamp.values[0])
+    return (t2 - t1).seconds
 
-    # Dizionario per le feature
-    features = {"max": [], "ppv": []}
 
-    for c in coeffs:
-        if len(c) == 0:
-            features["max"].append(0)
-            features["ppv"].append(0)
-        else:
-            features["max"].append(np.max(c))
-            features["ppv"].append(np.sum(c > 0) / len(c) if len(c) > 0 else 0)
+def smooth10_n_peaks(array):
+    kernel = np.ones(10)/10
+    array_convolved = np.convolve(array, kernel, mode="same")
+    return number_of_peaks_finding(array_convolved)
 
-    return features
+
+def smooth20_n_peaks(array):
+    kernel = np.ones(20)/20
+    array_convolved = np.convolve(array, kernel, mode="same")
+    return number_of_peaks_finding(array_convolved)
+
+
+def diff_peaks(array):
+    array_diff = np.diff(array)
+    return number_of_peaks_finding(array_diff)
+
+
+def diff2_peaks(array):
+    array_diff = np.diff(array, n=2)
+    return number_of_peaks_finding(array_diff)
+
+
+def diff_var(array):
+    array_diff = np.diff(array)
+    return np.var(array_diff)
+
+
+def diff2_var(array):
+    array_diff = np.diff(array, n=2)
+    return np.var(array_diff)
+
+
+def gaps_squared(df):
+    df = df.copy()
+    # df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df['timestamp2'] = df['timestamp'].shift(1)
+    df = df.reset_index().iloc[1:, :]
+    df['time_delta'] = (df.timestamp - df.timestamp2).dt.seconds
+    df['time_delta_squared'] = df['time_delta']**2
+    return df.time_delta_squared.sum()

@@ -3,18 +3,16 @@ import pandas as pd
 from spaceai.data.ops_sat import OPSSAT
 from spaceai.benchmark import OPSSATBenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
-from sklearn.svm import OneClassSVM
 from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
-from spaceai.models.anomaly_classifier import RockadClassifier
-from sklearn.linear_model import RidgeClassifier
+from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 
 def main():
-    run_id = "ops_sat_rocket"
+    run_id = "ops_sat_dpmm"
     nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
-        extract_features=False,
-        transformations=["mean", "stft", "diff_var", "slope", "std", "var"]
+        extract_features=True,
+        transformations=["mean", "std", "var", "stft", "slope", "diff_var"],
     )
     benchmark = OPSSATBenchmark(
         run_id=run_id, 
@@ -28,15 +26,19 @@ def main():
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        base_classifier = RidgeClassifier()
-
+        classifier = DPMMWrapperDetector(
+            mode="likelihood",      
+            model_type="Full",
+            K=100,
+            num_iterations=50,
+            lr=0.8,
+            python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  
+        )
         benchmark.run_classifier(
             channel_id,
-            classifier=RockadClassifier(
-                base_model=base_classifier,
-                num_kernels=1000
-                ),
+            classifier=classifier,
             callbacks=callbacks,
+            supervised= False
         )
         
     results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))

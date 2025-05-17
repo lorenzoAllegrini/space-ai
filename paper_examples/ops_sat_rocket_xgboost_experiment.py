@@ -1,35 +1,44 @@
 import os
 import pandas as pd
-from spaceai.data import NASA
-from spaceai.benchmark import NASABenchmark
+from spaceai.data.ops_sat import OPSSAT
+from spaceai.benchmark import OPSSATBenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
-from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
-from spaceai.models.predictors import RocketClassifier
 from sklearn.svm import OneClassSVM
+from pyod.models.ecod import ECOD
+from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
+from spaceai.models.anomaly_classifier import RocketClassifier
 from sklearn.linear_model import RidgeClassifier
+from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
+from xgboost import XGBClassifier
+
 def main():
-    run_id = "rocket"
-    nasa_segmentator = NasaDatasetSegmentator(
+    run_id = "ops_sat_rocket_xgboost"
+    nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,
-        step_duration=1,
+        step_duration=50,
         extract_features=False,
     )
-    benchmark = NASABenchmark(
+    benchmark = OPSSATBenchmark(
         run_id=run_id, 
         exp_dir="experiments", 
         data_root="datasets",
         segmentator = nasa_segmentator,
     )
     callbacks = [SystemMonitorCallback()]
-    channels = NASA.channel_ids
+
+    channels = OPSSAT.channel_ids
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        classifier = RocketClassifier()
+        base_classifier = XGBClassifier()
         benchmark.run_classifier(
             channel_id,
-            classifier=classifier,
+            classifier=RocketClassifier(
+                base_model=base_classifier,
+                num_kernels=10000
+                ),
             callbacks=callbacks,
+            supervised=True
         )
         
     results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))

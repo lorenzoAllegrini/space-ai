@@ -35,7 +35,6 @@ from tqdm import tqdm
 
 from .benchmark import Benchmark
 
-
 class ESABenchmark(Benchmark):
 
     def __init__(
@@ -267,15 +266,13 @@ class ESABenchmark(Benchmark):
         )
         train_channel, test_channel = self.load_channel(mission, channel_id, overlapping_train=overlapping_train)
         
-        callback_handler.start()
-        if self.segmentator is not None:
-            train_channel, train_anomalies, train_rare_events = self.segmentator.segment(train_channel)
-            test_channel, test_anomalies, test_rare_events = self.segmentator.segment(test_channel)
-        callback_handler.stop()
-
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
+        callback_handler.start()
+        if self.segmentator is not None:
+            train_channel, train_anomalies, train_rare_events = self.segmentator.segment(train_channel)
+        
         logging.info(f"Fitting the classifier for channel {channel_id}...")
 
         num_segments = len(train_channel)
@@ -289,27 +286,33 @@ class ESABenchmark(Benchmark):
             train_labels[start:end + 1] = 1
 
         # Train the classifier
-        callback_handler.start()
-        classifier.stateful = False
         classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
-
+        results.update(
+            {
+                f"train_{k}": v
+                for k, v in callback_handler.collect(reset=True).items()
+            }
+        )
         # Evaluate the classifier on test data
         logging.info(f"Predicting the test data for channel {channel_id}...")
+
         callback_handler.start()
+        if self.segmentator is not None:
+            test_channel, test_anomalies, test_rare_events = self.segmentator.segment(test_channel)
         y_pred = classifier.predict(X=test_channel)
+        pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
         callback_handler.stop()
 
-        pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
-
-        print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {[[int(start), int(end)] for start, end in test_anomalies]}")
-        print(f"rare_events: {[[int(start), int(end)] for start, end in test_rare_events]}")
-
-        classification_results = self.compute_classification_metrics(test_anomalies, pred_anomalies)
+        results.update(
+            {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+        )
+        combined_anomalies = test_anomalies + test_rare_events
+        combined_anomalies.sort(key=lambda x: x[0])
+        classification_results = self.compute_classification_metrics(combined_anomalies, pred_anomalies)
 
         esa_classification_results = self.compute_esa_classification_metrics(
-            classification_results, test_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results, combined_anomalies, pred_anomalies, total_length=len(y_pred)
         )
         classification_results.update(esa_classification_results)
         results.update(classification_results)
@@ -328,7 +331,6 @@ class ESABenchmark(Benchmark):
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: Optional[int] = 100,
-        test: bool = False
     ):
         callback_handler = CallbackHandler(
             callbacks=callbacks if callbacks is not None else [],

@@ -249,21 +249,29 @@ class NASABenchmark(Benchmark):
         train_channel, test_channel = self.load_channel(
             channel_id, overlapping_train=overlapping_train
         )
-        callback_handler.start()
-        if self.segmentator is not None:
-            train_channel, _ = self.segmentator.segment(train_channel)
-            test_channel, test_anomalies = self.segmentator.segment(test_channel)
-        callback_handler.stop()
-
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
-        logging.info(f"Fitting the classifier for channel {channel_id}...")
         callback_handler.start()
-        classifier.fit(X=train_channel) 
-        callback_handler.start()
+        if self.segmentator is not None:
+            train_channel, _ = self.segmentator.segment(train_channel)
+        
 
-        y_pred = classifier.predict(X=test_channel)
+        logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
+
+        classifier.fit(train_channel) 
+        callback_handler.stop()
+        results.update(
+            {
+                f"train_{k}": v
+                for k, v in callback_handler.collect(reset=True).items()
+            }
+        )
+        callback_handler.start()
+        if self.segmentator is not None:
+            test_channel, test_anomalies = self.segmentator.segment(test_channel)
+
+        y_pred = classifier.predict(test_channel)
         pred_anomalies = np.where(y_pred == 1)[0]
 
         if len(pred_anomalies) > 0:
@@ -275,13 +283,20 @@ class NASABenchmark(Benchmark):
         else:
             pred_anomalies = []
 
-        true_anomalies = test_anomalies
-
-        print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {true_anomalies}")
-        classification_results = self.compute_classification_metrics(
-            true_anomalies, pred_anomalies
+        callback_handler.stop()
+        results.update(
+            {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
+
+        classification_results = self.compute_classification_metrics(
+            test_anomalies, pred_anomalies
+        )
+        print(f"pred_anomalies: {pred_anomalies}")
+        print(f"true_anomalies: {test_anomalies}")
+        print(f"precision: {classification_results['precision']}")
+        print(f"recall: {classification_results['recall']}")
+
+        print("---------------------------------------------")
         results.update(classification_results)
 
         logging.info(f"Results for channel {channel_id}")

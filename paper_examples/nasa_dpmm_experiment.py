@@ -1,23 +1,27 @@
 import os
+
 import pandas as pd
-from spaceai.data.ops_sat import OPSSAT
-from spaceai.benchmark import OPSSATBenchmark
+from spaceai.data import NASA
+from spaceai.benchmark import NASABenchmark
+
 from spaceai.benchmark.callbacks import SystemMonitorCallback
 from sklearn.svm import OneClassSVM
-from pyod.models.ecod import ECOD
-from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
-from spaceai.models.predictors import RocketClassifier
-from sklearn.linear_model import RidgeClassifier
+from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
+from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
 
 def main():
-    run_id = "ops_sat_rocket"
-    nasa_segmentator = OPSSATDatasetSegmentator(
+    run_id = "nasa_dpmm_experiment"
+    nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
-        extract_features=False,
-        transformations=["mean", "stft", "diff_var", "slope", "std", "var"]
+        extract_features=True,
+        transformations=[
+            "mean", "var", "std", "n_peaks",
+            "smooth10_n_peaks", "smooth20_n_peaks", 
+            "diff_peaks", "diff2_peaks", "diff_var", "diff2_var",
+        ],
     )
-    benchmark = OPSSATBenchmark(
+    benchmark = NASABenchmark(
         run_id=run_id, 
         exp_dir="experiments", 
         data_root="datasets",
@@ -25,18 +29,22 @@ def main():
     )
     callbacks = [SystemMonitorCallback()]
 
-    channels = OPSSAT.channel_ids
+    channels = NASA.channel_ids
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        base_classifier = RidgeClassifier()
+        detector = DPMMWrapperDetector(
+            mode="new_cluster",      # oppure "new_cluster"
+            model_type="Full",
+            K=100,
+            num_iterations=50,
+            lr=0.8,
+            python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  # Inserisci il percorso corretto del tuo ambiente Python
+        )
 
         benchmark.run_classifier(
             channel_id,
-            classifier=RocketClassifier(
-                base_model=base_classifier,
-                num_kernels=1000
-                ),
+            classifier=detector,
             callbacks=callbacks,
         )
         

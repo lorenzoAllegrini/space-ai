@@ -10,17 +10,7 @@ from scipy.stats import kurtosis, skew
 from spaceai.data.ops_sat import OPSSAT
 import more_itertools as mit 
 
-from spaceai.segmentators.functions import (
-    spectral_energy,
-    autoregressive_deviation,
-    moving_average_prediction_error,
-    stft_spectral_std,
-    calculate_slope,
-    spearman_correlation,
-    mann_kendall_test_tau,
-    diff_peaks,
-    diff_var
-)
+from spaceai.segmentators.functions import *
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -33,22 +23,29 @@ from typing import (
 
 class OPSSATDatasetSegmentator:
     available_transformations = {
-        "se": spectral_energy,
-        "ar": autoregressive_deviation,
-        "ma": moving_average_prediction_error,
+        # --- trasformazioni già presenti ---
+        "se":  spectral_energy,
+        "ar":  autoregressive_deviation,
+        "ma":  moving_average_prediction_error,
         "stft": stft_spectral_std,
         "slope": calculate_slope,
         "sp_correlation": spearman_correlation,
         "mk_tau": mann_kendall_test_tau,
-        "mean" : np.mean,
-        "var" : np.var,
-        "std" : np.std,
-        "kurtosis" : kurtosis,
-        "skew" : skew,
-        "diff_peaks" : diff_peaks,
-        "diff_var" : diff_var,
+        "mean": np.mean,
+        "var":  np.var,
+        "std":  np.std,
+        "kurtosis": kurtosis,
+        "skew":     skew,
+        "diff_peaks": diff_peaks,
+        "diff_var":  diff_var,
         "median": np.median,
+        "n_peaks":            number_of_peaks_finding,
+        "smooth10_n_peaks":   smooth10_n_peaks,
+        "smooth20_n_peaks":   smooth20_n_peaks,
+        "diff2_peaks":        diff2_peaks,
+        "diff2_var":          diff2_var,
     }
+
     def __init__(
         self,
         transformations: Optional[List[str]] = ["mean"],

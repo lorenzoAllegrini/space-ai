@@ -180,10 +180,10 @@ class OPSSATBenchmark(Benchmark):
             np.concatenate(seq)[test_channel.window_size - 1 :]
             for seq in [y_pred, y_trg]
         ]
-        callback_handler.stop()
-        results.update(
-            {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
-        )
+        #callback_handler.stop()
+        #results.update(
+            #{f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+        #)
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
         logging.info(f"Test loss for channel {channel_id}: {results['test_loss']}")
         logging.info(
@@ -192,7 +192,7 @@ class OPSSATBenchmark(Benchmark):
 
         # Testing the detector
         logging.info(f"Detecting anomalies for channel {channel_id}")
-        callback_handler.start()
+        #callback_handler.start()
         if len(y_trg) < 2500:
             detector.ignore_first_n_factor = 1
         if len(y_trg) < 1800:
@@ -248,11 +248,13 @@ class OPSSATBenchmark(Benchmark):
         train_channel, test_channel = self.load_channel(
             channel_id, overlapping_train=overlapping_train
         )
+        os.makedirs(self.run_dir, exist_ok=True)
+        results: Dict[str, Any] = {"channel_id": channel_id}
+
         callback_handler.start()
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
-            test_channel, test_anomalies = self.segmentator.segment(test_channel)
-        callback_handler.stop()
+
         num_segments = len(train_channel)
         train_labels = np.zeros(num_segments, dtype=int)
 
@@ -262,18 +264,26 @@ class OPSSATBenchmark(Benchmark):
             end = min(num_segments - 1, end)
             train_labels[start:end + 1] = 1
 
-
-        os.makedirs(self.run_dir, exist_ok=True)
-        results: Dict[str, Any] = {"channel_id": channel_id}
-
         logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
-        callback_handler.start()
 
         if supervised:
+            unique, counts = np.unique(train_labels, return_counts=True)
+            if len(unique) < 2:
+                return
             classifier.fit(X=train_channel, y=train_labels) 
         else:
             classifier.fit(X=train_channel) 
+        callback_handler.stop()
+        results.update(
+            {
+                f"train_{k}": v
+                for k, v in callback_handler.collect(reset=True).items()
+            }
+        )
         callback_handler.start()
+        if self.segmentator is not None:
+            test_channel, test_anomalies = self.segmentator.segment(test_channel)
+
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = np.where(y_pred == 1)[0]
 
@@ -286,10 +296,14 @@ class OPSSATBenchmark(Benchmark):
         else:
             pred_anomalies = []
 
+        callback_handler.stop()
+        results.update(
+            {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+        )
 
         print("---------------------------------------------")
         print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {test_anomalies}")
+        print(f"true_anomalies: {[[int(start),int(end)] for start, end in test_anomalies]}")
 
         classification_results = self.compute_classification_metrics(
             test_anomalies, pred_anomalies
@@ -307,7 +321,6 @@ class OPSSATBenchmark(Benchmark):
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
         )
-
 
     def load_channel(
         self, channel_id: str, overlapping_train: bool = True
