@@ -74,9 +74,9 @@ class ESAMissions(Enum):
         index=1,
         url_source="https://zenodo.org/records/12528696/files/ESA-Mission1.zip?download=1",
         dirname="ESA-Mission1",
-        train_test_split=pd.to_datetime("2007-01-01"),
+        train_test_split=pd.to_datetime("2000-02-01"),
         start_date=pd.to_datetime("2000-01-01"),
-        end_date=pd.to_datetime("2014-01-01"),
+        end_date=pd.to_datetime("2000-03-01"),
         resampling_rule=pd.Timedelta(seconds=30),
         monotonic_channel_range=(4, 11),
         parameters=[f"channel_{i + 1}" for i in range(76)],
@@ -130,7 +130,7 @@ class ESA(
         n_predictions: int = 1,
         train: bool = True,
         download: bool = True,
-        uniform_start_end_date: bool = False,
+        uniform_start_end_date: bool = True,
         drop_last: bool = True,
         use_telecommands: bool = True
     ):  # pylint: disable=useless-parent-delegation, too-many-arguments
@@ -185,7 +185,7 @@ class ESA(
                 " Anomalies will be repeated in the dataset."
             )
 
-        self.data, self.anomalies, self.rare_events, self.communication_gaps = self.load_and_preprocess(channel_id)
+        self.data, self.anomalies, self.communication_gaps = self.load_and_preprocess(channel_id)
 
     def __getitem__(self, index: int) -> Union[
         Tuple[torch.Tensor, torch.Tensor],
@@ -314,7 +314,7 @@ class ESA(
         )
 
         channel_df = channel_df.ffill().bfill().astype(np.float32)
-        ###
+
         if self.use_telecommands:
             telecommands_csv = pd.read_csv(os.path.join(source_folder, "telecommands.csv"))
             prioritized_tcs = telecommands_csv.loc[telecommands_csv["Priority"] >= 3, "Telecommand"].to_numpy().flatten()
@@ -344,7 +344,6 @@ class ESA(
                 telecommands_df = telecommands_df.fillna(0)
                 channel_df = channel_df.join(telecommands_df, how="left")
 
-        ###!!!
 
         map_datetime_index = pd.DataFrame(
             list(range(0, len(channel_df))), index=channel_df.index, columns=["value"]
@@ -354,17 +353,13 @@ class ESA(
 
         anomaly_types_df = pd.read_csv(os.path.join(source_folder, "anomaly_types.csv"))
         labels_df = pd.merge(labels_df, anomaly_types_df, how="inner", on="ID")
-        ###
         
         for dcol in ["StartTime", "EndTime"]:
             labels_df[dcol] = pd.to_datetime(labels_df[dcol]).dt.tz_localize(None)
         labels_df = labels_df.loc[labels_df["Channel"] == channel_id]
-        anomalies = []
 
-        ###
-        rare_events = []
+        anomalies = []
         communication_gaps = []
-        ###
 
         for _, label_row in labels_df.iterrows():
             start_time = label_row["StartTime"].floor(freq=self.mission.resampling_rule)
@@ -382,10 +377,8 @@ class ESA(
             ]
             start_idx = map_datetime_index_range.iloc[0]["value"]
             end_idx = map_datetime_index_range.iloc[-1]["value"]
-            if label_row["Category"] == "Anomaly":
+            if label_row["Category"] == "Anomaly" or label_row["Category"] == "Rare Event":
                 anomalies.append((start_idx, end_idx))
-            elif label_row["Category"] == "Rare Event":
-                rare_events.append((start_idx, end_idx))
             elif label_row["Category"] == "Communication Gap":
                 communication_gaps.append((start_idx, end_idx))
 
@@ -397,13 +390,10 @@ class ESA(
             ) 
 
         channel = channel_df.values.astype(np.float32)
-        ### 
         anomalies = sorted(anomalies, key=lambda x: x[0])
-        rare_events = sorted(rare_events, key=lambda x: x[0])
         communication_gaps = sorted(communication_gaps, key=lambda x: x[0])
-        ###
-        print(channel)
-        return channel, anomalies, rare_events, communication_gaps ###
+
+        return channel, anomalies, communication_gaps 
     
     def load_challenge_channel(self, channel_id: str):
 
@@ -419,7 +409,7 @@ class ESA(
         selected_cols = [channel_id] + telecommand_cols
         channel = df[selected_cols]
         
-        return channel.values.astype(np.float32), [], [], []
+        return channel.values.astype(np.float32), [], []
         
     @property
     def in_features_size(self) -> str:

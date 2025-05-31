@@ -1,4 +1,6 @@
+
 import os
+
 
 import pandas as pd
 from spaceai.data import NASA
@@ -9,6 +11,8 @@ from spaceai.models.anomaly_classifier import NearestNeighborOCC
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
 from spaceai.models.anomaly_classifier import RocketClassifier
+ 
+ 
 def main():
     run_id = "nasa_rocket_ocnn_experiment"
     nasa_segmentator = NasaDatasetSegmentator(

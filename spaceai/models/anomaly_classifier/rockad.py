@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import distance_metrics
 from typing import Optional, Any
 from .anomaly_classifier import AnomalyClassifier
 
+
 class NearestNeighborOCC():
     
     def __init__(self, dist="euclidean"):
@@ -29,23 +30,14 @@ class NearestNeighborOCC():
         else:
             raise Exception("Distance metric not supported.")
     
-    def _as_column_array(self, x) -> np.ndarray:
-        """
-        Converte qualunque x (DataFrame, Series, list, scalar, ndarray)
-        in un array float32 shape (n, 1).
-        """
-        if isinstance(x, (pd.DataFrame, pd.Series)):
-            x = x.to_numpy()          # estrae i valori
-        x = np.asarray(x, dtype=np.float32)
-        return x
     
     def fit(self, scores_train):
-        scores_train = self._as_column_array(scores_train)
         _scores_train = scores_train
         
         if type(_scores_train) is not np.array:
             _scores_train = np.array(scores_train.copy())
         
+
         if len(_scores_train.shape) == 1:
             _scores_train = _scores_train.reshape(-1, 1)
         
@@ -59,9 +51,7 @@ class NearestNeighborOCC():
         Per definition (see [1]): 0 indicates an anomaly, 1 indicates normal.
         Here : -1 indicates an anomaly, 1 indicates normal. 
         """
-        
         predictions = []
-        print(f"scores_test: {scores_test}")
         for score in scores_test:
             predictions.append(self.predict_score(score))
         return np.array(predictions)
@@ -69,8 +59,9 @@ class NearestNeighborOCC():
     
     def predict_score(self, anomaly_score):
         prediction = None
+        
         anomaly_score_arr = np.array([anomaly_score for i in range(len(self.scores_train))])
-
+        
         _scores_train = self.scores_train.copy().reshape(-1, 1)
         anomaly_score_arr = anomaly_score_arr.reshape(-1, 1)
         nearest_neighbor_idx = np.argmin(self.dist(anomaly_score_arr, _scores_train))
@@ -80,9 +71,8 @@ class NearestNeighborOCC():
         nearest_neighbor_score = self.scores_train[nearest_neighbor_idx]
         neares_neighbot_score_arr = np.array([nearest_neighbor_score for i in range(len(_scores_train))])
         nearest_neighbor_score_arr = neares_neighbot_score_arr.reshape(-1, 1)
-        
         nearest_nearest_neighbor_idx = np.argmin(self.dist(nearest_neighbor_score_arr, _scores_train))
-        nearest_nearest_neighbor_score = _scores_train[nearest_nearest_neighbor_idx][0]
+        nearest_nearest_neighbor_score = _scores_train[nearest_nearest_neighbor_idx]
         
         prediction = self.indicator_function(
             anomaly_score, nearest_neighbor_score, nearest_nearest_neighbor_score)
@@ -122,6 +112,7 @@ class NN:
         self.dist = dist
         self.random_state = random_state
 
+
     def fit(self, X):
         self.nn = NearestNeighbors(
             n_neighbors = self.n_neighbors,
@@ -132,18 +123,20 @@ class NN:
         
         self.nn.fit(X)
 
+
     def predict_proba(self, X, y=None):
         scores = self.nn.kneighbors(X)
         scores = scores[0].mean(axis=1).reshape(-1,1)
         
         return scores
 
+
 class ROCKAD():
     
     def __init__(self,
             n_estimators=10,
             n_kernels = 100,
-            n_neighbors = 5,
+            n_neighbors = 4,
             n_jobs = 1,
             power_transform = True,
             random_state = 42,
@@ -222,7 +215,6 @@ class ROCKAD():
                 random_state = self.random_state + idx_estimator,
                 stratify = None,
             )
-
             # Fit estimator and append to estimator list
             estimator.fit(Xtp_scaled_sample)
             self.list_baggers.append(estimator)
@@ -320,6 +312,7 @@ class RockadClassifier(AnomalyClassifier):
         self.rockad.fit(X_proc)
 
 
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
@@ -327,5 +320,7 @@ class RockadClassifier(AnomalyClassifier):
 
         X_proc = self._prepare_input(X)
         raw_scores = self.rockad.predict_proba(X_proc)
-
-        return (raw_scores > 0.5).astype(int)
+        
+        base_model = self.base_model().fit(raw_scores)    
+        pred = base_model.predict(raw_scores)
+        return pred

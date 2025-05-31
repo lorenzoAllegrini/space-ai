@@ -2,9 +2,9 @@ import numpy as np
 from typing import Optional
 from pyod.models.base import BaseDetector
 from sktime.transformations.panel.rocket import Rocket
+from .anomaly_classifier import AnomalyClassifier
 
-
-class RocketClassifier:
+class RocketClassifier(AnomalyClassifier):
     """
     A wrapper that applies ROCKET transformation to time series data
     and fits a given classifier.
@@ -23,9 +23,9 @@ class RocketClassifier:
         features_train = self.rocket.fit_transform(X)
 
         if y is None:
-            self.base_model.fit(features_train)
+            self.base_model.fit(features_train.values)
         else:
-            self.base_model.fit(features_train, y)
+            self.base_model.fit(features_train.values, y)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         if self.rocket is None:
@@ -33,15 +33,4 @@ class RocketClassifier:
 
         X = self._prepare_input(X)
         features_test = self.rocket.transform(X)
-        return self.base_model.predict(features_test)
-
-    @staticmethod
-    def _prepare_input(X: np.ndarray) -> np.ndarray:
-        """
-        Ensure input is 3D with shape (n_samples, n_channels, n_timestamps)
-        """
-        X = np.asarray(X)
-        if X.ndim != 2:
-            raise ValueError("Input X must be 2D (n_samples, n_timestamps)")
-        return X.reshape(X.shape[0], 1, X.shape[1])
-
+        return self.base_model.predict(features_test.values)

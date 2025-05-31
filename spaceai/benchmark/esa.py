@@ -25,7 +25,7 @@ from spaceai.data import (
 from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
-
+import more_itertools as mit
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
     from spaceai.models.anomaly import AnomalyDetector
@@ -41,9 +41,11 @@ class ESABenchmark(Benchmark):
         self,
         run_id: str,
         exp_dir: str,
+         segmentator: Any,
         seq_length: int = 250,
         n_predictions: int = 1,
         data_root: str = "datasets",
+
     ):
         """Initializes a new ESA benchmark run.
 
@@ -58,6 +60,7 @@ class ESABenchmark(Benchmark):
         self.seq_length: int = seq_length
         self.n_predictions: int = n_predictions
         self.all_results: List[Dict[str, Any]] = []
+        self.segmentator = segmentator
 
     def run(
         self,
@@ -243,7 +246,7 @@ class ESABenchmark(Benchmark):
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: int = 100,
-
+        supervised: bool = True,  # <-- nuovo parametro
     ) -> Dict[str, Any]:
         """
         Runs the anomaly classifier benchmark for a given channel.
@@ -265,28 +268,25 @@ class ESABenchmark(Benchmark):
             call_every_ms=call_every_ms,
         )
         train_channel, test_channel = self.load_channel(mission, channel_id, overlapping_train=overlapping_train)
-        
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
         callback_handler.start()
         if self.segmentator is not None:
-            train_channel, train_anomalies, train_rare_events = self.segmentator.segment(train_channel)
-        
+            train_channel, train_anomalies = self.segmentator.segment(train_channel)
+
         logging.info(f"Fitting the classifier for channel {channel_id}...")
 
-        num_segments = len(train_channel)
-        train_labels = np.zeros(num_segments, dtype=int)
-        all_events = train_anomalies + train_rare_events
-
-        # Etichetta 1 tutti gli eventi (anomalie o rare)
-        for start, end in all_events:
-            start = max(0, start)
-            end = min(num_segments - 1, end)
-            train_labels[start:end + 1] = 1
-
-        # Train the classifier
-        classifier.fit(X=train_channel, y=train_labels)
+        if supervised:
+            num_segments = len(train_channel)
+            train_labels = np.zeros(num_segments, dtype=int)
+            for start, end in train_anomalies:
+                start = max(0, start)
+                end = min(num_segments - 1, end)
+                train_labels[start:end + 1] = 1
+            classifier.fit(X=train_channel, y=train_labels)
+        else:
+            classifier.fit(X=train_channel)
         callback_handler.stop()
         results.update(
             {
@@ -299,7 +299,7 @@ class ESABenchmark(Benchmark):
 
         callback_handler.start()
         if self.segmentator is not None:
-            test_channel, test_anomalies, test_rare_events = self.segmentator.segment(test_channel)
+            test_channel, test_anomalies = self.segmentator.segment(test_channel)
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
         callback_handler.stop()
@@ -307,7 +307,7 @@ class ESABenchmark(Benchmark):
         results.update(
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
-        combined_anomalies = test_anomalies + test_rare_events
+        combined_anomalies = test_anomalies
         combined_anomalies.sort(key=lambda x: x[0])
         classification_results = self.compute_classification_metrics(combined_anomalies, pred_anomalies)
 
@@ -360,7 +360,7 @@ class ESABenchmark(Benchmark):
 
         best_estimator = search_cv.best_estimator_
         test_pred = best_estimator.predict(test_channel)
-        print(self.process_pred_anomalies(test_pred, 0))
+
         results = {
             "best_params": search_cv.best_params_,
             "valid_score": search_cv.best_score_,
@@ -495,3 +495,26 @@ class ESABenchmark(Benchmark):
             else 0
         )
         return esa_results
+
+    def process_pred_anomalies(self, y_pred: np.ndarray, pred_buffer: int) -> List[List[int]]:
+        pred_anomalies = np.where(y_pred == 1)[0]
+
+        if len(pred_anomalies) > 0:
+
+            groups = [list(group) for group in mit.consecutive_groups(pred_anomalies)]
+            buffered_intervals = [
+                [max(0, int(group[0] - pred_buffer)), int(group[-1] + pred_buffer)]
+                for group in groups
+            ]
+
+            merged_intervals = []
+            for interval in sorted(buffered_intervals, key=lambda x: x[0]):
+                if not merged_intervals or interval[0] > merged_intervals[-1][1]:
+                    merged_intervals.append(interval)
+                else:
+                    merged_intervals[-1][1] = max(merged_intervals[-1][1], interval[1])  
+
+            return merged_intervals
+        else:
+            return []
+

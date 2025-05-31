@@ -12,7 +12,11 @@ def main():
         segment_duration=50,
         step_duration=50,
         extract_features=True,
-        transformations=["mean", "std", "var", "stft", "slope", "diff_var"],
+        transformations= [
+            "mean", "var", "std", "n_peaks",
+            "smooth10_n_peaks", "smooth20_n_peaks",
+            "diff_peaks", "diff2_peaks", "diff_var", "diff2_var", "kurtosis", "skew"
+        ]
     )
     benchmark = OPSSATBenchmark(
         run_id=run_id, 
