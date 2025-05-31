@@ -13,7 +13,7 @@ from sklearn.svm import OneClassSVM
 from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 def main():
-    run_id = "esa_rocket_dpmm_likelihood_experiment_1_month"
+    run_id = "esa_rocket_dpmm_likelihood_experiment"
 
     nasa_segmentator = EsaDatasetSegmentator(
         segment_duration=50,
@@ -24,7 +24,7 @@ def main():
             "smooth10_n_peaks", "smooth20_n_peaks", 
             "diff_peaks", "diff2_peaks", "diff_var", "diff2_var",
         ],
-        segments_id="channel_segments_1_month",
+        segments_id="channel_segments",
         save_csv=False
     )
 
