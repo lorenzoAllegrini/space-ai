@@ -25,15 +25,7 @@ def main():
     channels = NASA.channel_ids
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
-        
-        base_classifier = DPMMWrapperDetector(
-            mode="likelihood",      # oppure "new_cluster"
-            model_type="Full",
-            K=100,
-            num_iterations=50,
-            lr=0.8,
-            python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  # Inserisci il percorso corretto del tuo ambiente Python
-        )
+
         benchmark.run_classifier(
             channel_id,
             classifier=RockadClassifier(),

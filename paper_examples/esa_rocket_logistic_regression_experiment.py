@@ -44,12 +44,14 @@ def main():
                 continue
 
             benchmark.run_classifier(
-                mission=mission,
-                channel_id=channel_id,
-                classifier = LogisticRegression(),
+                channel_id,
+                classifier=RocketClassifier(
+                    base_model=LogisticRegression(),
+                    num_kernels=50
+                    ),
                 callbacks=callbacks,
-                supervised=True
             )
+            
             
         results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))
         tp = results_df['true_positives'].sum()

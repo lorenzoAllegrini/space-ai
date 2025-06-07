@@ -45,10 +45,10 @@ def main():
             benchmark.run_classifier(
                 mission=mission,
                 channel_id=channel_id,
-                classifier = XGBClassifier(
-                    eval_metric="logloss",   
-                    base_score=0.5      
-                ),
+                classifier=RocketClassifier(
+                    base_model=XGBClassifier(),
+                    num_kernels=500
+                    ),
                 callbacks=callbacks,
                 supervised=True
             )

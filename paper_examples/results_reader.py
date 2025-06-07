@@ -39,7 +39,7 @@ for root, dirs, files in os.walk(base_dir):
 # Crea il DataFrame completo
 df = pd.DataFrame(results)
 
-selected_dataset = "ops"  
+selected_dataset = "nasa"  
 df_filtered = df[df['dataset'] == selected_dataset]
 
 # Ordina per F1 decrescente

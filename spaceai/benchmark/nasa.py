@@ -291,9 +291,12 @@ class NASABenchmark(Benchmark):
         classification_results = self.compute_classification_metrics(
             test_anomalies, pred_anomalies
         )
+        classification_results = self.compute_corrected_classification_metrics(
+            classification_results, test_anomalies, pred_anomalies, total_length=len(y_pred)
+        )
         print(f"pred_anomalies: {pred_anomalies}")
         print(f"true_anomalies: {test_anomalies}")
-        print(f"precision: {classification_results['precision']}")
+        print(f"precision: {classification_results['precision_corrected']}")
         print(f"recall: {classification_results['recall']}")
 
         print("---------------------------------------------")
@@ -394,3 +397,56 @@ class NASABenchmark(Benchmark):
             else 0
         )
         return results
+    
+    def compute_corrected_classification_metrics(
+        self,
+        results: Dict[str, Any],
+        true_anomalies: List[Tuple[int, int]],
+        pred_anomalies: List[Tuple[int, int]],
+        total_length: int,
+    ) -> Dict[str, Any]:
+        """Compute ESA classification metrics.
+
+        Args:
+            results (Dict[str, Any]): the classification results
+            true_anomalies (List[Tuple[int, int]]): the true anomalies
+            pred_anomalies (List[Tuple[int, int]]): the predicted anomalies
+            total_length (int): the total length of the sequence
+
+        Returns:
+            Dict[str, Any]: the ESA metrics results
+        """
+        esa_results = {}
+        indices_true_grouped = [list(range(e[0], e[1] + 1)) for e in true_anomalies]
+        indices_true_flat = set([i for group in indices_true_grouped for i in group])
+        indices_pred_grouped = [list(range(e[0], e[1] + 1)) for e in pred_anomalies]
+        indices_pred_flat = set([i for group in indices_pred_grouped for i in group])
+        indices_all_flat = indices_true_flat.union(indices_pred_flat)
+        n_e = total_length - len(indices_true_flat)
+        tn_e = total_length - len(indices_all_flat)
+        for k,v in results.items():
+            esa_results[k] = v
+        esa_results["tnr"] = tn_e / n_e if n_e > 0 else 1
+        esa_results["precision_corrected"] = results["precision"] * esa_results["tnr"]
+        esa_results["corrected_f0.5"] = (
+            (
+                (1 + 0.5**2)
+                * (esa_results["precision_corrected"] * results["recall"])
+                / (0.5**2 * esa_results["precision_corrected"] + results["recall"])
+            )
+            if esa_results["precision_corrected"] + results["recall"] > 0
+            else 0
+        )
+        esa_results["corrected_f1"] = (
+            (
+              
+                (esa_results["precision_corrected"] * results["recall"])
+                / (esa_results["precision_corrected"] + results["recall"])
+            )
+            if esa_results["precision_corrected"] + results["recall"] > 0
+            else 0
+        )
+        
+        return esa_results
+    
+    

@@ -3,20 +3,18 @@ import pandas as pd
 from spaceai.data.ops_sat import OPSSAT
 from spaceai.benchmark import OPSSATBenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
-from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
-from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from sklearn.svm import OneClassSVM
+from pyod.models.ecod import ECOD
+from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
+from spaceai.models.anomaly_classifier import RocketClassifier
+from sklearn.linear_model import RidgeClassifier
+
 def main():
-    run_id = "ops_sat_ocsvm"
+    run_id = "ops_sat_rocket_ridge"
     nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
-        extract_features=True,
-        transformations= [
-            "mean", "var", "std", "n_peaks",
-            "smooth10_n_peaks", "smooth20_n_peaks",
-            "diff_peaks", "diff2_peaks", "diff_var", "diff2_var", "kurtosis", "skew"
-        ]
+        extract_features=False,
     )
     benchmark = OPSSATBenchmark(
         run_id=run_id, 
@@ -30,11 +28,16 @@ def main():
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
+        base_classifier = RidgeClassifier()
+
         benchmark.run_classifier(
             channel_id,
-            classifier=OneClassSVM(),
+            classifier=RocketClassifier(
+                base_model=base_classifier,
+                num_kernels=1000
+                ),
             callbacks=callbacks,
-            supervised= False
+            supervised=True
         )
         
     results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))

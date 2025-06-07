@@ -10,7 +10,7 @@ from spaceai.models.anomaly_classifier import RocketClassifier
 from sklearn.linear_model import RidgeClassifier
 
 def main():
-    run_id = "ops_sat_rocket_ridge"
+    run_id = "ops_sat_rocket_ocsvm"
     nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
@@ -28,7 +28,7 @@ def main():
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        base_classifier = RidgeClassifier()
+        base_classifier = OneClassSVM()
 
         benchmark.run_classifier(
             channel_id,
@@ -37,7 +37,7 @@ def main():
                 num_kernels=1000
                 ),
             callbacks=callbacks,
-            supervised=True
+            supervised=False
         )
         
     results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))
