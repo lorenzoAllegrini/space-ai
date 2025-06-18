@@ -10,6 +10,7 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
 
 def main():
+    return
     run_id = "nasa_ocsvm_experiment"
     nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,

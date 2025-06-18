@@ -255,6 +255,9 @@ class OPSSATBenchmark(Benchmark):
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
 
+        if isinstance(train_channel, pd.DataFrame):          
+            train_channel = train_channel.dropna().reset_index(drop=True)
+
         num_segments = len(train_channel)
         train_labels = np.zeros(num_segments, dtype=int)
 
@@ -281,9 +284,12 @@ class OPSSATBenchmark(Benchmark):
             }
         )
         callback_handler.start()
+
         if self.segmentator is not None:
             test_channel, test_anomalies = self.segmentator.segment(test_channel)
 
+        if isinstance(test_channel, pd.DataFrame):    
+            test_channel = test_channel.dropna().reset_index(drop=True)
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = np.where(y_pred == 1)[0]
 
@@ -457,7 +463,7 @@ class OPSSATBenchmark(Benchmark):
         )
         esa_results["corrected_f1"] = (
             (
-              
+                2 *
                 (esa_results["precision_corrected"] * results["recall"])
                 / (esa_results["precision_corrected"] + results["recall"])
             )

@@ -42,7 +42,8 @@ def main():
                 continue
 
             benchmark.run_classifier(
-                channel_id,
+                mission=mission,
+                channel_id=channel_id,
                 classifier=RocketClassifier(
                     base_model=OneClassSVM(),
                     num_kernels=50

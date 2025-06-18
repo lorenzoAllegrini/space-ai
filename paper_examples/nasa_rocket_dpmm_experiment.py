@@ -9,6 +9,7 @@ from sklearn.svm import OneClassSVM
 from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 def main():
+    return
     run_id = "nasa_rocket_dpmm"
     nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,
@@ -38,7 +39,7 @@ def main():
             channel_id,
             classifier=RocketClassifier(
                 base_model=base_classifier,
-                num_kernels=500
+                num_kernels=50
                 ),
             callbacks=callbacks,
         )

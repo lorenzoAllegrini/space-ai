@@ -10,7 +10,7 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.esa_segmentator import EsaDatasetSegmentator
 from sklearn.linear_model import LogisticRegression
 def main():
-    return
+
     run_id = "esa_xgboost_experiment"
     nasa_segmentator = EsaDatasetSegmentator(
         segment_duration=50,

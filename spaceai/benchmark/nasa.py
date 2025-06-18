@@ -389,8 +389,8 @@ class NASABenchmark(Benchmark):
         results["recall"] = results["true_positives"] / tpfn if tpfn > 0 else 1
         results["f1"] = (
             (
-                2
-                * (results["precision"] * results["recall"])
+
+                (results["precision"] * results["recall"])
                 / (results["precision"] + results["recall"])
             )
             if results["precision"] + results["recall"] > 0

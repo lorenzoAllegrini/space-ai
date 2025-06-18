@@ -13,7 +13,7 @@ from sklearn.svm import OneClassSVM
 from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 def main():
-    return
+    
     run_id = "esa_rocket_dpmm_likelihood_experiment"
 
     nasa_segmentator = EsaDatasetSegmentator(

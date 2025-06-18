@@ -1,20 +1,26 @@
 import os
+
 import pandas as pd
 from spaceai.data import NASA
 from spaceai.benchmark import NASABenchmark
+
 from spaceai.benchmark.callbacks import SystemMonitorCallback
-from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
-from spaceai.models.anomaly_classifier import RocketClassifier
 from sklearn.svm import OneClassSVM
-from spaceai.models.anomaly_classifier import NearestNeighborOCC
-from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
+from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
+
 def main():
-    run_id = "nasa_rocket_ocsvm"
+    
+    run_id = "nasa_dpmm_new_cluster_experiment"
     nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
-        extract_features=False,
+        extract_features=True,
+        transformations=[
+            "mean", "var", "std", "n_peaks",
+            "smooth10_n_peaks", "smooth20_n_peaks", 
+            "diff_peaks", "diff2_peaks", "diff_var", "diff2_var",
+        ],
     )
     benchmark = NASABenchmark(
         run_id=run_id, 
@@ -23,17 +29,23 @@ def main():
         segmentator = nasa_segmentator,
     )
     callbacks = [SystemMonitorCallback()]
+
     channels = NASA.channel_ids
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        base_classifier = NearestNeighborOCC()
+        detector = DPMMWrapperDetector(
+            mode="new_cluster",      # oppure "new_cluster"
+            model_type="Full",
+            K=100,
+            num_iterations=50,
+            lr=0.8,
+            python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python"  # Inserisci il percorso corretto del tuo ambiente Python
+        )
+
         benchmark.run_classifier(
             channel_id,
-            classifier=RocketClassifier(
-                base_model=base_classifier,
-                num_kernels=50
-                ),
+            classifier=detector,
             callbacks=callbacks,
         )
         

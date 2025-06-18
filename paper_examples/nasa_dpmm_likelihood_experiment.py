@@ -10,7 +10,8 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
 
 def main():
-    run_id = "nasa_dpmm_experiment"
+    
+    run_id = "nasa_dpmm_likelihood_experiment"
     nasa_segmentator = NasaDatasetSegmentator(
         segment_duration=50,
         step_duration=50,
@@ -34,7 +35,7 @@ def main():
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
         detector = DPMMWrapperDetector(
-            mode="new_cluster",      # oppure "new_cluster"
+            mode="likelihood",      # oppure "new_cluster"
             model_type="Full",
             K=100,
             num_iterations=50,

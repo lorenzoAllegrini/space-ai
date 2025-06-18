@@ -7,6 +7,7 @@ from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from sklearn.svm import OneClassSVM
 def main():
+    
     run_id = "ops_sat_ocsvm"
     nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,
