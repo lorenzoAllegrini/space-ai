@@ -6,11 +6,11 @@ from tqdm import tqdm
 
 def _init_model(model_type, K, D, alphaDP=10):
     if model_type == "Full":
-        return FullGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=100)
+        return FullGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
     elif model_type == "Diagonal":
-        return DiagonalGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=100)
+        return DiagonalGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
     elif model_type == "Single":
-        return SingleGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=100)
+        return SingleGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
     elif model_type == "Unit":
         return UnitGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01)
     else:
