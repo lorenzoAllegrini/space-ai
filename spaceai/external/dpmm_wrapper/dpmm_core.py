@@ -4,19 +4,49 @@ import torch.optim as optim
 from torch_dpmm.models import FullGaussianDPMM, DiagonalGaussianDPMM, SingleGaussianDPMM, UnitGaussianDPMM
 from tqdm import tqdm
 
-def _init_model(model_type, K, D, alphaDP=10):
+def _init_model(model_type, K, D, alphaDP=1):
     if model_type == "Full":
-        return FullGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
+        return FullGaussianDPMM(
+            K,
+            D,
+            alphaDP,
+            mu_prior=0,
+            mu_prior_strength=0.1,
+            var_prior=1.0,
+            var_prior_strength=1.0,
+        )
     elif model_type == "Diagonal":
-        return DiagonalGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
+        return DiagonalGaussianDPMM(
+            K,
+            D,
+            alphaDP,
+            mu_prior=0,
+            mu_prior_strength=0.1,
+            var_prior=1.0,
+            var_prior_strength=1.0,
+        )
     elif model_type == "Single":
-        return SingleGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01, var_prior=0.1, var_prior_strength=10)
+        return SingleGaussianDPMM(
+            K,
+            D,
+            alphaDP,
+            mu_prior=0,
+            mu_prior_strength=0.1,
+            var_prior=1.0,
+            var_prior_strength=1.0,
+        )
     elif model_type == "Unit":
-        return UnitGaussianDPMM(K, D, alphaDP, mu_prior=0, mu_prior_strength=0.01)
+        return UnitGaussianDPMM(
+            K,
+            D,
+            alphaDP,
+            mu_prior=0,
+            mu_prior_strength=0.1,
+        )
     else:
         raise ValueError("Invalid model_type")
 
-def get_trained_dpmm_model(X_train, model_type="Full", K=100, num_iterations=100, lr=0.8):
+def get_trained_dpmm_model(X_train, model_type="Full", K=100, num_iterations=100, lr=0.1):
     D = X_train.shape[1]
     dpmm_model = _init_model(model_type, K, D)
 
