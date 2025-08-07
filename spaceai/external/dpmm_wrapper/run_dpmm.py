@@ -22,7 +22,9 @@ if __name__ == "__main__":
     parser.add_argument("--train", help="CSV di training")
     parser.add_argument("--model_type", default="Full")
     parser.add_argument("--K", type=int, default=100)
-    parser.add_argument("--iterations", type=int, default=100)
+    # Default number of optimisation iterations updated to 50 to keep
+    # consistency with the detector and the experimental setup.
+    parser.add_argument("--iterations", type=int, default=50)
     parser.add_argument("--lr", type=float, default=0.8)
 
     # predict

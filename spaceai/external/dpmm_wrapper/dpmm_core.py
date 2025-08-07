@@ -16,7 +16,7 @@ def _init_model(model_type, K, D, alphaDP=10):
     else:
         raise ValueError("Invalid model_type")
 
-def get_trained_dpmm_model(X_train, model_type="Full", K=100, num_iterations=100, lr=0.8):
+def get_trained_dpmm_model(X_train, model_type="Full", K=100, num_iterations=50, lr=0.8):
     D = X_train.shape[1]
     dpmm_model = _init_model(model_type, K, D)
 
