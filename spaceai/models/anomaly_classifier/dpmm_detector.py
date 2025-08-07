@@ -8,7 +8,18 @@ import sys
 from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
-    def __init__(self, mode="likelihood", model_type="Full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+    """Wrapper around the external DPMM implementation.
+
+    The default number of iterations has been aligned with the external
+    implementation and the experiments configuration.  Previously the
+    wrapper used ``num_iterations=100`` while the scripts relied on ``50``.
+    This mismatch caused the detector to run longer than expected when the
+    parameter was not explicitly specified.  The default is now ``50`` so
+    that experiments can omit the argument and obtain the intended behaviour
+    from the latest pull request.
+    """
+
+    def __init__(self, mode="likelihood", model_type="Full", K=100, num_iterations=50, lr=0.8, python_executable=None):
         super().__init__()
         self.mode = mode
         self.model_type = model_type
