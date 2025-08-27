@@ -50,6 +50,10 @@ def main():
             )
 
         results_df = pd.read_csv(os.path.join(benchmark.run_dir, "results.csv"))
+        results_df.to_csv(
+            os.path.join(benchmark.run_dir, f"results_{model_type.lower()}.csv"),
+            index=False,
+        )
         tp = results_df["true_positives"].sum()
         fp = results_df["false_positives"].sum()
         fn = results_df["false_negatives"].sum()
