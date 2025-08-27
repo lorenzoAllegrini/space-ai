@@ -30,7 +30,6 @@ class OPSSATDatasetSegmentator:
         "stft": stft_spectral_std,
         "slope": calculate_slope,
         "sp_correlation": spearman_correlation,
-        "mk_tau": mann_kendall_test_tau,
         "mean": np.mean,
         "var":  np.var,
         "std":  np.std,

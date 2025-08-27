@@ -50,7 +50,6 @@ def diff2_var(array):
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress, spearmanr
-import pymannkendall as mk  # Assicurati di avere installato pymannkendall
 
 def deviation_from_expected_sp_array(values, sample_size=300, epsilon=1e-6):
     values = np.array(values)
@@ -68,23 +67,6 @@ def deviation_from_expected_sp_array(values, sample_size=300, epsilon=1e-6):
     sp_corr, _ = spearmanr(x, values_sample)
     mean_value = np.mean(values)
     expected_value = mean_value * (1 + sp_corr)
-    last_value = values[-1]
-    return (last_value - expected_value) / (mean_value + epsilon)
-
-def deviation_from_expected_mk_array(values, sample_size=300, epsilon=1e-6):
-
-    values = np.array(values)
-    n = len(values)
-    if n > sample_size:
-        values_sample = np.random.choice(values, size=sample_size, replace=False)
-    else:
-        values_sample = values
-    
-    # Esegui il test di Mann-Kendall sul campione per ottenere Tau
-    result = mk.original_test(values_sample)
-    tau = result.Tau
-    mean_value = np.mean(values)
-    expected_value = mean_value * (1 + tau)
     last_value = values[-1]
     return (last_value - expected_value) / (mean_value + epsilon)
 
@@ -145,32 +127,15 @@ def spearman_correlation(values, sample_size=300):
     correlation, _ = spearmanr(x, values)
     return correlation
 
-def mann_kendall_test(values, sample_size=300):
-    if len(values)< 2:
-        return 0
-    if len(values)>sample_size:
-        values = np.random.choice(values, size=sample_size, replace=False)
-    result = mk.original_test(values)
-    return result.slope  
-
-def mann_kendall_test_tau(values, sample_size=300):
-    if len(values)>sample_size:
-        values = np.random.choice(values, size=sample_size, replace=False)
-    result = mk.original_test(values)
-    return result.Tau 
-
-
-
 def deviation_from_expected(df, epsilon=1e-6):
 
-    required_columns = ["sp_correlation", "mk_tau", "slope", "mean", "value"]
+    required_columns = ["sp_correlation", "slope", "mean", "value"]
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise KeyError(f"Le seguenti colonne sono mancanti nel DataFrame: {missing_columns}")
     
     # Converte le colonne in valori numerici, sostituendo errori con 0
     df["sp_correlation"] = pd.to_numeric(df["sp_correlation"], errors="coerce").fillna(0)
-    df["mk_tau"] = pd.to_numeric(df["mk_tau"], errors="coerce").fillna(0)
     df["slope"] = pd.to_numeric(df["slope"], errors="coerce").fillna(0)
     df["mean"] = pd.to_numeric(df["mean"], errors="coerce").fillna(0)
     df["value"] = pd.to_numeric(df["value"], errors="coerce").fillna(0)
@@ -179,21 +144,11 @@ def deviation_from_expected(df, epsilon=1e-6):
     df["expected_value_sp"] = df["mean"] * (1 + df["sp_correlation"])
     df["deviation_from_expected_sp"] = (df["value"] - df["expected_value_sp"]) / (df["mean"] + epsilon)
     
-    # Calcola il valore atteso e la deviazione per il tau del test MK
-    df["expected_value_mk"] = df["mean"] * (1 + df["mk_tau"])
-    df["deviation_from_expected_mk"] = (df["value"] - df["expected_value_mk"]) / (df["mean"] + epsilon)
-    
     # Calcola il valore atteso e la deviazione per lo slope
     df["expected_value_slope"] = df["mean"] * (1 + df["slope"])
     df["deviation_from_expected_slope"] = (df["value"] - df["expected_value_slope"]) / (df["mean"] + epsilon)
     
     return df
-
-def deviation_from_expected_mk(value, tau, mean, epsilon=1e-6):
-    expected_value = mean * (1+tau)
-    return (value - expected_value)/(mean + epsilon)
-
-import numpy as np
 
 def moving_average_prediction_error(values, epsilon=1e-6):
     values = np.array(values)
