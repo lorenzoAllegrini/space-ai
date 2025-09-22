@@ -8,7 +8,9 @@ import sys
 from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
-    def __init__(self, mode="likelihood", model_type="Full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+    # TODO: il costruttore dovrebbe accettare gli altri iper-parametri del DPMM per testare varie configurazioni
+    def __init__(self, mode="likelihood_threshold", model_type="Full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+        assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__()
         self.mode = mode
         self.model_type = model_type
@@ -23,7 +25,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
         self._test_path = os.path.join(self._tempdir, "test.csv")
         self._output_path = os.path.join(self._tempdir, "output.csv")
         self._model_path = os.path.join(self._tempdir, "model.pkl")
-        self._clusters_path = os.path.join(self._tempdir, "clusters.json")
+        self._info_path = os.path.join(self._tempdir, "info.json")
 
     def __call__(self, input: np.ndarray, y_true: np.ndarray, **kwargs) -> np.ndarray:
         return self.predict(input)
@@ -44,13 +46,15 @@ class DPMMWrapperDetector(AnomalyClassifier):
                 self.python_executable,
                 run_dpmm_path,
                 "--mode", "fit",
+                "--prediction_type", self.mode,
                 "--train", self._train_path,
                 "--model", self._model_path,
-                "--clusters", self._clusters_path,
+                "--info", self._info_path,
                 "--model_type", self.model_type,
                 "--K", str(self.K),
                 "--iterations", str(self.num_iterations),
                 "--lr", str(self.lr)
+                # TODO: qui si possono passare anche altri iper-parametri del DPMM
             ], check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE FIT:")
@@ -76,7 +80,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
                 "--mode", "predict",
                 "--test", self._test_path,
                 "--model", self._model_path,
-                "--clusters", self._clusters_path,
+                "--info", self._info_path,
                 "--output", self._output_path
             ], check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
