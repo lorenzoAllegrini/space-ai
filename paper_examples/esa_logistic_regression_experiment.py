@@ -11,7 +11,7 @@ from spaceai.segmentators.esa_segmentator import EsaDatasetSegmentator
 from sklearn.linear_model import LogisticRegression
 def main():
 
-    run_id = "esa_xgboost_experiment"
+    run_id = "esa_logistic_regression_experiment"
     nasa_segmentator = EsaDatasetSegmentator(
         segment_duration=50,
         step_duration=50,

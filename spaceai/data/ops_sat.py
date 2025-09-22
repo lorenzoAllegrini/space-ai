@@ -194,7 +194,7 @@ class OPSSAT(AnomalyDataset):
 
         # Converti in [[start, end]]
         anomalies = [[group[0], group[-1]] for group in groups]
-        print(anomalies)
+
         return data, anomalies
 
     @property

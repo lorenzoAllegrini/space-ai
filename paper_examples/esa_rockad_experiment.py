@@ -41,7 +41,7 @@ def main():
             benchmark.run_classifier(
                 mission=mission,
                 channel_id=channel_id,
-                classifier=RockadClassifier(),
+                classifier=RockadClassifier(num_kernels=10),
                 callbacks=callbacks,
                 supervised=False
             )

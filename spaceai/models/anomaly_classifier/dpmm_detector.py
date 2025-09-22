@@ -28,7 +28,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
     def __call__(self, input: np.ndarray, y_true: np.ndarray, **kwargs) -> np.ndarray:
         return self.predict(input)
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         """Esegue il fit separato tramite subprocess e salva il modello e cluster."""
         pd.DataFrame(X).to_csv(self._train_path, index=False)
 
@@ -58,7 +58,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
             print("🔹 STDERR:\n", e.stderr)
             raise
 
-    def predict(self, X):
+    def predict(self, X, y=None):
         """Esegue il predict separato tramite subprocess usando il modello salvato."""
         pd.DataFrame(X).to_csv(self._test_path, index=False)
 

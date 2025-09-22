@@ -212,6 +212,9 @@ class NASABenchmark(Benchmark):
         classification_results = self.compute_classification_metrics(
             true_anomalies, pred_anomalies
         )
+        classification_results = self.compute_corrected_classification_metrics(
+            classification_results, true_anomalies, pred_anomalies, total_length=len(y_pred)
+        )
         results.update(classification_results)
         if train_history is not None:
             results["train_loss"] = train_history[-1]["loss_train"]

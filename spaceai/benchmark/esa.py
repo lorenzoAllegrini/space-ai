@@ -274,7 +274,7 @@ class ESABenchmark(Benchmark):
         callback_handler.start()
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
-
+        
         logging.info(f"Fitting the classifier for channel {channel_id}...")
 
         if supervised:

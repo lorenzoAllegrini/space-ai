@@ -103,34 +103,39 @@ class OPSSATBenchmark(Benchmark):
             logging.info(f"Restoring predictor for channel {channel_id}...")
             predictor.load(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
 
+        
         elif fit_predictor_args is not None:
             logging.info(f"Fitting the predictor for channel {channel_id}...")
             # Training the predictor
             batch_size = fit_predictor_args.pop("batch_size", 64)
             eval_channel = None
-            if perc_eval is not None:
-                # Split the training data into training and evaluation sets
-                indices = np.arange(len(train_channel))
-                np.random.shuffle(indices)
-                eval_size = int(len(train_channel) * perc_eval)
-                eval_channel = Subset(train_channel, indices[:eval_size])
-                train_channel = Subset(train_channel, indices[eval_size:])
-            train_loader = DataLoader(
-                train_channel,
-                batch_size=batch_size,
-                shuffle=True,
-                collate_fn=seq_collate_fn(n_inputs=2, mode="batch"),
-            )
-            eval_loader = (
-                DataLoader(
-                    eval_channel,
+            try:
+                if perc_eval is not None:
+                    # Split the training data into training and evaluation sets
+                    indices = np.arange(len(train_channel))
+                    np.random.shuffle(indices)
+                    eval_size = int(len(train_channel) * perc_eval)
+                    eval_channel = Subset(train_channel, indices[:eval_size])
+                    train_channel = Subset(train_channel, indices[eval_size:])
+                train_loader = DataLoader(
+                    train_channel,
                     batch_size=batch_size,
-                    shuffle=False,
+                    shuffle=True,
                     collate_fn=seq_collate_fn(n_inputs=2, mode="batch"),
                 )
-                if eval_channel is not None
-                else None
-            )
+                eval_loader = (
+                    DataLoader(
+                        eval_channel,
+                        batch_size=batch_size,
+                        shuffle=False,
+                        collate_fn=seq_collate_fn(n_inputs=2, mode="batch"),
+                    )
+                    if eval_channel is not None
+                    else None
+                )
+            except Exception as e:
+                print("a")
+                return
             callback_handler.start()
             predictor.stateful = False
             train_history = predictor.fit(
@@ -181,15 +186,11 @@ class OPSSATBenchmark(Benchmark):
             for seq in [y_pred, y_trg]
         ]
         #callback_handler.stop()
-        #results.update(
-            #{f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
-        #)
+        results.update(
+            {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+        )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
         logging.info(f"Test loss for channel {channel_id}: {results['test_loss']}")
-        logging.info(
-            f"Prediction time for channel {channel_id}: {results['predict_time']}"
-        )
-
         # Testing the detector
         logging.info(f"Detecting anomalies for channel {channel_id}")
         #callback_handler.start()
@@ -197,12 +198,16 @@ class OPSSATBenchmark(Benchmark):
             detector.ignore_first_n_factor = 1
         if len(y_trg) < 1800:
             detector.ignore_first_n_factor = 0
-        pred_anomalies = detector.detect_anomalies(y_pred, y_trg)
-        pred_anomalies += detector.flush_detector()
-        callback_handler.stop()
-        results.update(
-            {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
-        )
+        try:
+            pred_anomalies = detector.detect_anomalies(y_pred, y_trg)
+            pred_anomalies += detector.flush_detector()
+            callback_handler.stop()
+            results.update(
+                {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+            )
+        except Exception as e:
+            logging.warning(f"Skipping anomaly detection for channel {channel_id} due to error: {e}")
+            return
         logging.info(
             f"Detection time for channel {channel_id}: {results['detect_time']}"
         )
@@ -210,6 +215,9 @@ class OPSSATBenchmark(Benchmark):
         true_anomalies = test_channel.anomalies
         classification_results = self.compute_classification_metrics(
             true_anomalies, pred_anomalies
+        )
+        classification_results = self.compute_corrected_classification_metrics(
+            classification_results, true_anomalies, pred_anomalies, total_length=len(y_pred)
         )
         results.update(classification_results)
         if train_history is not None:
@@ -275,7 +283,7 @@ class OPSSATBenchmark(Benchmark):
                 return
             classifier.fit(X=train_channel, y=train_labels) 
         else:
-            classifier.fit(X=train_channel) 
+            classifier.fit(X=train_channel, y=train_labels) 
         callback_handler.stop()
         results.update(
             {

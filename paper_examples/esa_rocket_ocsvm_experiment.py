@@ -46,7 +46,7 @@ def main():
                 channel_id=channel_id,
                 classifier=RocketClassifier(
                     base_model=OneClassSVM(),
-                    num_kernels=50
+                    num_kernels=10
                     ),
                 callbacks=callbacks,
             )

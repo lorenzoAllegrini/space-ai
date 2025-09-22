@@ -14,7 +14,7 @@ def main():
         run_id = f"nasa_dpmm_likelihood_{model_type.lower()}"
         segmentator = NasaDatasetSegmentator(
             segment_duration=50,
-            step_duration=50,
+            step_duration=10,
             extract_features=True,
             transformations=[
                 "mean",

@@ -6,6 +6,8 @@ from spaceai.benchmark import OPSSATBenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 def main():
@@ -14,7 +16,7 @@ def main():
         run_id = f"ops_sat_dpmm_{model_type.lower()}"
         segmentator = OPSSATDatasetSegmentator(
             segment_duration=50,
-            step_duration=50,
+            step_duration=10,
             extract_features=True,
             transformations=[
                 "mean",
@@ -43,17 +45,21 @@ def main():
         for i, channel_id in enumerate(channels):
             print(f"{i+1}/{len(channels)}: {channel_id}")
 
-            classifier = DPMMWrapperDetector(
-                mode="likelihood",
-                model_type=model_type,
-                K=100,
-                num_iterations=50,
-                lr=0.1,
-                python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
-            )
+            pipeline = Pipeline([
+                ("scaler", StandardScaler()),
+                ("dpmm", DPMMWrapperDetector(
+                    mode="likelihood",
+                    model_type=model_type,
+                    K=100,
+                    num_iterations=50,
+                    lr=0.1,
+                    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                ))
+            ])
+
             benchmark.run_classifier(
                 channel_id,
-                classifier=classifier,
+                classifier=pipeline,
                 callbacks=callbacks,
                 supervised=False,
             )

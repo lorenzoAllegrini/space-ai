@@ -7,7 +7,7 @@ script_dir = "paper_examples"
 # Recupera tutti i file .py nella cartella, ignorando quelli che iniziano con "_"
 scripts = sorted([
     f for f in os.listdir(script_dir)
-    if f.endswith(".py") and not f.startswith("_")
+    if f.endswith(".py") and f.startswith("ops_") and not f.startswith("_")
 ])
 
 # Esporta il PYTHONPATH
