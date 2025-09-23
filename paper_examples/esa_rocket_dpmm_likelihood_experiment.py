@@ -1,6 +1,9 @@
 import os
 import pandas as pd
 
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
+
 from spaceai.data import ESA, ESAMissions
 from spaceai.benchmark import ESABenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
@@ -47,14 +50,17 @@ def main():
             for channel_id in mission.target_channels:
                 if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46:
                     continue
-                base_classifier = DPMMWrapperDetector(
-                    mode="likelihood",
-                    model_type=model_type,
-                    K=100,
-                    num_iterations=50,
-                    lr=0.1,
-                    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
-                )
+                base_classifier = Pipeline([
+                    ("scaler", RobustScaler(with_centering=False)),
+                    ("dpmm", DPMMWrapperDetector(
+                        mode="likelihood_threshold",
+                        model_type=model_type,
+                        K=100,
+                        num_iterations=50,
+                        lr=0.1,
+                        python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                    )),
+                ])
                 benchmark.run_classifier(
                     mission=mission,
                     channel_id=channel_id,
