@@ -10,6 +10,8 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 import subprocess
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
 
 
 def main():
@@ -19,7 +21,7 @@ def main():
             run_id = f"ops_sat_rocket_dpmm_{model_type.lower()}"
             segmentator = OPSSATDatasetSegmentator(
                 segment_duration=50,
-                step_duration=50,
+                step_duration=10,
                 extract_features=False,
             )
             benchmark = OPSSATBenchmark(
@@ -35,9 +37,9 @@ def main():
                 print(f"{i+1}/{len(channels)}: {channel_id}")
 
                 pipeline = Pipeline([
-                    ("scaler", StandardScaler()),
+                    ("scaler", RobustScaler(with_centering=False)),
                     ("dpmm", DPMMWrapperDetector(
-                        mode="likelihood",
+                        mode="likelihood_threshold",
                         model_type=model_type,
                         K=100,
                         num_iterations=50,
@@ -51,7 +53,7 @@ def main():
                     channel_id,
                     classifier=RocketClassifier(
                         base_model=pipeline,
-                        num_kernels=100,
+                        num_kernels=1000,
                     ),
                     callbacks=callbacks,
                     supervised=False,

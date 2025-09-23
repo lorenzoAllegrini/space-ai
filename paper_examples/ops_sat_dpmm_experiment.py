@@ -7,7 +7,7 @@ from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import RobustScaler
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
         run_id = f"ops_sat_dpmm_{model_type.lower()}"
         segmentator = OPSSATDatasetSegmentator(
             segment_duration=50,
-            step_duration=10,
+            step_duration=50,
             extract_features=True,
             transformations=[
                 "mean",
@@ -46,9 +46,9 @@ def main():
             print(f"{i+1}/{len(channels)}: {channel_id}")
 
             pipeline = Pipeline([
-                ("scaler", StandardScaler()),
+                ("scaler", RobustScaler(with_centering=False)),
                 ("dpmm", DPMMWrapperDetector(
-                    mode="likelihood",
+                    mode="likelihood_threshold",
                     model_type=model_type,
                     K=100,
                     num_iterations=50,

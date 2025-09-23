@@ -47,12 +47,11 @@ def _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength):
     else:
         raise ValueError("Invalid model_type")
 
-def get_trained_dpmm_model(X_train, model_type, K, num_iterations, lr,
+def get_trained_dpmm_model(X_train_tensor, model_type, K, num_iterations, lr,
                            alphaDP, var_prior, var_prior_strength):
-    D = X_train.shape[1]
+    D = X_train_tensor.shape[1]
     dpmm_model = _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength)
-
-    X_train_tensor = th.tensor(X_train, dtype=th.float32)
+   
     dpmm_model.init_var_params(X_train_tensor)
     optimizer = optim.SGD(dpmm_model.parameters(), lr=lr)
 

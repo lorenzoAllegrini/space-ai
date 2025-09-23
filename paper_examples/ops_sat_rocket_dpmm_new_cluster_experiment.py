@@ -8,6 +8,8 @@ from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 from spaceai.models.anomaly_classifier import RocketClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 import subprocess
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
 
 def main():
     model_types = ["Full", "Diagonal", "Single", "Unit"]
@@ -31,19 +33,22 @@ def main():
             for i, channel_id in enumerate(channels):
                 print(f"{i+1}/{len(channels)}: {channel_id}")
 
-                base_classifier = DPMMWrapperDetector(
-                    mode="new_cluster",
-                    model_type=model_type,
-                    K=10,
-                    num_iterations=50,
-                    lr=0.1,
-                    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
-                )
+                pipeline = Pipeline([
+                    ("scaler", RobustScaler(with_centering=False)),
+                    ("dpmm", DPMMWrapperDetector(
+                        mode="cluster_labels",
+                        model_type=model_type,
+                        K=100,
+                        num_iterations=50,
+                        lr=0.1,
+                        python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                    ))
+                ])
 
                 benchmark.run_classifier(
                     channel_id,
                     classifier=RocketClassifier(
-                        base_model=base_classifier,
+                        base_model=pipeline,
                         num_kernels=1000,
                     ),
                     callbacks=callbacks,
