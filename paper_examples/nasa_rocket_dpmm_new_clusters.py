@@ -1,6 +1,9 @@
 import os
 import pandas as pd
 
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
+
 from spaceai.data import NASA
 from spaceai.benchmark import NASABenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
@@ -30,14 +33,17 @@ def main():
         for i, channel_id in enumerate(channels):
             print(f"{i+1}/{len(channels)}: {channel_id}")
 
-            base_classifier = DPMMWrapperDetector(
-                mode="new_cluster",
-                model_type=model_type,
-                K=100,
-                num_iterations=50,
-                lr=0.1,
-                python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
-            )
+            base_classifier = Pipeline([
+                ("scaler", RobustScaler(with_centering=False)),
+                ("dpmm", DPMMWrapperDetector(
+                    mode="cluster_labels",
+                    model_type=model_type,
+                    K=100,
+                    num_iterations=50,
+                    lr=0.1,
+                    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                )),
+            ])
 
             benchmark.run_classifier(
                 channel_id,
