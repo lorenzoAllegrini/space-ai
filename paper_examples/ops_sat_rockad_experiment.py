@@ -9,6 +9,7 @@ from spaceai.models.anomaly_classifier import RockadClassifier, NearestNeighborO
 from sklearn.linear_model import RidgeClassifier, LogisticRegression
 
 def main():
+    return
     run_id = "ops_sat_rockad"
     nasa_segmentator = OPSSATDatasetSegmentator(
         segment_duration=50,

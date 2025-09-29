@@ -32,8 +32,8 @@ class DPMMWrapperDetector(AnomalyClassifier):
 
     def fit(self, X, y=None):
         """Esegue il fit separato tramite subprocess e salva il modello e cluster."""
-
-        X = np.concatenate([y.reshape((-1,1)),X], axis=1)
+        
+        X = np.concatenate([y.reshape((-1,1)),X], axis=1) if len(y) > 0 else np.concatenate([np.zeros(len(X),1),X], axis=1)
         pd.DataFrame(X).to_csv(self._train_path, index=False)
 
 

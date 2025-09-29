@@ -27,8 +27,8 @@ for root, dirs, files in os.walk(base_dir):
 
             for _,row in results_df.iterrows():
                 dataset = root.split("/")[1]
-                if not dataset.startswith("nasa") and not dataset.startswith("ops"):
-                    continue
+                #if not dataset.startswith("nasa") and not dataset.startswith("ops"):
+                    #continue
 
 
                 if dataset.startswith("ops"):

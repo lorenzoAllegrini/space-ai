@@ -262,7 +262,7 @@ class NASABenchmark(Benchmark):
 
         logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
 
-        classifier.fit(train_channel) 
+        classifier.fit(train_channel, y=np.zeros(len(train_channel))) 
         callback_handler.stop()
         results.update(
             {

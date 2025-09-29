@@ -277,16 +277,17 @@ class ESABenchmark(Benchmark):
         
         logging.info(f"Fitting the classifier for channel {channel_id}...")
 
+ 
+        num_segments = len(train_channel)
+        train_labels = np.zeros(num_segments, dtype=int)
+        for start, end in train_anomalies:
+            start = max(0, start)
+            end = min(num_segments - 1, end)
+            train_labels[start:end + 1] = 1
         if supervised:
-            num_segments = len(train_channel)
-            train_labels = np.zeros(num_segments, dtype=int)
-            for start, end in train_anomalies:
-                start = max(0, start)
-                end = min(num_segments - 1, end)
-                train_labels[start:end + 1] = 1
             classifier.fit(X=train_channel, y=train_labels)
         else:
-            classifier.fit(X=train_channel)
+            classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
         results.update(
             {
