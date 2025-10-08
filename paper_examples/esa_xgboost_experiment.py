@@ -9,6 +9,8 @@ from sklearn.svm import OneClassSVM
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from spaceai.segmentators.esa_segmentator import EsaDatasetSegmentator
 from xgboost import XGBClassifier
+from config import XGBOOST_N_THREAD
+
 def main():
     run_id = "esa_xgboost_experiment"
     nasa_segmentator = EsaDatasetSegmentator(
@@ -42,7 +44,8 @@ def main():
                 channel_id=channel_id,
                 classifier = XGBClassifier(
                     eval_metric="logloss",   
-                    base_score=0.5      
+                    base_score=0.5,
+                    nthread=XGBOOST_N_THREAD
                 ),
                 callbacks=callbacks,
                 supervised=True

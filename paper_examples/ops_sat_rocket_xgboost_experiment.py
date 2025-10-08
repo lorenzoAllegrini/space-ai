@@ -10,6 +10,7 @@ from spaceai.models.anomaly_classifier import RocketClassifier
 from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from xgboost import XGBClassifier
+from config import XGBOOST_N_THREAD
 
 def main():
     run_id = "ops_sat_rocket_xgboost"
@@ -30,7 +31,7 @@ def main():
     for i, channel_id in enumerate(channels):
         print(f"{i+1}/{len(channels)}: {channel_id}")
 
-        base_classifier = XGBClassifier()
+        base_classifier = XGBClassifier(nthread=XGBOOST_N_THREAD)
         benchmark.run_classifier(
             channel_id,
             classifier=RocketClassifier(

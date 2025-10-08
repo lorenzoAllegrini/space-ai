@@ -6,6 +6,8 @@ from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from xgboost import XGBClassifier
+from config import XGBOOST_N_THREAD
+
 
 def main():
     run_id = "ops_sat_xgboost"
@@ -31,7 +33,7 @@ def main():
     for i, channel_id in enumerate(channels):
         print(f'{i+1}/{len(channels)}: {channel_id}')
         
-        classifier = XGBClassifier()
+        classifier = XGBClassifier(nthread=XGBOOST_N_THREAD)
         benchmark.run_classifier(
             channel_id,
             classifier=classifier,

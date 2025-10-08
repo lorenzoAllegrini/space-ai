@@ -10,6 +10,8 @@ from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.segmentators.esa_segmentator import EsaDatasetSegmentator
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 
+from config import DPMM_ENV_PATH
+
 
 def main():
     model_types = ["Full", "Diagonal", "Single", "Unit"]
@@ -57,7 +59,7 @@ def main():
                         K=100,
                         num_iterations=50,
                         lr=0.1,
-                        python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                        python_executable=DPMM_ENV_PATH,
                     )),
                 ])
 

@@ -13,6 +13,9 @@ from sklearn.svm import OneClassSVM
 from sklearn.linear_model import RidgeClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from xgboost import XGBClassifier
+
+from config import XGBOOST_N_THREAD
+
 def main():
     run_id = "esa_rocket_xgboost_experiment"
     nasa_segmentator = EsaDatasetSegmentator(
@@ -53,7 +56,7 @@ def main():
                 mission=mission,
                 channel_id=channel_id,
                 classifier=RocketClassifier(
-                    base_model=XGBClassifier(),
+                    base_model=XGBClassifier(nthread=XGBOOST_N_THREAD),
                     num_kernels=10,
                 ),
                 callbacks=callbacks,

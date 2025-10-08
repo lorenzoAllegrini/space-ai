@@ -9,6 +9,9 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
 
+from config import DPMM_ENV_PATH
+
+
 def main():
     model_types = ["Full", "Diagonal", "Single", "Unit"]
     for model_type in model_types:
@@ -46,7 +49,7 @@ def main():
                     K=100,
                     num_iterations=50,
                     lr=0.1,
-                    python_executable="/opt/homebrew/Caskroom/miniconda/base/envs/dpmm_env/bin/python",
+                    python_executable=DPMM_ENV_PATH,
                 ))
             ])
             benchmark.run_classifier(
