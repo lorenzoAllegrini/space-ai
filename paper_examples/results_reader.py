@@ -8,6 +8,46 @@ import numpy as np
 base_dir = "experiments"
 results = []
 
+dataset_cache = {}
+
+def load_dataset(dataset, channel_id):
+    if dataset.startswith("ops"):
+        test_channel = OPSSAT(
+            root="datasets",
+            channel_id=channel_id,
+            mode="anomaly",
+            overlapping=False,
+            seq_length=1,
+            train=False,
+            drop_last=False,
+            n_predictions=1,
+        )
+
+    elif dataset.startswith("nasa"):
+        test_channel = NASA(
+            root="datasets",
+            channel_id=channel_id,
+            mode="anomaly",
+            overlapping=False,
+            seq_length=1,
+            train=False,
+            drop_last=False,
+            n_predictions=1,
+        )
+    else:
+        test_channel = ESA(
+            root="datasets",
+            channel_id=channel_id,
+            mode="anomaly",
+            overlapping=False,
+            seq_length=1,
+            train=False,
+            drop_last=False,
+            n_predictions=1,
+            mission=ESAMissions.MISSION_1.value
+        )
+
+    return test_channel
 
 for root, dirs, files in os.walk(base_dir):
     r = root.split("/")[1] if len(root.split("/"))>1 else f"root: {root}"
@@ -30,42 +70,10 @@ for root, dirs, files in os.walk(base_dir):
                 #if not dataset.startswith("nasa") and not dataset.startswith("ops"):
                     #continue
 
-
-                if dataset.startswith("ops"):
-                    test_channel = OPSSAT(
-                        root="datasets",
-                        channel_id=row["channel_id"],
-                        mode="anomaly",
-                        overlapping=False,
-                        seq_length=1,
-                        train=False,
-                        drop_last=False,
-                        n_predictions=1,
-                    )
-              
-                elif dataset.startswith("nasa"):
-                    test_channel = NASA(
-                        root="datasets",
-                        channel_id=row["channel_id"],
-                        mode="anomaly",
-                        overlapping=False,
-                        seq_length=1,
-                        train=False,
-                        drop_last=False,
-                        n_predictions=1,
-                    )
-                else:
-                    test_channel = ESA(
-                        root="datasets",
-                        channel_id=row["channel_id"],
-                        mode="anomaly",
-                        overlapping=False,
-                        seq_length=1,
-                        train=False,
-                        drop_last=False,
-                        n_predictions=1,
-                        mission=ESAMissions.MISSION_1.value
-                    )
+                dataset_id = f"{dataset}_{row['channel_id']}"
+                if dataset_id not in dataset_cache:
+                    dataset_cache[dataset_id] = load_dataset(dataset, row['channel_id'])
+                test_channel = dataset_cache[dataset_id]
                 
                 length = len(test_channel.data) // 50
                 #total_nominal_segments +=(length - np.sum([seg[1]//50 - seg[0]//50 for seg in test_channel.anomalies]))
@@ -119,14 +127,16 @@ for root, dirs, files in os.walk(base_dir):
 # Crea il DataFrame completo
 df = pd.DataFrame(results)
 
+all_res_dir = os.makedirs(os.path.join(base_dir, "all_results"), exist_ok=True)
+
 for selected_dataset in ["ops", "nasa", "esa"]:
     print(f"DATASET: {dataset}")
     df_filtered = df[df['dataset'] == selected_dataset]
 
     # Ordina per F1 decrescente
     df_sorted = df_filtered.sort_values(by="f1", ascending=False)
-
+    df_sorted = df_sorted.drop(columns=["dataset"])
     # Droppa la colonna 'dataset' e stampa la classifica in bel formato
-    print(tabulate(df_sorted.drop(columns=["dataset"]), headers='keys', tablefmt='fancy_grid', floatfmt=".4f"))
-
+    print(tabulate(df_sorted, headers='keys', tablefmt='fancy_grid', floatfmt=".4f"))
+    df_sorted.to_csv(os.path.join(base_dir, "all_results", f"{selected_dataset}.csv"))
 
