@@ -4,10 +4,9 @@ import pickle
 import json
 import numpy as np
 import sys
-from spaceai.external.dpmm_wrapper.dpmm_core import (
-    get_trained_dpmm_model
-)
+from dpmm_core import get_trained_dpmm_model
 import torch as th
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Esecuzione wrapper DPMM")
     parser.add_argument("--mode", choices=["fit", "predict"], required=True)
