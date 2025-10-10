@@ -17,7 +17,7 @@ from config import DPMM_ENV_PATH
 def main():
     model_types = ["Full", "Diagonal", "Single", "Unit"]
     for model_type in model_types:
-        run_id = f"nasa_rocket_dpmm_{model_type.lower()}"
+        run_id = f"nasa_rocket_dpmm_likelihood_{model_type.lower()}"
         segmentator = NasaDatasetSegmentator(
             segment_duration=50,
             step_duration=50,
