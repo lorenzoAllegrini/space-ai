@@ -12,29 +12,36 @@ if __name__ == "__main__":
     arg_parser.add_argument("--n-workers", type=int, default=1)
     args = arg_parser.parse_args()
 
-    pool = ProcessPoolExecutor(max_workers=args.n_workers)
-
     n_kernels = 100
+    model_list = MODEL_LIST.copy()
+    model_list.remove('rockad')
 
     command_args_list = []
     for dataset in DATASET_LIST:
-        for segmentator in SEGMENTATOR_LIST:
-            for model in MODEL_LIST:
-                command_args = f'--dataset {dataset} --segmentator {segmentator} --model {model}'
-                if segmentator == "rocket" or model == 'rockad':
-                    command_args += f' --n-kernel {n_kernels}'
+        for model in model_list:
+            command_args = f'--dataset {dataset} --model {model}'
 
-                if model != "dpmm":
-                    command_args_list.append(command_args)
-                else:
-                    for dpmm_type in DPMM_MODEL_TYPE:
-                        for dpmm_mode in DPMM_MODE:
-                            dpmm_args = f'--dpmm-type {dpmm_type} --dpmm-mode {dpmm_mode}'
-                            command_args_list.append(command_args + ' ' +dpmm_args)
+            if model == 'rockad':
+                command_args_list.append(command_args + f' --n-kernel {n_kernels} --segmentator rocket')
+            else:
+                for segmentator in SEGMENTATOR_LIST:
+                    segmentator_args = f' --segmentator {segmentator}'
+                    if segmentator == "rocket":
+                        segmentator_args += f' --n-kernel {n_kernels}'
+
+                    if model != "dpmm":
+                        command_args_list.append(command_args + segmentator_args)
+                    else:
+                        for dpmm_type in DPMM_MODEL_TYPE:
+                            for dpmm_mode in DPMM_MODE:
+                                dpmm_args = f' --dpmm-type {dpmm_type} --dpmm-mode {dpmm_mode}'
+                                command_args_list.append(command_args + segmentator_args + dpmm_args)
 
     print('START')
+    pool = ProcessPoolExecutor(max_workers=args.n_workers)
     finished = 0
     c_args = ''
+
     for c_args in command_args_list:
         exp_args = parse_exp_args(c_args.split(' '))
         f = pool.submit(run_exp, exp_args, suppress_output=True)
