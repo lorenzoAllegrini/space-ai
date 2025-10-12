@@ -1,5 +1,8 @@
-import argparse
+from config import OMP_NUM_THREADS
 import os
+os.environ['OMP_NUM_THREADS'] = f'{OMP_NUM_THREADS}'
+
+import argparse
 import sys
 
 from model_creators import *
@@ -70,7 +73,7 @@ def run_exp(args, suppress_output=False):
     if args.dataset == "esa":
         run_esa_exp(classifier, is_supervised, extract_features, exp_dir, base_dir)
     elif args.dataset == "nasa":
-        if is_supervised:
+        if args.model in ['xgboost', 'ridge_regression']:
             raise ValueError("NASA dataset supporta solo metodi unsupervised!")
         run_nasa_exp(classifier, extract_features, exp_dir, base_dir)
     elif args.dataset == "ops":

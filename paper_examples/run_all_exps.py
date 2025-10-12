@@ -1,5 +1,6 @@
+from config import OMP_NUM_THREADS
 import os
-import subprocess
+os.environ['OMP_NUM_THREADS'] = f'{OMP_NUM_THREADS}'
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 from run_exp import DATASET_LIST, MODEL_LIST, SEGMENTATOR_LIST, DPMM_MODEL_TYPE, DPMM_MODE, run_exp, parse_exp_args
@@ -10,9 +11,6 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--n-workers", type=int, default=1)
     args = arg_parser.parse_args()
-
-    # Esporta il PYTHONPATH
-    os.environ['OMP_NUM_THREADS'] = '1'
 
     pool = ProcessPoolExecutor(max_workers=args.n_workers)
 
