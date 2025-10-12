@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 def _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength):
     mu_prior_strength = 0.001
-    if model_type == "Full":
+    if model_type == "full":
         return FullGaussianDPMM(
             K,
             D,
@@ -16,7 +16,7 @@ def _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength):
             var_prior=var_prior,
             var_prior_strength=var_prior_strength,
         )
-    elif model_type == "Diagonal":
+    elif model_type == "diagonal":
         return DiagonalGaussianDPMM(
             K,
             D,
@@ -26,7 +26,7 @@ def _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength):
             var_prior=var_prior,
             var_prior_strength=var_prior_strength,
         )
-    elif model_type == "Single":
+    elif model_type == "single":
         return SingleGaussianDPMM(
             K,
             D,
@@ -36,7 +36,7 @@ def _init_model(model_type, K, D, alphaDP, var_prior, var_prior_strength):
             var_prior=var_prior,
             var_prior_strength=var_prior_strength,
         )
-    elif model_type == "Unit":
+    elif model_type == "unit":
         return UnitGaussianDPMM(
             K,
             D,

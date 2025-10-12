@@ -9,7 +9,7 @@ from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
     # TODO: il costruttore dovrebbe accettare gli altri iper-parametri del DPMM per testare varie configurazioni
-    def __init__(self, mode="likelihood_threshold", model_type="Full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+    def __init__(self, mode="likelihood_threshold", model_type="full", K=100, num_iterations=100, lr=0.8, python_executable=None):
         assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__()
         self.mode = mode

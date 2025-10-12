@@ -294,7 +294,7 @@ class RockadClassifier(AnomalyClassifier):
         self.rockad: Optional[ROCKAD] = None
         self.oc_model: Optional[Any] = None
 
-    def fit(self, X: np.ndarray) -> None:
+    def fit(self, X: np.ndarray, y=None) -> None:
         """
         1) Applica ROCKAD su X a scapito di y.
         2) Prende i punteggi di anomalia e allena il one‐class model.

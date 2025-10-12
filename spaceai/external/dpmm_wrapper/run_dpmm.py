@@ -4,10 +4,9 @@ import pickle
 import json
 import numpy as np
 import sys
-from spaceai.external.dpmm_wrapper.dpmm_core import (
-    get_trained_dpmm_model
-)
+from dpmm_core import get_trained_dpmm_model
 import torch as th
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Esecuzione wrapper DPMM")
     parser.add_argument("--mode", choices=["fit", "predict"], required=True)
@@ -20,7 +19,7 @@ if __name__ == "__main__":
 
     # fit
     parser.add_argument("--train", help="CSV di training")
-    parser.add_argument("--model_type", default="Full")
+    parser.add_argument("--model_type", default="full")
     parser.add_argument("--K", type=int, default=100)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.1)
@@ -47,7 +46,7 @@ if __name__ == "__main__":
             X_train = X_train[y_train == 0]
 
         X_train= th.tensor(X_train, dtype=th.float32)
-        y_train = th.tensor(y_train, dtype=int)
+        y_train = th.tensor(y_train, dtype=th.int32)
         # Allenamento modello
         dpmm_model = get_trained_dpmm_model(
             X_train,
