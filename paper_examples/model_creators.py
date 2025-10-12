@@ -6,7 +6,7 @@ from spaceai.models.anomaly_classifier.dpmm_detector import DPMMWrapperDetector
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
 
-from config import DPMM_ENV_PATH, XGBOOST_N_THREAD
+from config import DPMM_ENV_PATH
 
 
 def get_ocsvm_classifier():
@@ -16,7 +16,7 @@ def get_rockad_classifier(num_kernels):
     return RockadClassifier(num_kernels=num_kernels), False
 
 def get_xgboost_classifier():
-    return XGBClassifier(eval_metric="logloss", base_score=0.5, nthread=XGBOOST_N_THREAD), True
+    return XGBClassifier(eval_metric="logloss", base_score=0.5, n_jobs=1), True
 
 def get_dpmm_classifier(model_type, mode):
     pipeline = Pipeline([
