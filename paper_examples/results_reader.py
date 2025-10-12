@@ -1,18 +1,22 @@
 import os
+from typing import Dict, Iterable, List, Tuple
+
+import numpy as np
 import pandas as pd
 from tabulate import tabulate
-from spaceai.data.ops_sat import OPSSAT
+
+from spaceai.data.esa import ESA, ESAMissions
 from spaceai.data.nasa import NASA
-from spaceai.data.esa import ESA, ESAMission, ESAMissions
-import numpy as np
-base_dir = "experiments"
-results = []
+from spaceai.data.ops_sat import OPSSAT
 
-dataset_cache = {}
 
-def load_dataset(dataset, channel_id):
+BASE_DIR = "experiments"
+WINDOW_SIZE = 50
+
+
+def load_dataset(dataset: str, channel_id: int):
     if dataset.startswith("ops"):
-        test_channel = OPSSAT(
+        return OPSSAT(
             root="datasets",
             channel_id=channel_id,
             mode="anomaly",
@@ -23,8 +27,8 @@ def load_dataset(dataset, channel_id):
             n_predictions=1,
         )
 
-    elif dataset.startswith("nasa"):
-        test_channel = NASA(
+    if dataset.startswith("nasa"):
+        return NASA(
             root="datasets",
             channel_id=channel_id,
             mode="anomaly",
@@ -34,109 +38,164 @@ def load_dataset(dataset, channel_id):
             drop_last=False,
             n_predictions=1,
         )
-    else:
-        test_channel = ESA(
-            root="datasets",
-            channel_id=channel_id,
-            mode="anomaly",
-            overlapping=False,
-            seq_length=1,
-            train=False,
-            drop_last=False,
-            n_predictions=1,
-            mission=ESAMissions.MISSION_1.value
+
+    return ESA(
+        root="datasets",
+        channel_id=channel_id,
+        mode="anomaly",
+        overlapping=False,
+        seq_length=1,
+        train=False,
+        drop_last=False,
+        n_predictions=1,
+        mission=ESAMissions.MISSION_1.value,
+    )
+
+
+def compute_channel_stats(dataset) -> Dict[str, int]:
+    data_length = len(dataset.data)
+    num_segments = data_length // WINDOW_SIZE
+
+    if num_segments == 0:
+        return {"negatives": 0}
+
+    segments_with_anomaly = np.zeros(num_segments, dtype=bool)
+    for start, end in getattr(dataset, "anomalies", []):
+        if end < 0 or start >= num_segments * WINDOW_SIZE:
+            continue
+
+        clipped_start = max(0, start)
+        clipped_end = min(end, num_segments * WINDOW_SIZE - 1)
+        start_idx = clipped_start // WINDOW_SIZE
+        end_idx = clipped_end // WINDOW_SIZE
+        segments_with_anomaly[start_idx : end_idx + 1] = True
+
+    negatives = int(np.count_nonzero(~segments_with_anomaly))
+    return {"negatives": negatives}
+
+
+def iter_results_files(base_dir: str) -> Iterable[Tuple[str, str]]:
+    for root, _, files in os.walk(base_dir):
+        if "results.csv" in files:
+            yield root, os.path.join(root, "results.csv")
+
+
+def get_dataset_name(root: str) -> str:
+    relative_path = os.path.relpath(root, BASE_DIR)
+    if relative_path == ".":
+        return os.path.basename(root)
+    return relative_path.split(os.sep)[0]
+
+
+def main():
+    results: List[dict] = []
+    channel_stats: Dict[Tuple[str, int], Dict[str, int]] = {}
+    results_files = list(iter_results_files(BASE_DIR))
+
+    unique_channels = set()
+    for root, file_path in results_files:
+        dataset_name = get_dataset_name(root)
+        try:
+            channels = pd.read_csv(file_path, usecols=["channel_id"]).dropna()["channel_id"]
+        except ValueError:
+            # The CSV does not contain the channel_id column.
+            continue
+        for channel_id in pd.unique(channels):
+            try:
+                channel_id_int = int(channel_id)
+            except (TypeError, ValueError):
+                continue
+            unique_channels.add((dataset_name, channel_id_int))
+
+    for dataset_name, channel_id in unique_channels:
+        dataset = load_dataset(dataset_name, channel_id)
+        channel_stats[(dataset_name, channel_id)] = compute_channel_stats(dataset)
+
+    for root, file_path in results_files:
+        dataset_name = get_dataset_name(root)
+        try:
+            results_df = pd.read_csv(file_path)
+        except FileNotFoundError:
+            continue
+
+        required_columns = {"true_positives", "false_positives", "false_negatives", "train_time", "tnr"}
+        if not required_columns.issubset(results_df.columns):
+            continue
+
+        if "channel_id" not in results_df.columns:
+            continue
+
+        results_df = results_df.copy()
+        results_df["channel_id"] = pd.to_numeric(results_df["channel_id"], errors="coerce").astype("Int64")
+        results_df = results_df.dropna(subset=["channel_id"])
+        results_df["channel_id"] = results_df["channel_id"].astype(int)
+
+        results_df["negatives"] = results_df["channel_id"].map(
+            lambda ch: channel_stats.get((dataset_name, ch), {"negatives": 0})["negatives"]
         )
 
-    return test_channel
-
-for root, dirs, files in os.walk(base_dir):
-    r = root.split("/")[1] if len(root.split("/"))>1 else f"root: {root}"
-    if "results.csv" in files:
-        print(f"root: {root} files: {files}, results {True if 'results.csv' in files else False}")
-        file_path = os.path.join(root, "results.csv")
-        results_df = pd.read_csv(file_path)
-        
-        if {'true_positives', 'false_positives', 'false_negatives', 'train_time', 'tnr'}.issubset(results_df.columns):
-            tp = 0
-            fp = 0
-            fn = 0
-            tn = 0
+        if results_df["negatives"].sum() == 0:
             total_negatives = 0
-            train_time = 0
-            predict_time = 0
+            tn = 0.0
+        else:
+            total_negatives = results_df["negatives"].sum()
+            tn = (results_df["tnr"] * results_df["negatives"]).sum()
 
-            for _,row in results_df.iterrows():
-                dataset = root.split("/")[1]
-                #if not dataset.startswith("nasa") and not dataset.startswith("ops"):
-                    #continue
+        tp = results_df["true_positives"].sum()
+        fp = results_df["false_positives"].sum()
+        fn = results_df["false_negatives"].sum()
+        train_time = results_df["train_time"].mean()
 
-                dataset_id = f"{dataset}_{row['channel_id']}"
-                if dataset_id not in dataset_cache:
-                    dataset_cache[dataset_id] = load_dataset(dataset, row['channel_id'])
-                test_channel = dataset_cache[dataset_id]
-                
-                length = len(test_channel.data) // 50
-                #total_nominal_segments +=(length - np.sum([seg[1]//50 - seg[0]//50 for seg in test_channel.anomalies]))
-                labels = np.zeros(length*50, dtype=int)
-                for start, end in test_channel.anomalies:
-                    start = max(0, start)
-                    end = min(len(labels) - 1, end)
-                    labels[start:end + 1] = 1
+        time_column = "predict_time" if "predict_time" in results_df.columns else None
+        if time_column is None and "detect_time" in results_df.columns:
+            time_column = "detect_time"
+        predict_time = results_df[time_column].mean() if time_column else 0
 
-                negatives = 0
-                for r in labels.reshape(-1, 50):
-                    if np.sum(r) == 0:
-                        negatives += 1
+        tnr = tn / total_negatives if total_negatives > 0 else 0
+        precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+        precision_corrected = precision * tnr
+        recall = tp / (tp + fn) if tp + fn > 0 else 0.0
+        if precision_corrected + recall > 0:
+            f0_5 = (1 + 0.5**2) * (precision_corrected * recall) / (0.5**2 * precision_corrected + recall)
+            f1 = 2 * (precision_corrected * recall) / (precision_corrected + recall)
+        else:
+            f0_5 = 0.0
+            f1 = 0.0
 
-                tn += row['tnr'] * negatives
-                tp += row['true_positives']
-                fp += row['false_positives']
-                fn += row['false_negatives']
-                train_time += row['train_time'] 
-                predict_time += row['predict_time'] if 'predict_time' in row else row['detect_time']
-                total_negatives += negatives
-     
-            tnr = tn/total_negatives if total_negatives > 0 else 0
-            train_time /= len(results_df) if len(results_df) > 0 else 0
-            predict_time /= len(results_df) if len(results_df) > 0 else 0
-            precision = tp / (tp + fp) if tp + fp > 0 else 0.0
-            precision_corrected = precision * tnr
-            recall = tp / (tp + fn) if tp + fn > 0 else 0.0
-            f0_5 = (1 + 0.5**2) * (precision_corrected * recall) / (0.5**2 * precision_corrected + recall) if precision_corrected + recall > 0 else 0.0
-            f1 = 2 * (precision_corrected * recall) / (precision_corrected + recall) if precision_corrected + recall > 0 else 0.0
-            
+        model_name = os.path.relpath(root, BASE_DIR)
+        dataset_type = model_name.split("_")[0]
+
+        results.append(
+            {
+                "dataset": dataset_type,
+                "model": model_name,
+                "f1": f1,
+                "f0.5": f0_5,
+                "precision": precision_corrected,
+                "recall": recall,
+                "train_time": train_time,
+                "predict_time": predict_time,
+            }
+        )
+
+    if not results:
+        return
+
+    df = pd.DataFrame(results)
+    os.makedirs(os.path.join(BASE_DIR, "all_results"), exist_ok=True)
+
+    for selected_dataset in ["ops", "nasa", "esa"]:
+        print(f"DATASET: {selected_dataset}")
+        df_filtered = df[df["dataset"] == selected_dataset]
+        if df_filtered.empty:
+            print("No results available")
+            continue
+
+        df_sorted = df_filtered.sort_values(by="f1", ascending=False).drop(columns=["dataset"])
+        print(tabulate(df_sorted, headers="keys", tablefmt="fancy_grid", floatfmt=".4f"))
+        df_sorted.to_csv(os.path.join(BASE_DIR, "all_results", f"{selected_dataset}.csv"), index=False)
 
 
-            # Estrai il nome della directory relativa (es. 'nasa_model1')
-            model_name = os.path.relpath(root, base_dir)
-
-            # Il tipo di dataset è la prima parte del nome
-            dataset_type = model_name.split('_')[0]
-
-            results.append({
-                'dataset': dataset_type,
-                'model': model_name,
-                'f1': f1,
-                'f0.5': f0_5,
-                'precision': precision_corrected,
-                'recall': recall,
-                'train_time': train_time,             
-                'predict_time': predict_time, 
-            })
-
-# Crea il DataFrame completo
-df = pd.DataFrame(results)
-
-all_res_dir = os.makedirs(os.path.join(base_dir, "all_results"), exist_ok=True)
-
-for selected_dataset in ["ops", "nasa", "esa"]:
-    print(f"DATASET: {dataset}")
-    df_filtered = df[df['dataset'] == selected_dataset]
-
-    # Ordina per F1 decrescente
-    df_sorted = df_filtered.sort_values(by="f1", ascending=False)
-    df_sorted = df_sorted.drop(columns=["dataset"])
-    # Droppa la colonna 'dataset' e stampa la classifica in bel formato
-    print(tabulate(df_sorted, headers='keys', tablefmt='fancy_grid', floatfmt=".4f"))
-    df_sorted.to_csv(os.path.join(base_dir, "all_results", f"{selected_dataset}.csv"))
+if __name__ == "__main__":
+    main()
 
