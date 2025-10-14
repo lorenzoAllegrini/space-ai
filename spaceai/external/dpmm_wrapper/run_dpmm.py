@@ -20,13 +20,14 @@ if __name__ == "__main__":
     # fit
     parser.add_argument("--train", help="CSV di training")
     parser.add_argument("--model_type")
-    parser.add_argument("--K", type=int)
-    parser.add_argument("--iterations", type=int)
-    parser.add_argument("--lr", type=float)
-    parser.add_argument("--alpha_DP", type=float)
-    parser.add_argument("--var_prior", type=float)
-    parser.add_argument("--var_prior_strength", type=float)
-    parser.add_argument("--quantile", type=float)
+
+    parser.add_argument("--K", type=int, default=100)
+    parser.add_argument("--num-iterations", type=int, default=1000)
+    parser.add_argument("--lr", type=float, default=0.1)
+    parser.add_argument("--alpha_DP", type=float, default=1.0)
+    parser.add_argument("--var_prior", type=float, default=1.0)
+    parser.add_argument("--var_prior_strength", type=float, default=1.0)
+    parser.add_argument("--quantile", type=float, default=0.05)
 
     # predict
     parser.add_argument("--test", help="CSV di test")
@@ -51,7 +52,7 @@ if __name__ == "__main__":
             X_train,
             model_type=args.model_type,
             K=args.K,
-            num_iterations=args.iterations,
+            num_iterations=args.num_iterations,
             lr=args.lr,
             alphaDP=args.alpha_DP,
             var_prior=args.var_prior,

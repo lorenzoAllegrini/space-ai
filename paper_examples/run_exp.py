@@ -34,13 +34,13 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--n-kernel", type=int)
     parser.add_argument("--dpmm-type", choices=DPMM_MODEL_TYPE)
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
-    return parser.parse_args(str_args)
+    return parser.parse_known_args(str_args)
 
-def run_exp(args, suppress_output=False):
+def run_exp(args, other_args=None, suppress_output=False):
     # create the classifier
     model_id = format(args.model)
     if args.model == "dpmm":
-        classifier, is_supervised = get_dpmm_classifier(args.dpmm_type, args.dpmm_mode)
+        classifier, is_supervised = get_dpmm_classifier(args.dpmm_type, args.dpmm_mode, other_args)
         model_id += f"_{format(args.dpmm_type)}_{format(args.dpmm_mode)}"
     elif args.model == "ocsvm":
         classifier, is_supervised = get_ocsvm_classifier()
@@ -67,8 +67,9 @@ def run_exp(args, suppress_output=False):
 
     exp_dir = args.exp_dir
     base_dir = f'{format(args.dataset)}_{format(args.segmentator)}_{model_id}'
-    if os.path.exists(os.path.join(exp_dir, base_dir, 'results.csv')):
-        raise FileExistsError('Results already computed!')
+    result_path = os.path.join(exp_dir, base_dir)
+    if os.path.exists(result_path):
+        raise FileExistsError(f'Exp folder already exists! Remove the folder to execute the experiment again!')
 
     if args.dataset == "esa":
         run_esa_exp(classifier, is_supervised, extract_features, exp_dir, base_dir)
@@ -82,7 +83,7 @@ def run_exp(args, suppress_output=False):
         raise ValueError(f"Dataset {args.dataset} non supportato!")
 
 if __name__ == "__main__":
-    args = parse_exp_args()
-    run_exp(args)
+    args, other_args = parse_exp_args()
+    run_exp(args, other_args)
 
 

@@ -14,14 +14,16 @@ if __name__ == "__main__":
     arg_parser.add_argument("--datasets", type=eval, default=f'{DATASET_LIST}')
     arg_parser.add_argument("--models", type=eval, default=f'{MODEL_LIST}')
     arg_parser.add_argument("--dpmm-types", type=eval, default=f'{DPMM_MODEL_TYPE}')
+    arg_parser.add_argument("--dpmm-modes", type=eval, default=f'{DPMM_MODE}')
 
-    args = arg_parser.parse_args()
+    args, other_exp_args = arg_parser.parse_known_args()
     print(args)
 
     n_kernels = args.n_kernels
     dataset_list = args.datasets
     model_list = args.models
     dpmm_types_list = args.dpmm_types
+    dpmm_modes_list = args.dpmm_modes
     segmentator = args.segmentator
 
     exp_dir = f"experiments_{segmentator}"
@@ -29,6 +31,10 @@ if __name__ == "__main__":
     if segmentator == "rocket":
         exp_dir += f"_nkernels{n_kernels}"
         segmentator_args += f' --n-kernel {n_kernels}'
+
+    if len(other_exp_args) > 0:
+        exp_dir += '_' +  '_'.join(sorted([other_exp_args[i][2:].replace('_','')+other_exp_args[i+1]
+                                           for i in range(0, len(other_exp_args),2)]))
 
     command_args_list = []
     for dataset in dataset_list:
@@ -42,7 +48,7 @@ if __name__ == "__main__":
                     command_args_list.append(command_args + segmentator_args)
                 else:
                     for dpmm_type in dpmm_types_list:
-                        for dpmm_mode in DPMM_MODE:
+                        for dpmm_mode in args.dpmm_modes:
                             dpmm_args = f' --dpmm-type {dpmm_type} --dpmm-mode {dpmm_mode}'
                             command_args_list.append(command_args + segmentator_args + dpmm_args)
 
@@ -52,8 +58,8 @@ if __name__ == "__main__":
     c_args = ''
 
     for c_args in command_args_list:
-        exp_args = parse_exp_args(c_args.split(' '))
-        f = pool.submit(run_exp, exp_args, suppress_output=True)
+        exp_args, _  = parse_exp_args(c_args.split(' '))
+        f = pool.submit(run_exp, exp_args, other_args=other_exp_args, suppress_output=True)
 
         def get_callback(command_args):
 

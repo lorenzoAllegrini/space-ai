@@ -8,22 +8,16 @@ import sys
 from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
-    # TODO: il costruttore dovrebbe accettare gli altri iper-parametri del DPMM per testare varie configurazioni
-    def __init__(self, mode="likelihood_threshold", model_type="full",
-                 K=100, num_iterations=1000, lr=0.1, alpha_DP=1.0, var_prior=1.0, var_prior_strength=1.0, quantile=0.05,
-                 python_executable=None):
+
+    def __init__(self, mode="likelihood_threshold", model_type="full", other_dpmm_args=None, python_executable=None):
 
         assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__()
         self.mode = mode
         self.model_type = model_type
-        self.K = K
-        self.num_iterations = num_iterations
-        self.lr = lr
-        self.alpha_DP = alpha_DP
-        self.var_prior = var_prior
-        self.var_prior_strength = var_prior_strength
-        self.quantile = quantile
+        # hyperparams
+        self.other_dpmm_args = other_dpmm_args
+
         self.python_executable = python_executable or shutil.which("python")
         self.X_train = None
         # Crea una cartella temporanea per train/test/model
@@ -52,23 +46,16 @@ class DPMMWrapperDetector(AnomalyClassifier):
         print(f"\nEseguo FIT DPMM in ambiente: {self.python_executable}")
 
         try:
-            subprocess.run([
-                self.python_executable,
-                run_dpmm_path,
-                "--mode", "fit",
-                "--prediction_type", self.mode,
-                "--train", self._train_path,
-                "--model", self._model_path,
-                "--info", self._info_path,
-                "--model_type", self.model_type,
-                "--K", str(self.K),
-                "--iterations", str(self.num_iterations),
-                "--lr", str(self.lr),
-                "--alpha_DP", str(self.alpha_DP),
-                "--var_prior", str(self.var_prior),
-                "--var_prior_strength", str(self.var_prior_strength),
-                "--quantile", str(self.quantile)
-            ], check=True, stdout=sys.stdout, stderr=sys.stderr)
+            subprocess.run([self.python_executable,
+                            run_dpmm_path,
+                            "--mode", "fit",
+                            "--prediction_type", self.mode,
+                            "--train", self._train_path,
+                            "--model", self._model_path,
+                            "--info", self._info_path,
+                            "--model_type", self.model_type] +
+                           self.other_dpmm_args,
+                           check=True, stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE FIT:")
             print("🔹 STDOUT:\n", e.stdout)

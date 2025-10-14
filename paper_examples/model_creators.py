@@ -18,13 +18,14 @@ def get_rockad_classifier(num_kernels):
 def get_xgboost_classifier():
     return XGBClassifier(eval_metric="logloss", base_score=0.5, n_jobs=1), True
 
-def get_dpmm_classifier(model_type, mode):
+def get_dpmm_classifier(model_type, mode, other_dpmm_args):
     pipeline = Pipeline([
         ("scaler", RobustScaler(with_centering=False)),
         ("dpmm", DPMMWrapperDetector(
             mode=mode,
             model_type=model_type,
             python_executable=DPMM_ENV_PATH,
+            other_dpmm_args=other_dpmm_args
         ))
     ])
     return pipeline, mode != 'likelihood_threshold'
