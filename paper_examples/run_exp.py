@@ -10,7 +10,7 @@ from dataset_exp import *
 from spaceai.models.anomaly_classifier import RocketClassifier
 
 DATASET_LIST = ["ops", "nasa", "esa"]
-MODEL_LIST = ['ocsvm', 'rockad', 'xgboost', 'ridge_regression', 'dpmm']
+MODEL_LIST = ['ocsvm', 'xgboost', 'ridge_regression', 'dpmm'] #'rockad'
 DPMM_MODEL_TYPE = ['full', 'diagonal', 'single', 'unit']
 DPMM_MODE = ['likelihood_threshold', 'cluster_labels']
 SEGMENTATOR_LIST = ["base_stats", "rocket"]
