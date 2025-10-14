@@ -24,9 +24,6 @@ def get_dpmm_classifier(model_type, mode):
         ("dpmm", DPMMWrapperDetector(
             mode=mode,
             model_type=model_type,
-            K=100,
-            num_iterations=50,
-            lr=0.1,
             python_executable=DPMM_ENV_PATH,
         ))
     ])
