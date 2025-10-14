@@ -87,14 +87,20 @@ def compute_channel_stats(dataset, channel) -> dict:
         return { "dataset": dataset, "channel": channel.channel_id, "preprocessed_length": int(n_windows), "negatives": negatives}
 
 
-def load_datasets():
+def load_datasets(output_dir):
+
+    file_path = os.path.join(output_dir, "channels_catalog.pkl")
+    if os.path.exists(file_path):
+        return pd.read_pickle(file_path)
+
     rows = []
     for dataset, channel_ids in get_channels().items():
         for channel_id in tqdm(channel_ids, desc=f"{dataset}", ncols=100, leave=True):
             channel = load_dataset_channel(dataset, channel_id)
             rows.append(compute_channel_stats(dataset, channel))
-
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df.to_pickle(file_path)
+    return df
 
 def compute_experiment_scores(datasets: pd.DataFrame, results_df: pd.DataFrame) -> Optional[dict]:
     req = {'true_positives','false_positives','false_negatives','train_time','tnr'}
@@ -159,11 +165,14 @@ def parse_args():
 
 
 def render_and_export(out_df: pd.DataFrame,
-                      output_dir: str,
+                      export_dir: str,
                       datasets_filter: list[str],
                       print_tables: bool = False) -> None:
 
-    os.makedirs(output_dir, exist_ok=True)
+    print(export_dir)
+    if os.path.exists(export_dir):
+        raise ValueError(f"Directory {export_dir} already exists. Remove it first if you want to recompute the results")
+    os.makedirs(export_dir)
 
     # Per dataset
     for ds in datasets_filter:
@@ -173,7 +182,7 @@ def render_and_export(out_df: pd.DataFrame,
             continue
 
         view_sorted = view.sort_values("f1", ascending=False)
-        csv_path = os.path.join(output_dir, f"{ds}_results.csv")
+        csv_path = os.path.join(export_dir, f"{ds}_results.csv")
         view_sorted.to_csv(csv_path, index=False)
 
         if print_tables:
@@ -182,7 +191,7 @@ def render_and_export(out_df: pd.DataFrame,
             print(f"Salvato in: {csv_path}")
 
     # Summary globale
-    summary_path = os.path.join(output_dir, "summary_all.csv")
+    summary_path = os.path.join(export_dir, "summary_all.csv")
     out_df.sort_values(["dataset", "f1"], ascending=[True, False]).to_csv(summary_path, index=False)
     if print_tables:
         print(f"\nRiassunto globale salvato in: {summary_path}")
@@ -192,7 +201,7 @@ def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    channels_catalog = load_datasets()  # ['dataset','channel','preprocessed_length','negatives']
+    channels_catalog = load_datasets(args.output_dir)  # ['dataset','channel','preprocessed_length','negatives']
 
     datasets_filter = [d.strip().lower() for d in args.datasets.split(",") if d.strip()]
 
@@ -228,10 +237,11 @@ def main():
     if out_df.empty:
         print("Nessun results.csv valido trovato.")
         return
-    
+
+    export_dir = os.path.join(args.output_dir, os.path.basename(os.path.normpath(args.base_dir)))
     render_and_export(
       out_df=out_df,
-      output_dir=args.output_dir,
+      export_dir=export_dir,
       datasets_filter=datasets_filter,
       print_tables=args.print_tables
     )
