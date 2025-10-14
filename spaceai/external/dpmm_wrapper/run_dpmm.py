@@ -19,21 +19,20 @@ if __name__ == "__main__":
 
     # fit
     parser.add_argument("--train", help="CSV di training")
-    parser.add_argument("--model_type", default="full")
-    parser.add_argument("--K", type=int, default=100)
-    parser.add_argument("--iterations", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=0.1)
-    parser.add_argument("--alpha_DP", type=float, default=1.0)
-    parser.add_argument("--var_prior", type=float, default=1.0)
-    parser.add_argument("--var_prior_strength", type=float, default=1.0)
-    parser.add_argument("--quantile", type=float, default=0.05)
+    parser.add_argument("--model_type")
+    parser.add_argument("--K", type=int)
+    parser.add_argument("--iterations", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--alpha_DP", type=float)
+    parser.add_argument("--var_prior", type=float)
+    parser.add_argument("--var_prior_strength", type=float)
+    parser.add_argument("--quantile", type=float)
 
     # predict
     parser.add_argument("--test", help="CSV di test")
     parser.add_argument("--output", help="File CSV di output")
 
     args = parser.parse_args()
-    
     if args.mode == "fit":
         if args.train is None:
             raise ValueError("--train richiesto in modalità fit")

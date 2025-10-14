@@ -9,7 +9,10 @@ from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
     # TODO: il costruttore dovrebbe accettare gli altri iper-parametri del DPMM per testare varie configurazioni
-    def __init__(self, mode="likelihood_threshold", model_type="full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+    def __init__(self, mode="likelihood_threshold", model_type="full",
+                 K=100, num_iterations=1000, lr=0.1, alpha_DP=1.0, var_prior=1.0, var_prior_strength=1.0, quantile=0.05,
+                 python_executable=None):
+
         assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__()
         self.mode = mode
@@ -17,6 +20,10 @@ class DPMMWrapperDetector(AnomalyClassifier):
         self.K = K
         self.num_iterations = num_iterations
         self.lr = lr
+        self.alpha_DP = alpha_DP
+        self.var_prior = var_prior
+        self.var_prior_strength = var_prior_strength
+        self.quantile = quantile
         self.python_executable = python_executable or shutil.which("python")
         self.X_train = None
         # Crea una cartella temporanea per train/test/model
@@ -56,9 +63,12 @@ class DPMMWrapperDetector(AnomalyClassifier):
                 "--model_type", self.model_type,
                 "--K", str(self.K),
                 "--iterations", str(self.num_iterations),
-                "--lr", str(self.lr)
-                # TODO: qui si possono passare anche altri iper-parametri del DPMM
-            ], check=True, capture_output=True, text=True)
+                "--lr", str(self.lr),
+                "--alpha_DP", str(self.alpha_DP),
+                "--var_prior", str(self.var_prior),
+                "--var_prior_strength", str(self.var_prior_strength),
+                "--quantile", str(self.quantile)
+            ], check=True, stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE FIT:")
             print("🔹 STDOUT:\n", e.stdout)
@@ -85,7 +95,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
                 "--model", self._model_path,
                 "--info", self._info_path,
                 "--output", self._output_path
-            ], check=True, capture_output=True, text=True)
+            ], check=True, stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE PREDICT:")
             print("🔹 STDOUT:\n", e.stdout)
