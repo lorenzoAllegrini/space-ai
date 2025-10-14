@@ -169,10 +169,7 @@ def render_and_export(out_df: pd.DataFrame,
                       datasets_filter: list[str],
                       print_tables: bool = False) -> None:
 
-    print(export_dir)
-    if os.path.exists(export_dir):
-        raise ValueError(f"Directory {export_dir} already exists. Remove it first if you want to recompute the results")
-    os.makedirs(export_dir)
+    os.makedirs(export_dir, exist_ok=True)
 
     # Per dataset
     for ds in datasets_filter:
