@@ -1,10 +1,18 @@
 from .anomaly_dataset import AnomalyDataset
+from .esa import ESA, ESAMission, ESAMissions
 from .nasa import NASA
-from .esa import (
-    ESA,
-    ESAMissions,
-    ESAMission,
-)
 from .ops_sat import OPSSAT
+from .plant_datamodule import PlantDataModule, PlantDataModuleConfig
+from .plant_dataset import PlantDataset
 
-__all__ = ["AnomalyDataset", "NASA", "ESA", "ESAMissions", "ESAMission", "OPSSAT"]
+__all__ = [
+    "AnomalyDataset",
+    "ESA",
+    "ESAMission",
+    "ESAMissions",
+    "NASA",
+    "OPSSAT",
+    "PlantDataModule",
+    "PlantDataModuleConfig",
+    "PlantDataset",
+]

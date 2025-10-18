@@ -1,6 +1,3 @@
-from . import (
-    predictors,
-    anomaly,
-)
+from . import anomaly, predictors, prompt_learning
 
-__all__ = ["predictors", "anomaly"]
+__all__ = ["anomaly", "predictors", "prompt_learning"]
