@@ -23,9 +23,7 @@ BASE_STATISTICS_LIST=[
             "diff_peaks",
             "diff2_peaks",
             "diff_var",
-            "diff2_var",
-            "kurtosis",
-            "skew",
+            "diff2_var"
         ]
 
 def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
@@ -38,6 +36,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         segments_id="channel_segments",
         save_csv=False
     )
+    print('Loading data...')
 
     benchmark = ESABenchmark(
         run_id=run_id,
@@ -47,6 +46,8 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
     )
     callbacks = [SystemMonitorCallback()]
 
+    print('Data loaded!')
+
     for mission_wrapper in ESAMissions:
         mission = mission_wrapper.value
         if mission.index != 1:
@@ -54,6 +55,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         for channel_id in mission.target_channels:
             if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46:
                 continue
+            print(f'Running classifier on channel {channel_id}')
 
             benchmark.run_classifier(
                 mission=mission,
@@ -72,6 +74,8 @@ def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
         extract_features=extract_features,
         transformations=BASE_STATISTICS_LIST,
     )
+    print('Loading data...')
+
     benchmark = NASABenchmark(
         run_id=run_id,
         exp_dir=exp_dir,
@@ -80,9 +84,11 @@ def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
     )
     callbacks = [SystemMonitorCallback()]
 
+    print('Data loaded!')
+
     channels = NASA.channel_ids
     for i, channel_id in enumerate(channels):
-        print(f"{i+1}/{len(channels)}: {channel_id}")
+        print(f'Running classifier on channel {channel_id}')
 
         benchmark.run_classifier(
             channel_id,
@@ -97,8 +103,10 @@ def run_ops_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         segment_duration=50,
         step_duration=50,
         extract_features=extract_features,
-        transformations=BASE_STATISTICS_LIST,
+        transformations=BASE_STATISTICS_LIST + ["kurtosis", "skew"]
     )
+
+    print('Loading data...')
 
     benchmark = OPSSATBenchmark(
         run_id=run_id,
@@ -106,12 +114,13 @@ def run_ops_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         data_root="datasets",
         segmentator=segmentator,
     )
-
     callbacks = [SystemMonitorCallback()]
+
+    print('Data loaded!')
 
     channels = OPSSAT.channel_ids
     for i, channel_id in enumerate(channels):
-
+        print(f'Running classifier on channel {channel_id}')
         benchmark.run_classifier(
             channel_id,
             classifier=classifier,

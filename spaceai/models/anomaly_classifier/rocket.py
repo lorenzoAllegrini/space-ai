@@ -19,7 +19,7 @@ class RocketClassifier(AnomalyClassifier):
     def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:
 
         X = self._prepare_input(X)
-        self.rocket = Rocket(num_kernels=self.num_kernels, n_jobs=-1)
+        self.rocket = Rocket(num_kernels=self.num_kernels, n_jobs=1)
         features_train = self.rocket.fit_transform(X)
 
         if y is None:

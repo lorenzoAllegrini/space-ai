@@ -58,7 +58,7 @@ class NasaDatasetSegmentator:
         step_duration: int = 1,
         telecommands: bool = False,
         extract_features: bool = True,
-        run_id: str = "esa_segments",
+        run_id: str = "nasa_segments",
         exp_dir: str = "experiments",
         poolings: Optional[List[str]] = None,
         pooling_config: Optional[Dict[str, Dict[str, str]]] = None,

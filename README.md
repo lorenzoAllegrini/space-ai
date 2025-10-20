@@ -26,5 +26,17 @@ pip install spaceai
 
 ```
 
+## Run paper experiment
+```bash
+./run_paper_experiment.sh run1
+./get_all_results.sh run1
+
+```
+whre `run1` is the folder name where the results will be saved.
+THE EXPERIMENTS ARE EXECUTED IN PARALLEL. BE SURE TO HAVE AT LEAST 162 CPUs AVAILABLE.
+For a sequential execution, you should modify the script `run_paper_experiment.sh`.
+
+
 ## Credits
 We thank [eclypse-org](https://github.com/eclypse-org) and [Jacopo Massa](https://github.com/jacopo-massa) for the structure and the template of the documentation!
+

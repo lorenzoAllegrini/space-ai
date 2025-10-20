@@ -8,15 +8,16 @@ import sys
 from .anomaly_classifier import AnomalyClassifier
 
 class DPMMWrapperDetector(AnomalyClassifier):
-    # TODO: il costruttore dovrebbe accettare gli altri iper-parametri del DPMM per testare varie configurazioni
-    def __init__(self, mode="likelihood_threshold", model_type="full", K=100, num_iterations=100, lr=0.8, python_executable=None):
+
+    def __init__(self, mode="likelihood_threshold", model_type="full", other_dpmm_args=None, python_executable=None):
+
         assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__()
         self.mode = mode
         self.model_type = model_type
-        self.K = K
-        self.num_iterations = num_iterations
-        self.lr = lr
+        # hyperparams
+        self.other_dpmm_args = other_dpmm_args
+
         self.python_executable = python_executable or shutil.which("python")
         self.X_train = None
         # Crea una cartella temporanea per train/test/model
@@ -45,20 +46,16 @@ class DPMMWrapperDetector(AnomalyClassifier):
         print(f"\nEseguo FIT DPMM in ambiente: {self.python_executable}")
 
         try:
-            subprocess.run([
-                self.python_executable,
-                run_dpmm_path,
-                "--mode", "fit",
-                "--prediction_type", self.mode,
-                "--train", self._train_path,
-                "--model", self._model_path,
-                "--info", self._info_path,
-                "--model_type", self.model_type,
-                "--K", str(self.K),
-                "--iterations", str(self.num_iterations),
-                "--lr", str(self.lr)
-                # TODO: qui si possono passare anche altri iper-parametri del DPMM
-            ], check=True, capture_output=True, text=True)
+            subprocess.run([self.python_executable,
+                            run_dpmm_path,
+                            "--mode", "fit",
+                            "--prediction_type", self.mode,
+                            "--train", self._train_path,
+                            "--model", self._model_path,
+                            "--info", self._info_path,
+                            "--model_type", self.model_type] +
+                           self.other_dpmm_args,
+                           check=True, stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE FIT:")
             print("🔹 STDOUT:\n", e.stdout)
@@ -85,7 +82,7 @@ class DPMMWrapperDetector(AnomalyClassifier):
                 "--model", self._model_path,
                 "--info", self._info_path,
                 "--output", self._output_path
-            ], check=True, capture_output=True, text=True)
+            ], check=True, stdout=sys.stdout, stderr=sys.stderr)
         except subprocess.CalledProcessError as e:
             print("\n🚨 ERRORE DURANTE PREDICT:")
             print("🔹 STDOUT:\n", e.stdout)
