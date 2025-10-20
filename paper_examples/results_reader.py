@@ -87,19 +87,19 @@ def compute_channel_stats(dataset, channel) -> dict:
         return { "dataset": dataset, "channel": channel.channel_id, "preprocessed_length": int(n_windows), "negatives": negatives}
 
 
-def load_datasets(output_dir):
+def load_datasets(channel_cat_path):
 
-    file_path = os.path.join(output_dir, "channels_catalog.pkl")
-    if os.path.exists(file_path):
-        return pd.read_pickle(file_path)
+    if os.path.exists(channel_cat_path):
+        return pd.read_pickle(channel_cat_path)
 
+    print(f"Computing channel catalogue...")
     rows = []
     for dataset, channel_ids in get_channels().items():
         for channel_id in tqdm(channel_ids, desc=f"{dataset}", ncols=100, leave=True):
             channel = load_dataset_channel(dataset, channel_id)
             rows.append(compute_channel_stats(dataset, channel))
     df = pd.DataFrame(rows)
-    df.to_pickle(file_path)
+    df.to_pickle(channel_cat_path)
     return df
 
 def compute_experiment_scores(datasets: pd.DataFrame, results_df: pd.DataFrame) -> Optional[dict]:
@@ -148,6 +148,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Aggrega risultati esperimenti AD.")
     p.add_argument("--base-dir", default="experiments", help="Cartella radice degli esperimenti.")
     p.add_argument("--output-dir", default="all_results", help="Cartella dove salvare i CSV.")
+    p.add_argument("--channel-cat-path", default="all_results/channels_catalog.pkl", help="Path dove salvare il channel catalogue")
     p.add_argument(
         "--datasets", default="ops,nasa,esa",
         help="Dataset da includere (comma-sep): es. 'ops,nasa' oppure 'esa'."
@@ -160,7 +161,7 @@ def parse_args():
         "--exclude", default="",
         help="Regex per escludere alcune cartelle esperimento (match su nome cartella)."
     )
-    p.add_argument("--print_tables", default=True, action="store_true", help="Stampa tabelle in console (tabulate).")
+    p.add_argument("--print_tables", default=False, action="store_true", help="Stampa tabelle in console (tabulate).")
     return p.parse_args()
 
 
@@ -198,7 +199,7 @@ def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    channels_catalog = load_datasets(args.output_dir)  # ['dataset','channel','preprocessed_length','negatives']
+    channels_catalog = load_datasets(args.channel_cat_path)  # ['dataset','channel','preprocessed_length','negatives']
 
     datasets_filter = [d.strip().lower() for d in args.datasets.split(",") if d.strip()]
 

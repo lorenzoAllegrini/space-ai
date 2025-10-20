@@ -11,6 +11,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--n-workers", type=int, default=1)
     arg_parser.add_argument("--segmentator", type=str, required=True)
     arg_parser.add_argument("--n-kernels", type=int)
+    arg_parser.add_argument("--output-dir", type=str, default='')
     arg_parser.add_argument("--datasets", type=eval, default=f'{DATASET_LIST}')
     arg_parser.add_argument("--models", type=eval, default=f'{MODEL_LIST}')
     arg_parser.add_argument("--dpmm-types", type=eval, default=f'{DPMM_MODEL_TYPE}')
@@ -36,10 +37,12 @@ if __name__ == "__main__":
         exp_dir += '_' +  '_'.join(sorted([other_exp_args[i][2:].replace('_','')+other_exp_args[i+1]
                                            for i in range(0, len(other_exp_args),2)]))
 
+    exp_path = os.path.join(args.output_dir, exp_dir)
+
     command_args_list = []
     for dataset in dataset_list:
         for model in model_list:
-            command_args = f'--exp-dir {exp_dir} --dataset {dataset} --model {model}'
+            command_args = f'--exp-dir {exp_path} --dataset {dataset} --model {model}'
 
             if model == 'rockad':
                 command_args_list.append(command_args + f' --n-kernel {n_kernels} --segmentator rocket')
