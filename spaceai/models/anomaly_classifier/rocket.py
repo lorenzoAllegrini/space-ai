@@ -1,6 +1,5 @@
 import numpy as np
-from typing import Optional
-from pyod.models.base import BaseDetector
+from typing import Optional, Any
 from sktime.transformations.panel.rocket import Rocket
 from .anomaly_classifier import AnomalyClassifier
 
@@ -10,7 +9,7 @@ class RocketClassifier(AnomalyClassifier):
     and fits a given classifier.
     """
 
-    def __init__(self, base_model: BaseDetector, num_kernels: int = 100):
+    def __init__(self, base_model: Any, num_kernels: int = 100):
 
         self.base_model = base_model
         self.num_kernels = num_kernels

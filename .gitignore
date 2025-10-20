@@ -154,7 +154,7 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
-
+.DS_Store
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -166,3 +166,4 @@ experiments/
 datasets/
 ESA-Mission1.zip?download=1
 preprocessed_*
+all_results/

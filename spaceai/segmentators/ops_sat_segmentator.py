@@ -80,7 +80,6 @@ class OPSSATDatasetSegmentator:
         if self.extract_features:
             all_columns = self.transformations.copy()
             segments = pd.DataFrame(segments, columns=all_columns)
-            segments.to_csv(f"preprocessed_{nasa_channel.channel_id}.csv")
         return segments, anomalies
         
     def create_segments_from_channel(
