@@ -95,7 +95,7 @@ class EsaDatasetSegmentator:
         telecommands: bool = False,
         extract_features: bool = True,
         exp_dir: str = "experiments",
-        segments_id:str = "channel_segments"
+        segments_id:str = "esa_segments"
     ) -> None:
         
         for transformation in transformations:
@@ -114,7 +114,6 @@ class EsaDatasetSegmentator:
     def segment(self, esa_channel: ESA) :
 
         output_dir = os.path.join(self.exp_dir, self.segments_id)
-        os.makedirs(output_dir, exist_ok=True)
         train_file_name = f"{esa_channel.channel_id}_segments_train_.csv"
         test_file_name = f"{esa_channel.channel_id}_segments_test_.csv"
         output_file = train_file_name if esa_channel.train else test_file_name
@@ -138,6 +137,7 @@ class EsaDatasetSegmentator:
             columns = ["event"] + base_columns
             df = pd.DataFrame(segments, columns=columns)
             if self.save_csv:
+                os.makedirs(output_dir, exist_ok=True)
                 df.to_csv(csv_path, index=False)
             df = df.drop(columns=df.filter(like="event").columns)
         else:
