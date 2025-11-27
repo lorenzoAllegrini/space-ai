@@ -30,9 +30,10 @@ if TYPE_CHECKING:
 
 import logging
 
-from .benchmark import Benchmark
 import more_itertools as mit
-from spaceai.segmentators.ops_sat_segmentator import OPSSATDatasetSegmentator
+
+from .benchmark import Benchmark
+
 
 class OPSSATBenchmark(Benchmark):
 
@@ -103,7 +104,6 @@ class OPSSATBenchmark(Benchmark):
             logging.info(f"Restoring predictor for channel {channel_id}...")
             predictor.load(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
 
-        
         elif fit_predictor_args is not None:
             logging.info(f"Fitting the predictor for channel {channel_id}...")
             # Training the predictor
@@ -134,7 +134,7 @@ class OPSSATBenchmark(Benchmark):
                     else None
                 )
             except Exception as e:
-                print("a")
+
                 return
             callback_handler.start()
             predictor.stateful = False
@@ -185,7 +185,7 @@ class OPSSATBenchmark(Benchmark):
             np.concatenate(seq)[test_channel.window_size - 1 :]
             for seq in [y_pred, y_trg]
         ]
-        #callback_handler.stop()
+        callback_handler.stop()
         results.update(
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
@@ -193,7 +193,7 @@ class OPSSATBenchmark(Benchmark):
         logging.info(f"Test loss for channel {channel_id}: {results['test_loss']}")
         # Testing the detector
         logging.info(f"Detecting anomalies for channel {channel_id}")
-        #callback_handler.start()
+        callback_handler.start()
         if len(y_trg) < 2500:
             detector.ignore_first_n_factor = 1
         if len(y_trg) < 1800:
@@ -203,10 +203,15 @@ class OPSSATBenchmark(Benchmark):
             pred_anomalies += detector.flush_detector()
             callback_handler.stop()
             results.update(
-                {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
+                {
+                    f"detect_{k}": v
+                    for k, v in callback_handler.collect(reset=True).items()
+                }
             )
         except Exception as e:
-            logging.warning(f"Skipping anomaly detection for channel {channel_id} due to error: {e}")
+            logging.warning(
+                f"Skipping anomaly detection for channel {channel_id} due to error: {e}"
+            )
             return
         logging.info(
             f"Detection time for channel {channel_id}: {results['detect_time']}"
@@ -217,7 +222,10 @@ class OPSSATBenchmark(Benchmark):
             true_anomalies, pred_anomalies
         )
         classification_results = self.compute_corrected_classification_metrics(
-            classification_results, true_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results,
+            true_anomalies,
+            pred_anomalies,
+            total_length=len(y_pred),
         )
         results.update(classification_results)
         if train_history is not None:
@@ -232,6 +240,7 @@ class OPSSATBenchmark(Benchmark):
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
         )
+
     def run_classifier(
         self,
         channel_id: str,
@@ -239,7 +248,7 @@ class OPSSATBenchmark(Benchmark):
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: Optional[int] = 100,
-        supervised = True
+        supervised=True,
     ):
         """Esegue il benchmark diretto per classificazione di anomalie su segmenti.
 
@@ -263,7 +272,7 @@ class OPSSATBenchmark(Benchmark):
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
 
-        if isinstance(train_channel, pd.DataFrame):          
+        if isinstance(train_channel, pd.DataFrame):
             train_channel = train_channel.dropna().reset_index(drop=True)
 
         num_segments = len(train_channel)
@@ -273,7 +282,7 @@ class OPSSATBenchmark(Benchmark):
         for start, end in train_anomalies:
             start = max(0, start)
             end = min(num_segments - 1, end)
-            train_labels[start:end + 1] = 1
+            train_labels[start : end + 1] = 1
 
         logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
 
@@ -281,32 +290,26 @@ class OPSSATBenchmark(Benchmark):
             unique, counts = np.unique(train_labels, return_counts=True)
             if len(unique) < 2:
                 return
-            classifier.fit(X=train_channel, y=train_labels) 
+            classifier.fit(X=train_channel, y=train_labels)
         else:
-            classifier.fit(X=train_channel, y=train_labels) 
+            classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
         results.update(
-            {
-                f"train_{k}": v
-                for k, v in callback_handler.collect(reset=True).items()
-            }
+            {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         callback_handler.start()
 
         if self.segmentator is not None:
             test_channel, test_anomalies = self.segmentator.segment(test_channel)
 
-        if isinstance(test_channel, pd.DataFrame):    
+        if isinstance(test_channel, pd.DataFrame):
             test_channel = test_channel.dropna().reset_index(drop=True)
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = np.where(y_pred == 1)[0]
 
         if len(pred_anomalies) > 0:
             groups = [list(group) for group in mit.consecutive_groups(pred_anomalies)]
-            pred_anomalies = [
-                [int(group[0]), int(group[-1])]
-                for group in groups
-            ]
+            pred_anomalies = [[int(group[0]), int(group[-1])] for group in groups]
         else:
             pred_anomalies = []
 
@@ -315,23 +318,31 @@ class OPSSATBenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
 
-        print("---------------------------------------------")
-        print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {[[int(start),int(end)] for start, end in test_anomalies]}")
-
         classification_results = self.compute_classification_metrics(
             test_anomalies, pred_anomalies
         )
 
         classification_results = self.compute_corrected_classification_metrics(
-            classification_results, test_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results,
+            test_anomalies,
+            pred_anomalies,
+            total_length=len(y_pred),
         )
-        print(f"precision: {classification_results['precision_corrected']}")
-        print(f"recall: {classification_results['recall']}")
-
-        print("---------------------------------------------")
         results.update(classification_results)
+        # Reconstruct binary mask for anomalies
+        test_anomalies_mask = np.zeros(len(y_pred), dtype=int)
+        for start, end in test_anomalies:
+            test_anomalies_mask[int(start) : int(end) + 1] = 1
 
+        results.update(
+            {
+                "test_length": len(test_channel),
+                "test_negatives": len(test_channel) - test_anomalies_mask.sum(),
+                "detected_negatives": int(
+                    ((y_pred == 0) & (test_anomalies_mask == 0)).sum()
+                ),
+            }
+        )
         logging.info(f"Results for channel {channel_id}")
 
         self.all_results.append(results)
@@ -429,7 +440,6 @@ class OPSSATBenchmark(Benchmark):
 
         return results
 
-
     def compute_corrected_classification_metrics(
         self,
         results: Dict[str, Any],
@@ -456,7 +466,7 @@ class OPSSATBenchmark(Benchmark):
         indices_all_flat = indices_true_flat.union(indices_pred_flat)
         n_e = total_length - len(indices_true_flat)
         tn_e = total_length - len(indices_all_flat)
-        for k,v in results.items():
+        for k, v in results.items():
             esa_results[k] = v
         esa_results["tnr"] = tn_e / n_e if n_e > 0 else 1
         esa_results["precision_corrected"] = results["precision"] * esa_results["tnr"]
@@ -471,13 +481,12 @@ class OPSSATBenchmark(Benchmark):
         )
         esa_results["corrected_f1"] = (
             (
-                2 *
-                (esa_results["precision_corrected"] * results["recall"])
+                2
+                * (esa_results["precision_corrected"] * results["recall"])
                 / (esa_results["precision_corrected"] + results["recall"])
             )
             if esa_results["precision_corrected"] + results["recall"] > 0
             else 0
         )
-        
+
         return esa_results
-    

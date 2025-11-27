@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import torch
-from torchdyno.models.esn import EchoStateNetwork
+from torchdyno.models.esn import EchoStateNetwork  # type: ignore
 
 from spaceai.models.predictors.seq_model import SequenceModel
 

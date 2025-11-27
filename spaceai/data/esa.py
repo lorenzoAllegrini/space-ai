@@ -12,12 +12,12 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 import torch
 
+from .anomaly_dataset import AnomalyDataset
 from .utils import download_and_extract_zip
 
-from .anomaly_dataset import AnomalyDataset
 
 class AnnotationLabel(
     Enum
@@ -132,7 +132,7 @@ class ESA(
         download: bool = True,
         uniform_start_end_date: bool = True,
         drop_last: bool = True,
-        use_telecommands: bool = True
+        use_telecommands: bool = True,
     ):  # pylint: disable=useless-parent-delegation, too-many-arguments
         """ESABenchmark class that preprocesses and loads ESA dataset for training and
         testing.
@@ -185,7 +185,9 @@ class ESA(
                 " Anomalies will be repeated in the dataset."
             )
 
-        self.data, self.anomalies, self.communication_gaps = self.load_and_preprocess(channel_id)
+        self.data, self.anomalies, self.communication_gaps = self.load_and_preprocess(
+            channel_id
+        )
 
     def __getitem__(self, index: int) -> Union[
         Tuple[torch.Tensor, torch.Tensor],
@@ -293,7 +295,7 @@ class ESA(
         """
         source_folder = os.path.join(self.root, self.mission.inner_dirpath)
         if not self.train and self._mode == "challenge":
-            
+
             return self.load_challenge_channel(channel_id)
         # Load and format parameter (channel)
         if channel_id in self.mission.parameters:
@@ -316,11 +318,17 @@ class ESA(
         channel_df = channel_df.ffill().bfill().astype(np.float32)
 
         if self.use_telecommands:
-            telecommands_csv = pd.read_csv(os.path.join(source_folder, "telecommands.csv"))
-            prioritized_tcs = telecommands_csv.loc[telecommands_csv["Priority"] >= 3, "Telecommand"].to_numpy().flatten()
-            
+            telecommands_csv = pd.read_csv(
+                os.path.join(source_folder, "telecommands.csv")
+            )
+            prioritized_tcs = (
+                telecommands_csv.loc[telecommands_csv["Priority"] >= 3, "Telecommand"]
+                .to_numpy()
+                .flatten()
+            )
+
             telecommand_dfs = []
-            
+
             for tc in prioritized_tcs:
                 tc_file = os.path.join(source_folder, "telecommands", f"{tc}.zip")
                 if os.path.exists(tc_file):
@@ -331,7 +339,7 @@ class ESA(
                     for ts in df_tc.index:
                         pos = channel_index.searchsorted(ts, side="left")
                         if pos < len(channel_index):
-                            df_tc_bool.iloc[pos] = 1  
+                            df_tc_bool.iloc[pos] = 1
                     telecommand_dfs.append(df_tc_bool.to_frame())
                 else:
                     logging.warning(f"Telecommand file {tc_file} not found.")
@@ -344,7 +352,6 @@ class ESA(
                 telecommands_df = telecommands_df.fillna(0)
                 channel_df = channel_df.join(telecommands_df, how="left")
 
-
         map_datetime_index = pd.DataFrame(
             list(range(0, len(channel_df))), index=channel_df.index, columns=["value"]
         )
@@ -353,7 +360,7 @@ class ESA(
 
         anomaly_types_df = pd.read_csv(os.path.join(source_folder, "anomaly_types.csv"))
         labels_df = pd.merge(labels_df, anomaly_types_df, how="inner", on="ID")
-        
+
         for dcol in ["StartTime", "EndTime"]:
             labels_df[dcol] = pd.to_datetime(labels_df[dcol]).dt.tz_localize(None)
         labels_df = labels_df.loc[labels_df["Channel"] == channel_id]
@@ -377,7 +384,10 @@ class ESA(
             ]
             start_idx = map_datetime_index_range.iloc[0]["value"]
             end_idx = map_datetime_index_range.iloc[-1]["value"]
-            if label_row["Category"] == "Anomaly" or label_row["Category"] == "Rare Event":
+            if (
+                label_row["Category"] == "Anomaly"
+                or label_row["Category"] == "Rare Event"
+            ):
                 anomalies.append((start_idx, end_idx))
             elif label_row["Category"] == "Communication Gap":
                 communication_gaps.append((start_idx, end_idx))
@@ -387,30 +397,33 @@ class ESA(
                 channel_df,
                 self.mission.start_date,
                 self.mission.end_date,
-            ) 
+            )
 
         channel = channel_df.values.astype(np.float32)
         anomalies = sorted(anomalies, key=lambda x: x[0])
         communication_gaps = sorted(communication_gaps, key=lambda x: x[0])
 
-        return channel, anomalies, communication_gaps 
-    
+        return channel, anomalies, communication_gaps
+
     def load_challenge_channel(self, channel_id: str):
 
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # type: ignore
+
         source_folder = os.path.join(self.root, "ESA-Mission1-challenge")
         table = pq.read_table(os.path.join(source_folder, "test.parquet"))
         df = table.to_pandas()
-        
+
         # Seleziona le colonne che iniziano con "telecommand_" e ordinali per numero crescente
         telecommand_cols = [col for col in df.columns if col.startswith("telecommand_")]
-        telecommand_cols = sorted(telecommand_cols, key=lambda col: int(col.split("_")[1]))
-        
+        telecommand_cols = sorted(
+            telecommand_cols, key=lambda col: int(col.split("_")[1])
+        )
+
         selected_cols = [channel_id] + telecommand_cols
         channel = df[selected_cols]
-        
+
         return channel.values.astype(np.float32), [], []
-        
+
     @property
     def in_features_size(self) -> str:
         """Return the size of the input features."""

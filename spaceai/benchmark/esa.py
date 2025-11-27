@@ -11,6 +11,7 @@ from typing import (
     Tuple,
 )
 
+import more_itertools as mit
 import numpy as np
 import pandas as pd
 from torch.utils.data import (
@@ -25,15 +26,15 @@ from spaceai.data import (
 from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
-import more_itertools as mit
+
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
-    from spaceai.models.anomaly import AnomalyDetector
     from .callbacks import Callback
 
 from tqdm import tqdm
 
 from .benchmark import Benchmark
+
 
 class ESABenchmark(Benchmark):
 
@@ -41,11 +42,10 @@ class ESABenchmark(Benchmark):
         self,
         run_id: str,
         exp_dir: str,
-         segmentator: Any,
+        segmentator: Any,
         seq_length: int = 250,
         n_predictions: int = 1,
         data_root: str = "datasets",
-
     ):
         """Initializes a new ESA benchmark run.
 
@@ -250,7 +250,7 @@ class ESABenchmark(Benchmark):
     ) -> Dict[str, Any]:
         """
         Runs the anomaly classifier benchmark for a given channel.
-        
+
         Args:
             mission (ESAMission): The mission configuration to use.
             channel_id (str): The channel ID to process.
@@ -259,7 +259,7 @@ class ESABenchmark(Benchmark):
             overlapping_train (bool): Whether to use overlapping sequences for training.
             callbacks (Optional[List[Callback]]): Optional list of callbacks for monitoring.
             call_every_ms (int): Interval (in milliseconds) for calling callbacks.
-        
+
         Returns:
             Dict[str, Any]: A dictionary containing the benchmark results.
         """
@@ -267,33 +267,31 @@ class ESABenchmark(Benchmark):
             callbacks=callbacks if callbacks is not None else [],
             call_every_ms=call_every_ms,
         )
-        train_channel, test_channel = self.load_channel(mission, channel_id, overlapping_train=overlapping_train)
+        train_channel, test_channel = self.load_channel(
+            mission, channel_id, overlapping_train=overlapping_train
+        )
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
         callback_handler.start()
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
-        
+
         logging.info(f"Fitting the classifier for channel {channel_id}...")
 
- 
         num_segments = len(train_channel)
         train_labels = np.zeros(num_segments, dtype=int)
         for start, end in train_anomalies:
             start = max(0, start)
             end = min(num_segments - 1, end)
-            train_labels[start:end + 1] = 1
+            train_labels[start : end + 1] = 1
         if supervised:
             classifier.fit(X=train_channel, y=train_labels)
         else:
             classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
         results.update(
-            {
-                f"train_{k}": v
-                for k, v in callback_handler.collect(reset=True).items()
-            }
+            {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         # Evaluate the classifier on test data
         logging.info(f"Predicting the test data for channel {channel_id}...")
@@ -310,62 +308,38 @@ class ESABenchmark(Benchmark):
         )
         combined_anomalies = test_anomalies
         combined_anomalies.sort(key=lambda x: x[0])
-        classification_results = self.compute_classification_metrics(combined_anomalies, pred_anomalies)
+        classification_results = self.compute_classification_metrics(
+            combined_anomalies, pred_anomalies
+        )
 
         esa_classification_results = self.compute_esa_classification_metrics(
-            classification_results, combined_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results,
+            combined_anomalies,
+            pred_anomalies,
+            total_length=len(y_pred),
         )
         classification_results.update(esa_classification_results)
         results.update(classification_results)
+        # Reconstruct binary mask for anomalies
+        test_anomalies_mask = np.zeros(len(y_pred), dtype=int)
+        for start, end in test_anomalies:
+            test_anomalies_mask[int(start) : int(end) + 1] = 1
 
+        results.update(
+            {
+                "test_length": len(test_channel),
+                "test_negatives": len(test_channel) - test_anomalies_mask.sum(),
+                "detected_negatives": int(
+                    ((y_pred == 0) & (test_anomalies_mask == 0)).sum()
+                ),
+            }
+        )
         logging.info(f"Results for channel {channel_id}: {results}")
 
         self.all_results.append(results)
-        pd.DataFrame.from_records(self.all_results).to_csv(os.path.join(self.run_dir, "results.csv"), index=False)
-        return results
-
-    def classifier_model_selection( 
-        self,
-        mission: ESAMission,
-        channel_id: str,
-        search_cv: Optional[Any],
-        overlapping_train: Optional[bool] = True,
-        callbacks: Optional[List[Callback]] = None,
-        call_every_ms: Optional[int] = 100,
-    ):
-        callback_handler = CallbackHandler(
-            callbacks=callbacks if callbacks is not None else [],
-            call_every_ms=call_every_ms,
+        pd.DataFrame.from_records(self.all_results).to_csv(
+            os.path.join(self.run_dir, "results.csv"), index=False
         )
-        train_channel, test_channel = self.load_channel(
-            mission,
-            channel_id, 
-            overlapping_train=overlapping_train
-        )
-        if self.segmentator is not None:
-            train_channel, anomalies, rare_events = self.segmentator.segment(train_channel)
-            test_channel, _, _ = self.segmentator.segment(test_channel)
-
-        num_segments = len(train_channel)
-        labels = np.zeros(num_segments, dtype=int)
-
-        all_events = anomalies + rare_events
-        for start, end in all_events:
-            start = max(0, start)
-            end = min(num_segments - 1, end)
-            labels[start:end + 1] = 1
-
-        callback_handler.start()
-        search_cv.fit(X=train_channel, y=labels)
-        callback_handler.stop()
-
-        best_estimator = search_cv.best_estimator_
-        test_pred = best_estimator.predict(test_channel)
-
-        results = {
-            "best_params": search_cv.best_params_,
-            "valid_score": search_cv.best_score_,
-        }
         return results
 
     def load_channel(
@@ -497,7 +471,9 @@ class ESABenchmark(Benchmark):
         )
         return esa_results
 
-    def process_pred_anomalies(self, y_pred: np.ndarray, pred_buffer: int) -> List[List[int]]:
+    def process_pred_anomalies(
+        self, y_pred: np.ndarray, pred_buffer: int
+    ) -> List[List[int]]:
         pred_anomalies = np.where(y_pred == 1)[0]
 
         if len(pred_anomalies) > 0:
@@ -513,9 +489,8 @@ class ESABenchmark(Benchmark):
                 if not merged_intervals or interval[0] > merged_intervals[-1][1]:
                     merged_intervals.append(interval)
                 else:
-                    merged_intervals[-1][1] = max(merged_intervals[-1][1], interval[1])  
+                    merged_intervals[-1][1] = max(merged_intervals[-1][1], interval[1])
 
             return merged_intervals
         else:
             return []
-

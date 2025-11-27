@@ -8,7 +8,7 @@ from typing import (
 
 import requests  # type: ignore[import-untyped]
 import torch
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 
 def download_and_extract_zip(url: str, extract_to: str, cleanup: bool = False):

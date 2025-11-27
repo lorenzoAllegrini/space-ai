@@ -1,7 +1,13 @@
+from typing import (
+    Any,
+    Optional,
+)
+
 import numpy as np
-from typing import Optional, Any
-from sktime.transformations.panel.rocket import Rocket
+from sktime.transformations.panel.rocket import Rocket  # type: ignore
+
 from .anomaly_classifier import AnomalyClassifier
+
 
 class RocketClassifier(AnomalyClassifier):
     """

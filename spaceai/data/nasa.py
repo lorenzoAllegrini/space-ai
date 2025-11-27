@@ -11,7 +11,7 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 import torch
 
 from .anomaly_dataset import AnomalyDataset

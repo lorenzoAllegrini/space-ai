@@ -1,30 +1,34 @@
 import argparse
 import os
 import sys
+import warnings
 
-from model_creators import *
-from dataset_exp import *
+warnings.simplefilter("ignore", FutureWarning)
+
+from .dataset_exp import *  # type: ignore
+from .model_creators import *  # type: ignore
+
 from spaceai.models.anomaly_classifier import RocketClassifier
 
 DATASET_LIST = ["ops", "nasa", "esa"]
-MODEL_LIST = ['ocsvm', 'rockad', 'xgboost', 'ridge_regression', 'dpmm']
-DPMM_MODEL_TYPE = ['full', 'diagonal', 'single', 'unit']
-DPMM_MODE = ['likelihood_threshold', 'cluster_labels']
+MODEL_LIST = ["ocsvm", "rockad", "xgboost", "ridge_regression", "dpmm"]
+DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
+DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
 SEGMENTATOR_LIST = ["base_stats", "rocket"]
 
 
 def format(s):
-    if '_' not in s:
+    if "_" not in s:
         return s.lower()
     else:
-        l = s.split('_')
-        return ''.join([l[0].lower()]+[x.capitalize() for x in l[1:]])
+        l = s.split("_")
+        return "".join([l[0].lower()] + [x.capitalize() for x in l[1:]])
 
 
 def parse_exp_args(str_args=None):
     parser = argparse.ArgumentParser(description="Esecuzione esperimenti paper")
-    #parser.add_argument("--base_dir", required=True)
-    parser.add_argument("--exp-dir", default='experiments')
+    parser.add_argument("--base_dir", required=True)
+    parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
     parser.add_argument("--model", choices=MODEL_LIST, required=True)
     parser.add_argument("--segmentator", choices=SEGMENTATOR_LIST, required=True)
@@ -32,6 +36,7 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--dpmm-type", choices=DPMM_MODEL_TYPE)
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
     return parser.parse_args(str_args)
+
 
 def run_exp(args, suppress_output=False):
     # create the classifier
@@ -51,9 +56,9 @@ def run_exp(args, suppress_output=False):
         raise ValueError(f"Modello {args.model} non supportato!")
 
     # add kernels if needed
-    extract_features = True if args.model != 'rockad' else False
+    extract_features = True if args.model != "rockad" else False
 
-    if args.segmentator == "rocket" and args.model != 'rockad':
+    if args.segmentator == "rocket" and args.model != "rockad":
         classifier = RocketClassifier(base_model=classifier, num_kernels=args.n_kernel)
         extract_features = False
 
@@ -63,9 +68,9 @@ def run_exp(args, suppress_output=False):
         sys.stderr = open(os.devnull, "w")
 
     exp_dir = args.exp_dir
-    base_dir = f'{format(args.dataset)}_{format(args.segmentator)}_{model_id}'
-    if os.path.exists(os.path.join(exp_dir, base_dir, 'results.csv')):
-        raise FileExistsError('Results already computed!')
+    base_dir = f"{format(args.dataset)}_{format(args.segmentator)}_{model_id}"
+    if os.path.exists(os.path.join(exp_dir, base_dir, "results.csv")):
+        raise FileExistsError("Results already computed!")
 
     if args.dataset == "esa":
         run_esa_exp(classifier, is_supervised, extract_features, exp_dir, base_dir)
@@ -78,8 +83,7 @@ def run_exp(args, suppress_output=False):
     else:
         raise ValueError(f"Dataset {args.dataset} non supportato!")
 
+
 if __name__ == "__main__":
     args = parse_exp_args()
     run_exp(args)
-
-

@@ -12,7 +12,7 @@ from typing import (
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 
 class SequenceModel:
@@ -153,7 +153,7 @@ class SequenceModel:
                                     outputs, targets
                                 ) * inputs.size(1)
                 for name in epoch_metrics:
-                    epoch_metrics[name] /= len(train_loader.dataset)
+                    epoch_metrics[name] /= len(train_loader.dataset)  # type: ignore[arg-type]
                 if valid_loader is not None:
                     eval_metrics = self.evaluate(valid_loader, metrics_)
                     epoch_metrics.update(eval_metrics)
@@ -214,7 +214,7 @@ class SequenceModel:
                     ) * inputs.size(1)
 
         for name in metrics_values:
-            metrics_values[name] /= len(eval_loader.dataset)
+            metrics_values[name] /= len(eval_loader.dataset)  # type: ignore[arg-type, operator]
 
         return metrics_values
 

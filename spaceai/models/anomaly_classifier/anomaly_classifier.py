@@ -1,6 +1,12 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Any
+from abc import (
+    abstractmethod,
+)
+from typing import (
+    Optional,
+)
+
 import numpy as np
+
 
 class AnomalyClassifier:
     """

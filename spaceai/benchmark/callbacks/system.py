@@ -4,7 +4,7 @@ from typing import (
     Dict,
 )
 
-import psutil
+import psutil  # type: ignore
 
 from .callback import Callback
 

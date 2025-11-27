@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 import logging
 
 import more_itertools as mit
+
 from .benchmark import Benchmark
-from spaceai.segmentators.nasa_segmentator import NasaDatasetSegmentator
 
 
 class NASABenchmark(Benchmark):
@@ -59,7 +59,7 @@ class NASABenchmark(Benchmark):
         self.seq_length: int = seq_length
         self.n_predictions: int = n_predictions
         self.all_results: List[Dict[str, Any]] = []
-        self.segmentator: NasaDatasetSegmentator = segmentator 
+        self.segmentator: NasaDatasetSegmentator = segmentator
 
     def run(
         self,
@@ -213,7 +213,10 @@ class NASABenchmark(Benchmark):
             true_anomalies, pred_anomalies
         )
         classification_results = self.compute_corrected_classification_metrics(
-            classification_results, true_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results,
+            true_anomalies,
+            pred_anomalies,
+            total_length=len(y_pred),
         )
         results.update(classification_results)
         if train_history is not None:
@@ -258,17 +261,13 @@ class NASABenchmark(Benchmark):
         callback_handler.start()
         if self.segmentator is not None:
             train_channel, _ = self.segmentator.segment(train_channel)
-        
 
         logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
 
-        classifier.fit(train_channel, y=np.zeros(len(train_channel))) 
+        classifier.fit(train_channel, y=np.zeros(len(train_channel)))
         callback_handler.stop()
         results.update(
-            {
-                f"train_{k}": v
-                for k, v in callback_handler.collect(reset=True).items()
-            }
+            {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         callback_handler.start()
         if self.segmentator is not None:
@@ -279,10 +278,7 @@ class NASABenchmark(Benchmark):
 
         if len(pred_anomalies) > 0:
             groups = [list(group) for group in mit.consecutive_groups(pred_anomalies)]
-            pred_anomalies = [
-                [int(group[0]), int(group[-1])]
-                for group in groups
-            ]
+            pred_anomalies = [[int(group[0]), int(group[-1])] for group in groups]
         else:
             pred_anomalies = []
 
@@ -295,16 +291,27 @@ class NASABenchmark(Benchmark):
             test_anomalies, pred_anomalies
         )
         classification_results = self.compute_corrected_classification_metrics(
-            classification_results, test_anomalies, pred_anomalies, total_length=len(y_pred)
+            classification_results,
+            test_anomalies,
+            pred_anomalies,
+            total_length=len(y_pred),
         )
-        print(f"pred_anomalies: {pred_anomalies}")
-        print(f"true_anomalies: {test_anomalies}")
-        print(f"precision: {classification_results['precision_corrected']}")
-        print(f"recall: {classification_results['recall']}")
 
-        print("---------------------------------------------")
         results.update(classification_results)
+        # Reconstruct binary mask for anomalies
+        test_anomalies_mask = np.zeros(len(y_pred), dtype=int)
+        for start, end in test_anomalies:
+            test_anomalies_mask[int(start) : int(end) + 1] = 1
 
+        results.update(
+            {
+                "test_length": len(test_channel),
+                "test_negatives": len(test_channel) - test_anomalies_mask.sum(),
+                "detected_negatives": int(
+                    ((y_pred == 0) & (test_anomalies_mask == 0)).sum()
+                ),
+            }
+        )
         logging.info(f"Results for channel {channel_id}")
 
         self.all_results.append(results)
@@ -392,7 +399,6 @@ class NASABenchmark(Benchmark):
         results["recall"] = results["true_positives"] / tpfn if tpfn > 0 else 1
         results["f1"] = (
             (
-
                 (results["precision"] * results["recall"])
                 / (results["precision"] + results["recall"])
             )
@@ -400,7 +406,7 @@ class NASABenchmark(Benchmark):
             else 0
         )
         return results
-    
+
     def compute_corrected_classification_metrics(
         self,
         results: Dict[str, Any],
@@ -427,7 +433,7 @@ class NASABenchmark(Benchmark):
         indices_all_flat = indices_true_flat.union(indices_pred_flat)
         n_e = total_length - len(indices_true_flat)
         tn_e = total_length - len(indices_all_flat)
-        for k,v in results.items():
+        for k, v in results.items():
             esa_results[k] = v
         esa_results["tnr"] = tn_e / n_e if n_e > 0 else 1
         esa_results["precision_corrected"] = results["precision"] * esa_results["tnr"]
@@ -442,14 +448,11 @@ class NASABenchmark(Benchmark):
         )
         esa_results["corrected_f1"] = (
             (
-              
                 (esa_results["precision_corrected"] * results["recall"])
                 / (esa_results["precision_corrected"] + results["recall"])
             )
             if esa_results["precision_corrected"] + results["recall"] > 0
             else 0
         )
-        
+
         return esa_results
-    
-    

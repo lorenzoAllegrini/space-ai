@@ -1,8 +1,7 @@
-import ast
 import logging
 import math
 import os
-import tarfile
+import zipfile
 from typing import (
     Literal,
     Optional,
@@ -10,19 +9,17 @@ from typing import (
     Union,
 )
 
+import more_itertools as mit
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 import torch
 
 from .anomaly_dataset import AnomalyDataset
-
 from .utils import download_file
-import zipfile
-import shutil
-import more_itertools as mit
+
 
 class OPSSAT(AnomalyDataset):
-    
+
     resource = "https://zenodo.org/api/records/12588359/files-archive"
 
     channel_ids = [
@@ -132,7 +129,7 @@ class OPSSAT(AnomalyDataset):
     def _check_exists(self) -> bool:
         """Check if the dataset exists on the local filesystem."""
         return os.path.exists(os.path.join(self.split_folder, self.channel_id + ".csv"))
-    
+
     def download(self):
         """Download the OPS-SAT dataset and save filtered train data by channel."""
 
@@ -145,7 +142,7 @@ class OPSSAT(AnomalyDataset):
         # Crea la cartella raw se non esiste
         os.makedirs(self.raw_folder, exist_ok=True)
 
-        with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_filepath, "r") as zip_ref:
             zip_ref.extract("segments.csv", path=self.raw_folder)
 
         os.remove(zip_filepath)
@@ -171,14 +168,10 @@ class OPSSAT(AnomalyDataset):
         # Rimuove il CSV originale
         os.remove(csv_path)
 
-
-    
     def load_and_preprocess(self) -> Tuple[np.ndarray, list[list[int]] | None]:
         """Load and preprocess the dataset."""
 
-        df = pd.read_csv(
-            os.path.join(self.split_folder, f"{self.channel_id}.csv")
-        )
+        df = pd.read_csv(os.path.join(self.split_folder, f"{self.channel_id}.csv"))
 
         # Prendi solo la colonna 'value' e converti in float32
         data = df["value"].astype(np.float32).values  # NumPy array
