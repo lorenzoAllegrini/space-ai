@@ -1,4 +1,4 @@
-from config import (
+from .config import (
     XGBOOST_N_THREAD,
 )
 from sklearn.dummy import DummyClassifier
@@ -9,8 +9,7 @@ from sklearn.svm import OneClassSVM
 from xgboost import XGBClassifier
 
 from spaceai.models.anomaly_classifier import RockadClassifier
-from spaceai.models.anomaly_classifier.dpmm_detector import DPMMDetector
-
+from spaceai.models.anomaly_classifier.dpmm_detector import DPMMDetector, get_dpmm_argparser
 
 def get_ocsvm_classifier():
     return OneClassSVM(), False
@@ -31,13 +30,16 @@ def get_xgboost_classifier():
 
 
 def get_dpmm_classifier(model_type, mode, other_dpmm_args):
+    parser = get_dpmm_argparser()
+    config = parser.parse_args(other_dpmm_args)
+    config_dict = vars(config)
+    print(config_dict)
     pipeline = Pipeline([
         ("scaler", RobustScaler(with_centering=False)),
         ("dpmm", DPMMDetector(
             mode=mode,
             model_type=model_type,
-            python_executable=DPMM_ENV_PATH,
-            other_dpmm_args=other_dpmm_args
+            **config_dict
         ))
     ])
     return pipeline, mode != 'likelihood_threshold'

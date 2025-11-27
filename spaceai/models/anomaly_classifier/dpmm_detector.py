@@ -8,13 +8,27 @@ import torch.optim as optim
 from torch_dpmm.models import (  # type: ignore
     DiagonalGaussianDPMM,
     FullGaussianDPMM,
-    SingleGaussianDPMM,
+    IsotropicGaussianDPMM,
     UnitGaussianDPMM,
 )
+#TODO: rename single to isotropic
 from tqdm import tqdm  # type: ignore
-
+import argparse
 from .anomaly_classifier import AnomalyClassifier
 
+def get_dpmm_argparser():
+    parser = argparse.ArgumentParser()
+    #TODO: uniform with command line args
+    #parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"]) 
+    #parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
+    parser.add_argument("--K", type=int, default=100)
+    parser.add_argument("--num-iterations", type=int, default=1000)
+    parser.add_argument("--lr", type=float, default=0.1)
+    parser.add_argument("--alphaDP", type=float, default=1.0)
+    parser.add_argument("--var_prior", type=float, default=1.0)
+    parser.add_argument("--var_prior_strength", type=float, default=1.0)
+    parser.add_argument("--quantile", type=float, default=0.05)
+    return parser
 
 class DPMMDetector(AnomalyClassifier):
     def __init__(

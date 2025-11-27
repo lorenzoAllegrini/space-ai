@@ -1,4 +1,4 @@
-from config import OMP_NUM_THREADS
+from .config import OMP_NUM_THREADS
 import os
 os.environ['OMP_NUM_THREADS'] = f'{OMP_NUM_THREADS}'
 
@@ -29,7 +29,7 @@ def format(s):
 
 
 def parse_exp_args(str_args=None):
-    parser = argparse.ArgumentParser(description="Esecuzione esperimenti paper")
+    parser = argparse.ArgumentParser(description="paper experiments execution")
     parser.add_argument("--base_dir", required=True)
     parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
@@ -79,12 +79,12 @@ def run_exp(args, other_args=None, suppress_output=False):
         run_esa_exp(classifier, is_supervised, extract_features, exp_dir, base_dir)
     elif args.dataset == "nasa":
         if args.model in ['xgboost', 'ridge_regression']:
-            raise ValueError("NASA dataset supporta solo metodi unsupervised!")
+            raise ValueError("NASA supports only unsupervised methods!")
         run_nasa_exp(classifier, extract_features, exp_dir, base_dir)
     elif args.dataset == "ops":
         run_ops_exp(classifier, is_supervised, extract_features, exp_dir, base_dir)
     else:
-        raise ValueError(f"Dataset {args.dataset} non supportato!")
+        raise ValueError(f"Dataset {args.dataset} not supported!")
 
 
 if __name__ == "__main__":
