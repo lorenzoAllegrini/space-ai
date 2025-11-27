@@ -317,7 +317,7 @@ class RockadClassifier(AnomalyClassifier):
         self.rockad = ROCKAD(
             n_estimators=self.n_estimators,
             n_kernels=self.num_kernels,
-            n_jobs=-1,
+            n_jobs=1,
             power_transform=False,
         )
         # rockad.fit si aspetta solo X

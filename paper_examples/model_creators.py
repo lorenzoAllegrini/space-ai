@@ -30,24 +30,17 @@ def get_xgboost_classifier():
     )
 
 
-def get_dpmm_classifier(model_type, mode):
-    pipeline = Pipeline(
-        [
-            ("scaler", RobustScaler(with_centering=False)),
-            (
-                "dpmm",
-                DPMMDetector(
-                    mode=mode,
-                    model_type=model_type,
-                    K=100,
-                    num_iterations=50,
-                    lr=0.1,
-                ),
-            ),
-        ]
-    )
-    return pipeline, False
-
+def get_dpmm_classifier(model_type, mode, other_dpmm_args):
+    pipeline = Pipeline([
+        ("scaler", RobustScaler(with_centering=False)),
+        ("dpmm", DPMMDetector(
+            mode=mode,
+            model_type=model_type,
+            python_executable=DPMM_ENV_PATH,
+            other_dpmm_args=other_dpmm_args
+        ))
+    ])
+    return pipeline, mode != 'likelihood_threshold'
 
 def get_ridge_regression_classifier():
     return RidgeClassifier(), True

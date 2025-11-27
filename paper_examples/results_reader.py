@@ -124,7 +124,7 @@ def render_and_export(
     print_tables: bool = False,
 ) -> None:
 
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(export_dir, exist_ok=True)
 
     # Per dataset
     for ds in datasets_filter:
@@ -136,7 +136,7 @@ def render_and_export(
             continue
 
         view_sorted = view.sort_values("f1", ascending=False)
-        csv_path = os.path.join(output_dir, f"{ds}_results.csv")
+        csv_path = os.path.join(export_dir, f"{ds}_results.csv")
         view_sorted.to_csv(csv_path, index=False)
 
         if print_tables:
