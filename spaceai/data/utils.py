@@ -1,3 +1,5 @@
+"""Utility functions for data handling."""
+
 import os
 import zipfile
 from typing import (
@@ -38,7 +40,7 @@ def download_file(url: str, to: Optional[str] = None):
     else:
         local_filename = to
 
-    with requests.get(url, stream=True) as r:
+    with requests.get(url, stream=True, timeout=30) as r:
         r.raise_for_status()
         total_size = int(r.headers.get("content-length", 0))
         block_size = 1024
@@ -48,10 +50,10 @@ def download_file(url: str, to: Optional[str] = None):
             unit="iB",
             unit_scale=True,
             unit_divisor=1024,
-        ) as bar:
+        ) as pbar:
             for chunk in r.iter_content(chunk_size=block_size):
                 f.write(chunk)
-                bar.update(len(chunk))
+                pbar.update(len(chunk))
     return local_filename
 
 
@@ -99,7 +101,7 @@ def seq_collate_fn(
 
     if mode == "batch":
 
-        def collate_fn(batch):
+        def collate_fn_batch(batch):
             """Collate function for sequence data."""
             inputs = [[] for _ in range(n_inputs)]
             for item in batch:
@@ -107,5 +109,7 @@ def seq_collate_fn(
                     inputs[i].append(item[i])
             inputs = [torch.stack(seq, dim=1) for seq in inputs]
             return inputs
+
+        return collate_fn_batch
 
     return collate_fn

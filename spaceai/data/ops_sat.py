@@ -1,3 +1,5 @@
+"""OPS-SAT dataset module."""
+
 import logging
 import math
 import os
@@ -19,6 +21,7 @@ from .utils import download_file
 
 
 class OPSSAT(AnomalyDataset):
+    """OPS-SAT benchmark dataset for anomaly detection."""
 
     resource = "https://zenodo.org/api/records/12588359/files-archive"
 
@@ -80,8 +83,9 @@ class OPSSAT(AnomalyDataset):
 
         if self._mode == "anomaly" and self.overlapping:
             logging.warning(
-                f"Channel {channel_id} is in anomaly mode and overlapping is set to True."
-                " Anomalies will be repeated in the dataset."
+                "Channel %s is in anomaly mode and overlapping is set to True."
+                " Anomalies will be repeated in the dataset.",
+                channel_id,
             )
 
         self.data, self.anomalies = self.load_and_preprocess()
@@ -102,8 +106,6 @@ class OPSSAT(AnomalyDataset):
         last_idx = first_idx + self.window_size
         if last_idx > len(self.data) - self.n_predictions:
             last_idx = len(self.data) - self.n_predictions
-        # print("Shape of self.data:", self.data.shape)
-        # print("Type of self.data:", type(self.data))
         x, y_true = (
             torch.tensor(self.data[first_idx:last_idx]),
             torch.from_numpy(
@@ -121,7 +123,7 @@ class OPSSAT(AnomalyDataset):
         if self.overlapping:
             length = self.data.shape[0] - self.window_size - self.n_predictions + 1
             return length
-        length = self.data.shape[0] / (self.window_size + self.n_predictions)
+        length = int(self.data.shape[0] / (self.window_size + self.n_predictions))
         if self.drop_last:
             return math.floor(length)
         return math.ceil(length)
@@ -139,7 +141,6 @@ class OPSSAT(AnomalyDataset):
         zip_filepath = "ops_sat.zip"
         download_file(self.resource, to=zip_filepath)
 
-        # Crea la cartella raw se non esiste
         os.makedirs(self.raw_folder, exist_ok=True)
 
         with zipfile.ZipFile(zip_filepath, "r") as zip_ref:
@@ -150,22 +151,14 @@ class OPSSAT(AnomalyDataset):
         csv_path = os.path.join(self.raw_folder, "segments.csv")
         df = pd.read_csv(csv_path)
 
-        # Filtra solo i dati di training
         train_df = df[df["train"] == 1]
-
-        # Salva solo il file per il canale richiesto
         channel_df = train_df[train_df["channel"] == self.channel_id]
-
-        # Rimuove le colonne 'train' e 'channel'
         channel_df = channel_df.drop(columns=["train", "channel"])
-
-        # Salva
         channel_path = self.split_folder
         os.makedirs(channel_path, exist_ok=True)
         output_file = os.path.join(channel_path, f"{self.channel_id}.csv")
         channel_df.to_csv(output_file, index=False)
 
-        # Rimuove il CSV originale
         os.remove(csv_path)
 
     def load_and_preprocess(self) -> Tuple[np.ndarray, list[list[int]] | None]:
@@ -173,19 +166,13 @@ class OPSSAT(AnomalyDataset):
 
         df = pd.read_csv(os.path.join(self.split_folder, f"{self.channel_id}.csv"))
 
-        # Prendi solo la colonna 'value' e converti in float32
-        data = df["value"].astype(np.float32).values  # NumPy array
+        data = df["value"].astype(np.float32).values
 
         if self._mode == "prediction":
             return data, None
 
-        # Trova indici delle anomalie (dove anomaly == 1)
         anomaly_indices = df.index[df["anomaly"] == 1].tolist()
-
-        # Raggruppa indici consecutivi
         groups = [list(group) for group in mit.consecutive_groups(anomaly_indices)]
-
-        # Converti in [[start, end]]
         anomalies = [[group[0], group[-1]] for group in groups]
 
         return data, anomalies
@@ -196,7 +183,7 @@ class OPSSAT(AnomalyDataset):
         return os.path.join(self.raw_folder, "data", "train" if self.train else "test")
 
     @property
-    def in_features_size(self) -> str:
+    def in_features_size(self) -> int:
         """Return the size of the input features."""
         return self.data.shape[-1]
 

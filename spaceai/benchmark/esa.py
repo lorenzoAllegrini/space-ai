@@ -1,3 +1,5 @@
+"""ESA benchmark module for anomaly detection on ESA telemetry data."""
+
 from __future__ import annotations
 
 import logging
@@ -13,11 +15,12 @@ from typing import (
 
 import more_itertools as mit
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 from torch.utils.data import (
     DataLoader,
     Subset,
 )
+from tqdm import tqdm  # type: ignore
 
 from spaceai.data import (
     ESA,
@@ -25,18 +28,17 @@ from spaceai.data import (
 )
 from spaceai.data.utils import seq_collate_fn
 
+from .benchmark import Benchmark
 from .callbacks import CallbackHandler
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
+    from spaceai.models.anomaly import AnomalyDetector
     from .callbacks import Callback
-
-from tqdm import tqdm
-
-from .benchmark import Benchmark
 
 
 class ESABenchmark(Benchmark):
+    """Benchmark for ESA telemetry anomaly detection datasets."""
 
     def __init__(
         self,
@@ -104,11 +106,11 @@ class ESABenchmark(Benchmark):
             os.path.exists(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
             and restore_predictor
         ):
-            logging.info(f"Restoring predictor for channel {channel_id}...")
+            logging.info("Restoring predictor for channel %s...", channel_id)
             predictor.load(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
 
         elif fit_predictor_args is not None:
-            logging.info(f"Fitting the predictor for channel {channel_id}...")
+            logging.info("Fitting the predictor for channel %s...", channel_id)
             # Training the predictor
             batch_size = fit_predictor_args.pop("batch_size", 64)
             eval_channel = None
@@ -117,8 +119,8 @@ class ESABenchmark(Benchmark):
                 indices = np.arange(len(train_channel))
                 np.random.shuffle(indices)
                 eval_size = int(len(train_channel) * perc_eval)
-                eval_channel = Subset(train_channel, indices[:eval_size])
-                train_channel = Subset(train_channel, indices[eval_size:])
+                eval_channel = Subset(train_channel, indices[:eval_size].tolist())
+                train_channel = Subset(train_channel, indices[eval_size:].tolist())  # type: ignore[assignment]
             train_loader = DataLoader(
                 train_channel,
                 batch_size=batch_size,
@@ -150,7 +152,7 @@ class ESABenchmark(Benchmark):
                 }
             )
             logging.info(
-                f"Training time on channel {channel_id}: {results['train_time']}"
+                "Training time on channel %s: %s", channel_id, results['train_time']
             )
             train_history = pd.DataFrame.from_records(train_history).to_csv(
                 os.path.join(self.run_dir, f"train_history-{channel_id}.csv"),
@@ -162,7 +164,7 @@ class ESABenchmark(Benchmark):
 
         if predictor.model is not None:
             predictor.model.eval()
-        logging.info(f"Predicting the test data for channel {channel_id}...")
+        logging.info("Predicting the test data for channel %s...", channel_id)
         test_loader = DataLoader(
             test_channel,
             batch_size=1,
@@ -189,26 +191,26 @@ class ESABenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
-        logging.info(f"Test loss for channel {channel_id}: {results['test_loss']}")
+        logging.info("Test loss for channel %s: %s", channel_id, results['test_loss'])
         logging.info(
-            f"Prediction time for channel {channel_id}: {results['predict_time']}"
+            "Prediction time for channel %s: %s", channel_id, results['predict_time']
         )
 
         # Testing the detector
-        logging.info(f"Detecting anomalies for channel {channel_id}")
+        logging.info("Detecting anomalies for channel %s", channel_id)
         callback_handler.start()
         if len(y_trg) < 2500:
             detector.ignore_first_n_factor = 1
         if len(y_trg) < 1800:
             detector.ignore_first_n_factor = 0
-        pred_anomalies = detector.detect_anomalies(y_pred, y_trg)
+        pred_anomalies = detector.detect_anomalies(y_pred, y_trg)  # type: ignore[arg-type]
         pred_anomalies += detector.flush_detector()
         callback_handler.stop()
         results.update(
             {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         logging.info(
-            f"Detection time for channel {channel_id}: {results['detect_time']}"
+            "Detection time for channel %s: %s", channel_id, results['detect_time']
         )
 
         true_anomalies = test_channel.anomalies
@@ -219,7 +221,7 @@ class ESABenchmark(Benchmark):
         esa_classification_results = self.compute_esa_classification_metrics(
             classification_results,
             true_anomalies,
-            pred_anomalies,
+            pred_anomalies,  # type: ignore[arg-type]
             total_length=len(y_trg),
         )
         classification_results.update(esa_classification_results)
@@ -229,7 +231,7 @@ class ESABenchmark(Benchmark):
             if eval_loader is not None:
                 results["eval_loss"] = train_history[-1]["loss_eval"]
 
-        logging.info(f"Results for channel {channel_id}")
+        logging.info("Results for channel %s", channel_id)
 
         self.all_results.append(results)
 
@@ -268,16 +270,16 @@ class ESABenchmark(Benchmark):
             call_every_ms=call_every_ms,
         )
         train_channel, test_channel = self.load_channel(
-            mission, channel_id, overlapping_train=overlapping_train
+            mission, channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
         )
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
-        callback_handler.start()
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
-
-        logging.info(f"Fitting the classifier for channel {channel_id}...")
+        else:
+            train_anomalies = train_channel.anomalies
+        logging.info("Fitting the classifier for channel %s...", channel_id)
 
         num_segments = len(train_channel)
         train_labels = np.zeros(num_segments, dtype=int)
@@ -285,6 +287,7 @@ class ESABenchmark(Benchmark):
             start = max(0, start)
             end = min(num_segments - 1, end)
             train_labels[start : end + 1] = 1
+        callback_handler.start()
         if supervised:
             classifier.fit(X=train_channel, y=train_labels)
         else:
@@ -294,11 +297,13 @@ class ESABenchmark(Benchmark):
             {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         # Evaluate the classifier on test data
-        logging.info(f"Predicting the test data for channel {channel_id}...")
+        logging.info("Predicting the test data for channel %s...", channel_id)
 
-        callback_handler.start()
         if self.segmentator is not None:
             test_channel, test_anomalies = self.segmentator.segment(test_channel)
+        else:
+            test_anomalies = test_channel.anomalies
+        callback_handler.start()
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
         callback_handler.stop()
@@ -315,7 +320,7 @@ class ESABenchmark(Benchmark):
         esa_classification_results = self.compute_esa_classification_metrics(
             classification_results,
             combined_anomalies,
-            pred_anomalies,
+            pred_anomalies,  # type: ignore[arg-type]
             total_length=len(y_pred),
         )
         classification_results.update(esa_classification_results)
@@ -334,7 +339,7 @@ class ESABenchmark(Benchmark):
                 ),
             }
         )
-        logging.info(f"Results for channel {channel_id}: {results}")
+        logging.info("Results for channel %s: %s", channel_id, results)
 
         self.all_results.append(results)
         pd.DataFrame.from_records(self.all_results).to_csv(
@@ -379,6 +384,7 @@ class ESABenchmark(Benchmark):
         return train_channel, test_channel
 
     def compute_classification_metrics(self, true_anomalies, pred_anomalies):
+        """Compute classification metrics comparing true and predicted anomalies."""
         results = {
             "n_anomalies": len(true_anomalies),
             "n_detected": len(pred_anomalies),
@@ -474,6 +480,7 @@ class ESABenchmark(Benchmark):
     def process_pred_anomalies(
         self, y_pred: np.ndarray, pred_buffer: int
     ) -> List[List[int]]:
+        """Process predicted anomalies by grouping consecutive indices and applying buffer."""
         pred_anomalies = np.where(y_pred == 1)[0]
 
         if len(pred_anomalies) > 0:
@@ -484,7 +491,7 @@ class ESABenchmark(Benchmark):
                 for group in groups
             ]
 
-            merged_intervals = []
+            merged_intervals: List[List[int]] = []
             for interval in sorted(buffered_intervals, key=lambda x: x[0]):
                 if not merged_intervals or interval[0] > merged_intervals[-1][1]:
                     merged_intervals.append(interval)

@@ -1,4 +1,4 @@
-# pylint: disable=missing-module-docstring, too-many-lines
+#
 import logging
 import math
 import os
@@ -21,7 +21,7 @@ from .utils import download_and_extract_zip
 
 class AnnotationLabel(
     Enum
-):  # pylint: disable=missing-class-docstring, too-few-public-methods
+):
     """Enuemeration of annotation labels for ESA dataset."""
 
     NOMINAL = 0
@@ -32,7 +32,7 @@ class AnnotationLabel(
 
 
 @dataclass
-class ESAMission:  # pylint: disable=too-many-instance-attributes
+class ESAMission:
     """ESA mission dataclass with metadata of a single mission."""
 
     index: int
@@ -59,11 +59,11 @@ class ESAMission:  # pylint: disable=too-many-instance-attributes
     """The list of target channels."""
 
     @property
-    def inner_dirpath(self):  # pylint: disable=missing-function-docstring
+    def inner_dirpath(self):
         return os.path.join(self.dirname, self.dirname)
 
     @property
-    def all_channels(self):  # pylint: disable=missing-function-docstring
+    def all_channels(self):
         return self.parameters + self.telecommands
 
 
@@ -111,7 +111,7 @@ class ESAMissions(Enum):
 
 class ESA(
     AnomalyDataset,
-):  # pylint: disable=too-few-public-methods, too-many-instance-attributes
+):
     """ESA benchmark dataset for anomaly detection.
 
     The dataset consists of multivariate time series data collected from ESA's
@@ -133,7 +133,7 @@ class ESA(
         uniform_start_end_date: bool = True,
         drop_last: bool = True,
         use_telecommands: bool = True,
-    ):  # pylint: disable=useless-parent-delegation, too-many-arguments
+    ):
         """ESABenchmark class that preprocesses and loads ESA dataset for training and
         testing.
 
@@ -146,7 +146,8 @@ class ESA(
             seq_length (Optional[int]): The length of the sequence for each sample.
             train (bool): The flag that indicates whether the dataset is for training or testing.
             download (bool): The flag that indicates whether the dataset should be downloaded.
-            uniform_start_end_date (bool): The flag that indicates whether the dataset should be resampled to have uniform start and end date.
+            uniform_start_end_date (bool): The flag that indicates whether the dataset should be
+                resampled to have uniform start and end date.
             drop_last (bool): The flag that indicates whether the last sample should be dropped.
         """
         super().__init__(root)
@@ -159,7 +160,7 @@ class ESA(
         self.root = root
         self.mission = mission
         self.channel_id: str = channel_id
-        self._mode: Literal["prediction", "anomaly"] = mode
+        self._mode: Literal["prediction", "anomaly", "challenge"] = mode
         self.overlapping: bool = overlapping
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
@@ -181,8 +182,9 @@ class ESA(
 
         if self._mode == "anomaly" and self.overlapping:
             logging.warning(
-                f"Channel {channel_id} is in anomaly mode and overlapping is set to True."
-                " Anomalies will be repeated in the dataset."
+                "Channel %s is in anomaly mode and overlapping is set to True."
+                " Anomalies will be repeated in the dataset.",
+                channel_id,
             )
 
         self.data, self.anomalies, self.communication_gaps = self.load_and_preprocess(
@@ -304,10 +306,13 @@ class ESA(
             )
 
         # Load and format telecommand
-        if channel_id in self.mission.telecommands:
+        elif channel_id in self.mission.telecommands:
             channel_df = pd.read_pickle(
                 os.path.join(source_folder, "telecommands", f"{channel_id}.zip"),
             )
+
+        else:
+            raise ValueError("channel_id not in available channels")
 
         channel_df = self._apply_resampling_rule_(
             channel_df,
@@ -342,7 +347,7 @@ class ESA(
                             df_tc_bool.iloc[pos] = 1
                     telecommand_dfs.append(df_tc_bool.to_frame())
                 else:
-                    logging.warning(f"Telecommand file {tc_file} not found.")
+                    logging.warning("Telecommand file %s not found.", tc_file)
 
             if telecommand_dfs:
                 telecommands_df = telecommand_dfs[0]
@@ -406,6 +411,7 @@ class ESA(
         return channel, anomalies, communication_gaps
 
     def load_challenge_channel(self, channel_id: str):
+        """Load the challenge channel data."""
 
         import pyarrow.parquet as pq  # type: ignore
 

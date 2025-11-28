@@ -1,3 +1,5 @@
+"""Sequence model module."""
+
 import copy
 from typing import (
     Any,
@@ -50,11 +52,11 @@ class SequenceModel:
         self.model = self.build_fn()
         self.model.to(self.device)
 
-    def __call__(self, input: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+    def __call__(self, input_data: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
         """Predicts values using the trained model.
 
         Args:
-            input (Union[torch.Tensor, np.ndarray]): Input data to predict on
+            input_data (Union[torch.Tensor, np.ndarray]): Input data to predict on
 
         Returns:
             torch.Tensor: Predicted values
@@ -62,13 +64,13 @@ class SequenceModel:
         if self.model is None:
             raise ValueError("Model must be built before calling predict.")
 
-        if isinstance(input, np.ndarray):
-            input = torch.from_numpy(input).float()
+        if isinstance(input_data, np.ndarray):
+            input_data = torch.from_numpy(input_data).float()
 
         if not self.stateful:
-            pred = self.model(input)
+            pred = self.model(input_data)
         else:
-            pred, self.state = self.model(input, self.state, return_states=True)
+            pred, self.state = self.model(input_data, self.state, return_states=True)
 
         if self.reduce_out is None:
             return pred
@@ -114,9 +116,12 @@ class SequenceModel:
             criterion (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]): Loss function
             optimizer (torch.optim.Optimizer): Optimizer
             epochs (int): Number of epochs to train the model
-            patience_before_stopping (Optional[int], optional): Number of epochs to wait before stopping training if no improvement. Defaults to None.
-            valid_loader (Optional[DataLoader], optional): DataLoader containing validation data. Defaults to None.
-            metrics (Optional[Dict[str, Callable[[torch.Tensor, torch.Tensor], float]]], optional): Dictionary of metric functions. Defaults to None.
+            patience_before_stopping (Optional[int], optional): Number of epochs to wait before
+                stopping training if no improvement. Defaults to None.
+            valid_loader (Optional[DataLoader], optional): DataLoader containing validation data.
+                Defaults to None.
+            metrics (Optional[Dict[str, Callable[[torch.Tensor, torch.Tensor], float]]], optional):
+                Dictionary of metric functions. Defaults to None.
         """
         if self.model is None:
             raise ValueError("Model must be built before calling fit.")
@@ -178,7 +183,6 @@ class SequenceModel:
                 pbar.update(1)
                 if patience_before_stopping is not None:
                     if epochs_since_improvement >= patience_before_stopping:
-                        print("Early stopping at epoch %s", epoch)
                         break
         if restore_best:
             self.model.load_state_dict(best_model)
@@ -193,7 +197,8 @@ class SequenceModel:
 
         Args:
             eval_loader (DataLoader): DataLoader containing evaluation data
-            metrics (Dict[str, Callable[[torch.Tensor, torch.Tensor], float]]): Dictionary of metric functions
+            metrics (Dict[str, Callable[[torch.Tensor, torch.Tensor], float]]): Dictionary of
+                metric functions
 
         Returns:
             Dict[str, float]: Dictionary containing metric values

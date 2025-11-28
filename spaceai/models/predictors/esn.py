@@ -1,3 +1,5 @@
+"""Echo State Network (ESN) model module."""
+
 from __future__ import annotations
 
 from typing import (
@@ -10,19 +12,20 @@ from typing import (
     Union,
 )
 
+import numpy as np
+import torch
+from torchdyno.models.esn import EchoStateNetwork  # type: ignore
+
 if TYPE_CHECKING:
     from torch import Size, Tensor
     from torch.nn.modules import Module
     from torch.utils.data import DataLoader
 
-import numpy as np
-import torch
-from torchdyno.models.esn import EchoStateNetwork
-
 from spaceai.models.predictors.seq_model import SequenceModel
 
 
 class ESN(SequenceModel):
+    """Echo State Network wrapper class."""
 
     def __init__(
         self,
@@ -87,20 +90,20 @@ class ESN(SequenceModel):
         )
         self.net_gain_and_bias: bool = net_gain_and_bias
 
-    def __call__(self, input: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+    def __call__(self, input_data: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
         """Predicts values using the trained model.
 
         Args:
-            input (Union[torch.Tensor, np.ndarray]): Input data to predict on
+            input_data (Union[torch.Tensor, np.ndarray]): Input data to predict on
 
         Returns:
             torch.Tensor: Predicted values
         """
         if self.stateful:
             self.state = [s[-1] for s in self.state] if self.state is not None else None
-        return super().__call__(input)
+        return super().__call__(input_data)
 
-    def fit(  # type: ignore[override]
+    def fit(
         self,
         train_loader: DataLoader,
         criterion: Callable[
@@ -128,7 +131,7 @@ class ESN(SequenceModel):
                 *args, train_loader=train_loader, washout=self.washout, **kwargs
             )
 
-            for x, y in train_loader:
+            for x, _ in train_loader:
                 self.model(x)
 
             if criterion is None:

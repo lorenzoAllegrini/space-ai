@@ -1,5 +1,8 @@
+"""OPS-SAT benchmark module for anomaly detection on OPS-SAT telemetry data."""
+
 from __future__ import annotations
 
+import logging
 import os
 from typing import (
     TYPE_CHECKING,
@@ -10,17 +13,19 @@ from typing import (
     Tuple,
 )
 
+import more_itertools as mit
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore
 from torch.utils.data import (
     DataLoader,
     Subset,
 )
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 from spaceai.data import OPSSAT
 from spaceai.data.utils import seq_collate_fn
 
+from .benchmark import Benchmark
 from .callbacks import CallbackHandler
 
 if TYPE_CHECKING:
@@ -28,20 +33,15 @@ if TYPE_CHECKING:
     from spaceai.models.anomaly import AnomalyDetector
     from .callbacks import Callback
 
-import logging
-
-import more_itertools as mit
-
-from .benchmark import Benchmark
-
 
 class OPSSATBenchmark(Benchmark):
+    """Benchmark for OPS-SAT telemetry anomaly detection dataset."""
 
     def __init__(
         self,
         run_id: str,
         exp_dir: str,
-        segmentator: Optional[OPSSATDatasetSegmentator] = None,
+        segmentator: Optional[Any] = None,  # type: ignore[name-defined]
         seq_length: int = 250,
         n_predictions: int = 1,
         data_root: str = "data/ops_sat",
@@ -101,11 +101,11 @@ class OPSSATBenchmark(Benchmark):
             os.path.exists(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
             and restore_predictor
         ):
-            logging.info(f"Restoring predictor for channel {channel_id}...")
+            logging.info("Restoring predictor for channel %s...", channel_id)
             predictor.load(os.path.join(self.run_dir, f"predictor-{channel_id}.pt"))
 
         elif fit_predictor_args is not None:
-            logging.info(f"Fitting the predictor for channel {channel_id}...")
+            logging.info("Fitting the predictor for channel %s...", channel_id)
             # Training the predictor
             batch_size = fit_predictor_args.pop("batch_size", 64)
             eval_channel = None
@@ -115,8 +115,8 @@ class OPSSATBenchmark(Benchmark):
                     indices = np.arange(len(train_channel))
                     np.random.shuffle(indices)
                     eval_size = int(len(train_channel) * perc_eval)
-                    eval_channel = Subset(train_channel, indices[:eval_size])
-                    train_channel = Subset(train_channel, indices[eval_size:])
+                    eval_channel = Subset(train_channel, indices[:eval_size].tolist())  # type: ignore[assignment]
+                    train_channel = Subset(train_channel, indices[eval_size:].tolist())  # type: ignore[assignment]
                 train_loader = DataLoader(
                     train_channel,
                     batch_size=batch_size,
@@ -134,7 +134,7 @@ class OPSSATBenchmark(Benchmark):
                     else None
                 )
             except Exception as e:
-
+                logging.error("Failed to prepare data loaders: %s", e)
                 return
             callback_handler.start()
             predictor.stateful = False
@@ -151,7 +151,7 @@ class OPSSATBenchmark(Benchmark):
                 }
             )
             logging.info(
-                f"Training time on channel {channel_id}: {results['train_time']}"
+                "Training time on channel %s: %s", channel_id, results['train_time']
             )
             train_history = pd.DataFrame.from_records(train_history).to_csv(
                 os.path.join(self.run_dir, f"train_history-{channel_id}.csv"),
@@ -163,7 +163,7 @@ class OPSSATBenchmark(Benchmark):
 
         if predictor.model is not None:
             predictor.model.eval()
-        logging.info(f"Predicting the test data for channel {channel_id}...")
+        logging.info("Predicting the test data for channel %s...", channel_id)
         test_loader = DataLoader(
             test_channel,
             batch_size=1,
@@ -190,31 +190,25 @@ class OPSSATBenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
-        logging.info(f"Test loss for channel {channel_id}: {results['test_loss']}")
+        logging.info("Test loss for channel %s: %s", channel_id, results['test_loss'])
         # Testing the detector
-        logging.info(f"Detecting anomalies for channel {channel_id}")
+        logging.info("Detecting anomalies for channel %s", channel_id)
         callback_handler.start()
         if len(y_trg) < 2500:
             detector.ignore_first_n_factor = 1
         if len(y_trg) < 1800:
             detector.ignore_first_n_factor = 0
-        try:
-            pred_anomalies = detector.detect_anomalies(y_pred, y_trg)
-            pred_anomalies += detector.flush_detector()
-            callback_handler.stop()
-            results.update(
-                {
-                    f"detect_{k}": v
-                    for k, v in callback_handler.collect(reset=True).items()
-                }
-            )
-        except Exception as e:
-            logging.warning(
-                f"Skipping anomaly detection for channel {channel_id} due to error: {e}"
-            )
-            return
+        pred_anomalies = detector.detect_anomalies(np.array(y_pred), np.array(y_trg))
+        pred_anomalies += detector.flush_detector()
+        callback_handler.stop()
+        results.update(
+            {
+                f"detect_{k}": v
+                for k, v in callback_handler.collect(reset=True).items()
+            }
+        )
         logging.info(
-            f"Detection time for channel {channel_id}: {results['detect_time']}"
+            "Detection time for channel %s: %s", channel_id, results['detect_time']
         )
 
         true_anomalies = test_channel.anomalies
@@ -223,8 +217,8 @@ class OPSSATBenchmark(Benchmark):
         )
         classification_results = self.compute_corrected_classification_metrics(
             classification_results,
-            true_anomalies,
-            pred_anomalies,
+            true_anomalies,  # type: ignore[arg-type]
+            pred_anomalies,  # type: ignore[arg-type]
             total_length=len(y_pred),
         )
         results.update(classification_results)
@@ -233,7 +227,7 @@ class OPSSATBenchmark(Benchmark):
             if eval_loader is not None:
                 results["eval_loss"] = train_history[-1]["loss_eval"]
 
-        logging.info(f"Results for channel {channel_id}")
+        logging.info("Results for channel %s", channel_id)
 
         self.all_results.append(results)
 
@@ -250,58 +244,62 @@ class OPSSATBenchmark(Benchmark):
         call_every_ms: Optional[int] = 100,
         supervised=True,
     ):
-        """Esegue il benchmark diretto per classificazione di anomalie su segmenti.
+        """Run classifier benchmark for anomaly classification on segments.
 
         Args:
-            channel_id (str): ID del canale da testare
-            classifier (AnomalyClassifier): classificatore supervisionato
-            fit_classifier_args (dict): argomenti addizionali per il fit del classificatore
-            perc_eval (float): percentuale dei segmenti da usare per la validazione
+            channel_id (str): Channel ID to test
+            classifier (AnomalyClassifier): Supervised anomaly classifier
+            fit_classifier_args (dict): Additional arguments for classifier fit
+            perc_eval (float): Percentage of segments to use for validation
         """
         callback_handler = CallbackHandler(
             callbacks=callbacks if callbacks is not None else [],
-            call_every_ms=call_every_ms,
+            call_every_ms=call_every_ms if call_every_ms is not None else 100,
         )
         train_channel, test_channel = self.load_channel(
-            channel_id, overlapping_train=overlapping_train
+            channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
         )
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
 
-        callback_handler.start()
         if self.segmentator is not None:
             train_channel, train_anomalies = self.segmentator.segment(train_channel)
-
+        else:
+            train_anomalies = train_channel.anomalies
+            
         if isinstance(train_channel, pd.DataFrame):
             train_channel = train_channel.dropna().reset_index(drop=True)
 
         num_segments = len(train_channel)
         train_labels = np.zeros(num_segments, dtype=int)
 
-        # Etichetta 1 tutti gli eventi (anomalie o rare)
         for start, end in train_anomalies:
             start = max(0, start)
             end = min(num_segments - 1, end)
             train_labels[start : end + 1] = 1
 
-        logging.info(f"Fitting the classifier for chaggdnnel {channel_id}...")
+        logging.info("Fitting the classifier for channel %s...", channel_id)
 
+        callback_handler.start()
         if supervised:
-            unique, counts = np.unique(train_labels, return_counts=True)
+            unique, _ = np.unique(train_labels, return_counts=True)
             if len(unique) < 2:
                 return
             classifier.fit(X=train_channel, y=train_labels)
         else:
             classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
+
         results.update(
             {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
-        callback_handler.start()
 
         if self.segmentator is not None:
             test_channel, test_anomalies = self.segmentator.segment(test_channel)
+        else:
+            test_anomalies = test_channel.anomalies
 
+        callback_handler.start()
         if isinstance(test_channel, pd.DataFrame):
             test_channel = test_channel.dropna().reset_index(drop=True)
         y_pred = classifier.predict(X=test_channel)
@@ -309,9 +307,9 @@ class OPSSATBenchmark(Benchmark):
 
         if len(pred_anomalies) > 0:
             groups = [list(group) for group in mit.consecutive_groups(pred_anomalies)]
-            pred_anomalies = [[int(group[0]), int(group[-1])] for group in groups]
+            pred_anomalies = [[int(group[0]), int(group[-1])] for group in groups]  # type: ignore[assignment]
         else:
-            pred_anomalies = []
+            pred_anomalies = []  # type: ignore[assignment]
 
         callback_handler.stop()
         results.update(
@@ -325,7 +323,7 @@ class OPSSATBenchmark(Benchmark):
         classification_results = self.compute_corrected_classification_metrics(
             classification_results,
             test_anomalies,
-            pred_anomalies,
+            pred_anomalies,  # type: ignore[arg-type]
             total_length=len(y_pred),
         )
         results.update(classification_results)
@@ -343,7 +341,7 @@ class OPSSATBenchmark(Benchmark):
                 ),
             }
         )
-        logging.info(f"Results for channel {channel_id}")
+        logging.info("Results for channel %s", channel_id)
 
         self.all_results.append(results)
 

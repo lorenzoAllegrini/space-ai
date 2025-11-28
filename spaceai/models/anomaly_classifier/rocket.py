@@ -1,3 +1,5 @@
+"""Rocket classifier module."""
+
 from typing import (
     Any,
     Optional,

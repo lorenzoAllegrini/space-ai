@@ -1,15 +1,16 @@
 import os
 
-import pandas as pd
-from spaceai.data.ops_sat import OPSSAT
+import pandas as pd  # type: ignore
+from torch import (
+    nn,
+    optim,
+)
+
 from spaceai.benchmark import OPSSATBenchmark
+from spaceai.benchmark.callbacks import SystemMonitorCallback
+from spaceai.data.ops_sat import OPSSAT
 from spaceai.models.anomaly import Telemanom
 from spaceai.models.predictors import ESN
-
-from torch import nn
-from torch import optim
-
-from spaceai.benchmark.callbacks import SystemMonitorCallback
 
 
 def main():

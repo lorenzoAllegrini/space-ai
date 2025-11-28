@@ -4,6 +4,8 @@ from typing import (
     TYPE_CHECKING,
     Literal,
     Optional,
+    Tuple,
+    Union,
 )
 
 import numpy as np
@@ -19,7 +21,7 @@ class ErrorBasedDetector(AnomalyDetector):
 
     def __call__(self, input: np.ndarray, y_true: np.ndarray, **kwargs) -> np.ndarray:
         y_hat = self.predict_values(input)
-        return self.detect_anomalies(y_hat, y_true, **kwargs)
+        return self.detect_anomalies(y_hat, y_true, **kwargs)  # type: ignore[arg-type]
 
     def compute_error(
         self,
@@ -48,7 +50,7 @@ class ErrorBasedDetector(AnomalyDetector):
 
     def predict_values(
         self, input: np.ndarray, with_error: bool = True, **kwargs
-    ) -> np.ndarray:
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:  # type: ignore[override]
         if self._predictor is None:
             raise ValueError("Predictor must be bound before calling predict_values.")
 

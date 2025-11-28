@@ -1,3 +1,5 @@
+"""ROCKAD anomaly classifier module."""
+
 from typing import (
     Any,
     Optional,
@@ -5,11 +7,8 @@ from typing import (
 
 import numpy as np
 import pandas as pd  # type: ignore
-from sklearn.metrics.pairwise import (  # type: ignore
-    distance_metrics,
-    euclidean_distances,
-)
-from sklearn.neighbors import NearestNeighbors as NN  # type: ignore
+from sklearn.metrics.pairwise import distance_metrics  # type: ignore
+from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.preprocessing import (  # type: ignore
     PowerTransformer,
     StandardScaler,
@@ -21,6 +20,7 @@ from .anomaly_classifier import AnomalyClassifier
 
 
 class NearestNeighborOCC:
+    """Nearest Neighbor One-Class Classifier."""
 
     def __init__(self, dist="euclidean"):
         self.scores_train = None
@@ -28,20 +28,18 @@ class NearestNeighborOCC:
 
         metrics = distance_metrics()
 
-        if type(dist) is str and dist in metrics.keys():
+        if isinstance(dist, str) and dist in metrics:
             self.dist = metrics[dist]
         elif dist in metrics.values():
             self.dist = dist
-        elif False:
-            # TODO: allow time series distance measures such as DTW or Matrix Profile
-            pass
         else:
-            raise Exception("Distance metric not supported.")
+            raise ValueError("Distance metric not supported.")
 
     def fit(self, scores_train):
+        """Fit the model."""
         _scores_train = scores_train
 
-        if type(_scores_train) is not np.array:
+        if not isinstance(_scores_train, np.ndarray):
             _scores_train = np.array(scores_train.copy())
 
         if len(_scores_train.shape) == 1:
@@ -62,6 +60,7 @@ class NearestNeighborOCC:
         return np.array(predictions)
 
     def predict_score(self, anomaly_score):
+        """Predict the anomaly score."""
         prediction = None
 
         anomaly_score_arr = np.array(
@@ -91,6 +90,7 @@ class NearestNeighborOCC:
         return prediction
 
     def indicator_function(self, z_score, nearest_score, nearest_of_nearest_score):
+        """Indicator function for anomaly detection."""
 
         # make it an array and reshape it to calculate the distance
         z_score_arr = np.array(z_score).reshape(1, -1)
@@ -110,6 +110,7 @@ class NearestNeighborOCC:
 
 
 class NNEstimator:  # Renamed to avoid conflict with NN import
+    """Nearest Neighbor Estimator."""
 
     def __init__(
         self,
@@ -123,8 +124,10 @@ class NNEstimator:  # Renamed to avoid conflict with NN import
         self.n_jobs = n_jobs
         self.dist = dist
         self.random_state = random_state
+        self.nn = None
 
     def fit(self, X):
+        """Fit the estimator."""
         self.nn = NearestNeighbors(
             n_neighbors=self.n_neighbors,
             n_jobs=self.n_jobs,
@@ -135,6 +138,7 @@ class NNEstimator:  # Renamed to avoid conflict with NN import
         self.nn.fit(X)
 
     def predict_proba(self, X, y=None):
+        """Predict class probabilities."""
         scores = self.nn.kneighbors(X)
         scores = scores[0].mean(axis=1).reshape(-1, 1)
 
@@ -142,6 +146,7 @@ class NNEstimator:  # Renamed to avoid conflict with NN import
 
 
 class ROCKAD:
+    """ROCKAD (Rocket-based Anomaly Detection) classifier."""
 
     def __init__(
         self,
@@ -160,6 +165,8 @@ class ROCKAD:
         self.n_neighbors = n_neighbors
         self.n_jobs = n_jobs
         self.n_inf_cols: list[int] = []
+        self.x_transformed_power = None
+        self.list_baggers: list[Any] = []
 
         self.estimator = NNEstimator
         self.rocket_transformer = Rocket(
@@ -171,45 +178,55 @@ class ROCKAD:
         self.power_transformer = PowerTransformer(standardize=False)
 
     def init(self, X):
+        """Initialize the model with data."""
 
         # Fit Rocket & Transform into rocket feature space
-        Xt = self.rocket_transformer.fit_transform(X)
+        x_transformed = self.rocket_transformer.fit_transform(X)
 
-        self.Xtp = None  # X: values, t: (rocket) transformed, p: power transformed
+        self.x_transformed_power = None  # X: values, t: (rocket) transformed, p: power transformed
 
         if self.power_transform is True:
 
-            Xtp = self.power_transformer.fit_transform(Xt)
+            x_transformed_power = self.power_transformer.fit_transform(x_transformed)
 
-            self.Xtp = pd.DataFrame(Xtp)
+            self.x_transformed_power = pd.DataFrame(x_transformed_power)
 
         else:
-            self.Xtp = pd.DataFrame(Xt)
+            self.x_transformed_power = pd.DataFrame(x_transformed)
 
     def fit_estimators(self):
+        """Fit the ensemble of estimators."""
 
-        Xtp_scaled = None
+        x_transformed_power_scaled = None
 
         if self.power_transform is True:
             # Check for infinite columns and get indices
-            self._check_inf_values(self.Xtp)
+            self._check_inf_values(self.x_transformed_power)
 
             # Remove infinite columns
-            self.Xtp = self.Xtp[
-                self.Xtp.columns[~self.Xtp.columns.isin(self.n_inf_cols)]
+            self.x_transformed_power = self.x_transformed_power[
+                self.x_transformed_power.columns[
+                    ~self.x_transformed_power.columns.isin(self.n_inf_cols)
+                ]
             ]
 
             # Fit Scaler
-            Xtp_scaled = self.scaler.fit_transform(self.Xtp)
+            x_transformed_power_scaled = self.scaler.fit_transform(self.x_transformed_power)
 
-            Xtp_scaled = pd.DataFrame(Xtp_scaled, columns=self.Xtp.columns)
+            x_transformed_power_scaled = pd.DataFrame(
+                x_transformed_power_scaled, columns=self.x_transformed_power.columns
+            )
 
-            self._check_inf_values(Xtp_scaled)
+            self._check_inf_values(x_transformed_power_scaled)
 
-            Xtp_scaled = Xtp_scaled.astype(np.float32).to_numpy()
+            x_transformed_power_scaled = x_transformed_power_scaled.astype(
+                np.float32
+            ).to_numpy()
 
         else:
-            Xtp_scaled = self.Xtp.astype(np.float32).to_numpy()
+            x_transformed_power_scaled = self.x_transformed_power.astype(
+                np.float32
+            ).to_numpy()
 
         self.list_baggers = []
 
@@ -221,58 +238,70 @@ class ROCKAD:
             )
 
             # Bootstrap Aggregation
-            Xtp_scaled_sample = resample(
-                Xtp_scaled,
+            x_transformed_power_scaled_sample = resample(
+                x_transformed_power_scaled,
                 replace=True,
                 n_samples=None,
                 random_state=self.random_state + idx_estimator,
                 stratify=None,
             )
             # Fit estimator and append to estimator list
-            estimator.fit(Xtp_scaled_sample)
+            estimator.fit(x_transformed_power_scaled_sample)
             self.list_baggers.append(estimator)
 
     def fit(self, X):
+        """Fit the model."""
         self.init(X)
         self.fit_estimators()
 
         return self
 
     def predict_proba(self, X):
+        """Predict class probabilities."""
         y_scores = np.zeros((len(X), self.n_estimators))
 
         # Transform into rocket feature space
-        Xt = self.rocket_transformer.transform(X)
+        x_transformed = self.rocket_transformer.transform(X)
 
-        Xtp_scaled = None
+        x_transformed_power_scaled = None
 
-        if self.power_transform == True:
+        if self.power_transform:
             # Power Transform using yeo-johnson
-            Xtp = self.power_transformer.transform(Xt)
-            Xtp = pd.DataFrame(Xtp)
+            x_transformed_power = self.power_transformer.transform(x_transformed)
+            x_transformed_power = pd.DataFrame(x_transformed_power)
 
             # Check for infinite columns and remove them
-            self._check_inf_values(Xtp)
-            Xtp = Xtp[Xtp.columns[~Xtp.columns.isin(self.n_inf_cols)]]
-            Xtp_temp = Xtp.copy()
+            self._check_inf_values(x_transformed_power)
+            x_transformed_power = x_transformed_power[
+                x_transformed_power.columns[
+                    ~x_transformed_power.columns.isin(self.n_inf_cols)
+                ]
+            ]
+            x_transformed_power_temp = x_transformed_power.copy()
 
             # Scale the data
-            Xtp_scaled = self.scaler.transform(Xtp_temp)
-            Xtp_scaled = pd.DataFrame(Xtp_scaled, columns=Xtp_temp.columns)
+            x_transformed_power_scaled = self.scaler.transform(x_transformed_power_temp)
+            x_transformed_power_scaled = pd.DataFrame(
+                x_transformed_power_scaled, columns=x_transformed_power_temp.columns
+            )
 
             # Check for infinite columns and remove them
-            self._check_inf_values(Xtp_scaled)
-            Xtp_scaled = Xtp_scaled[
-                Xtp_scaled.columns[~Xtp_scaled.columns.isin(self.n_inf_cols)]
+            self._check_inf_values(x_transformed_power_scaled)
+            x_transformed_power_scaled = x_transformed_power_scaled[
+                x_transformed_power_scaled.columns[
+                    ~x_transformed_power_scaled.columns.isin(self.n_inf_cols)
+                ]
             ]
-            Xtp_scaled = Xtp_scaled.astype(np.float32).to_numpy()
+            x_transformed_power_scaled = x_transformed_power_scaled.astype(
+                np.float32
+            ).to_numpy()
 
         else:
-            Xtp_scaled = Xt.astype(np.float32)
+            x_transformed_power_scaled = x_transformed.astype(np.float32)
 
         for idx, bagger in enumerate(self.list_baggers):
             # Get scores from each estimator
-            scores = bagger.predict_proba(Xtp_scaled).squeeze()
+            scores = bagger.predict_proba(x_transformed_power_scaled).squeeze()
 
             y_scores[:, idx] = scores
 
@@ -282,6 +311,7 @@ class ROCKAD:
         return y_scores
 
     def _check_inf_values(self, X):
+        """Check for infinite values in the data."""
         if np.isinf(X[X.columns[~X.columns.isin(self.n_inf_cols)]]).any(axis=0).any():
             self.n_inf_cols.extend(X.columns.to_series()[np.isinf(X).any()])
             self.fit_estimators()
@@ -311,7 +341,7 @@ class RockadClassifier(AnomalyClassifier):
         1) Applica ROCKAD su X a scapito di y.
         2) Prende i punteggi di anomalia e allena il one‐class model.
         """
-        X_proc = self._prepare_input(X)
+        x_proc = self._prepare_input(X)
 
         # 1) Fit del solo ensemble ROCKAD (unsupervised)
         self.rockad = ROCKAD(
@@ -321,15 +351,17 @@ class RockadClassifier(AnomalyClassifier):
             power_transform=False,
         )
         # rockad.fit si aspetta solo X
-        self.rockad.fit(X_proc)
+        self.rockad.fit(x_proc)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
         """
+        if self.rockad is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
 
-        X_proc = self._prepare_input(X)
-        raw_scores = self.rockad.predict_proba(X_proc)
+        x_proc = self._prepare_input(X)
+        raw_scores = self.rockad.predict_proba(x_proc)
 
         base_model = self.base_model().fit(raw_scores)
         pred = base_model.predict(raw_scores)

@@ -22,7 +22,7 @@ class SystemMonitorCallback(Callback):
     def call(self):
         """Method to be executed by the callback.
 
-        It collects the CPU and memory usage \ of the process.
+        It collects the CPU and memory usage of the process.
         """
         curr_cpu = self.p.cpu_percent() / psutil.cpu_count()
         curr_mem = self.p.memory_info().rss
@@ -32,7 +32,7 @@ class SystemMonitorCallback(Callback):
 
     def collect(self, reset: bool = False) -> Dict[str, Any]:
         """Collect data from the callback. It returns a dictionary with the data
-        collected \ by the callback.
+        collected by the callback.
 
         Args:
             reset (bool): If True, the callback should reset the data collected.

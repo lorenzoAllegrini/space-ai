@@ -1,3 +1,5 @@
+"""LSTM model module."""
+
 from typing import (
     List,
     Literal,
@@ -13,6 +15,7 @@ from .seq_model import SequenceModel
 
 
 class LSTM(SequenceModel):
+    """LSTM wrapper class."""
 
     def __init__(
         self,
@@ -31,7 +34,8 @@ class LSTM(SequenceModel):
             input_size (int): Number of features in the input data.
             hidden_sizes (List[int]): List of hidden layer sizes.
             output_size (int): Number of features in the output data.
-            reduce_out (Optional[Literal["first", "mean"]], optional): Whether to reduce the output. Defaults to None.
+            reduce_out (Optional[Literal["first", "mean"]], optional): Whether to reduce the
+                output. Defaults to None.
             dropout (float): Dropout rate.
             device (Literal["cpu", "cuda"], optional): Device to use. Defaults to "cpu".
             stateful (bool, optional): Whether to use stateful LSTM. Defaults to False.
@@ -55,8 +59,8 @@ class LSTM(SequenceModel):
             washout=self.washout,
         )
 
-    def __call__(self, input):
-        pred = super().__call__(input)
+    def __call__(self, input_data):
+        pred = super().__call__(input_data)
         if self.reduce_out is None:
             return pred
         elif self.reduce_out == "mean":

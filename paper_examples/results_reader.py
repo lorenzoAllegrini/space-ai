@@ -1,21 +1,11 @@
+"""Results reader module for aggregating and exporting experiment results."""
+
 import argparse
 import os
-from typing import (
-    Optional,
-)
+from typing import Optional
 
-import numpy as np
 import pandas as pd  # type: ignore
 from tabulate import tabulate  # type: ignore
-from tqdm import tqdm  # type: ignore
-
-from spaceai.data.esa import (
-    ESA,
-    ESAMission,
-    ESAMissions,
-)
-from spaceai.data.nasa import NASA
-from spaceai.data.ops_sat import OPSSAT
 
 WINDOW_LENGTH = 50
 
@@ -23,6 +13,7 @@ DATASET_ALIAS = {"ops": "OPS_SAT", "nasa": "NASA", "esa": "ESA"}
 
 
 def check_datasets(datasets):
+    """Check and filter valid datasets from input string."""
     dataset_array = datasets.split(",")
     return [
         DATASET_ALIAS[dataset.strip(" ").lower()]
@@ -32,6 +23,7 @@ def check_datasets(datasets):
 
 
 def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
+    """Compute F1, Precision, Recall, and other metrics from experiment results."""
     req = {
         "true_positives",
         "false_positives",
@@ -86,6 +78,7 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
 
 
 def parse_args():
+    """Parse command line arguments."""
     p = argparse.ArgumentParser(description="Aggrega risultati esperimenti AD.")
     p.add_argument(
         "--base-dir", default="experiments", help="Cartella radice degli esperimenti."
@@ -123,8 +116,9 @@ def render_and_export(
     datasets_filter: list[str],
     print_tables: bool = False,
 ) -> None:
+    """Render results to console and export to CSV."""
 
-    os.makedirs(export_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # Per dataset
     for ds in datasets_filter:
@@ -136,7 +130,7 @@ def render_and_export(
             continue
 
         view_sorted = view.sort_values("f1", ascending=False)
-        csv_path = os.path.join(export_dir, f"{ds}_results.csv")
+        csv_path = os.path.join(output_dir, f"{ds}_results.csv")
         view_sorted.to_csv(csv_path, index=False)
 
         if print_tables:
@@ -158,6 +152,7 @@ def render_and_export(
 
 
 def main():
+    """Main function to aggregate and export results."""
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 

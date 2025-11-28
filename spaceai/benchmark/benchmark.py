@@ -1,7 +1,10 @@
+"""Base benchmark class for anomaly detection benchmarks."""
+
 import os
 
 
 class Benchmark:
+    """Base class for benchmark runners."""
 
     def __init__(self, run_id: str, exp_dir: str):
         """Initializes a new benchmark run.

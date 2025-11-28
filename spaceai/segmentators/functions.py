@@ -1,3 +1,5 @@
+"""Utility functions for feature extraction from time series segments."""
+
 from functools import partial
 from typing import (
     Any,
@@ -6,7 +8,6 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd  # type: ignore
 from scipy import signal as sig  # type: ignore
 from scipy.stats import (  # type: ignore
     kurtosis,
@@ -63,20 +64,23 @@ def count_peaks_vectorized(windows: np.ndarray) -> np.ndarray:
 
 
 def smooth_10(x):
+    """Apply Savitzky-Golay smoothing filter with window length 10."""
     return sig.savgol_filter(x, window_length=10, polyorder=2)
 
 
 def smooth_20(x):
-    return sig.savgol_filter(x, window_length=20, polyorder=2)
+    """Apply Savitzky-Golay smoothing filter with window length 20."""
     return sig.savgol_filter(x, window_length=20, polyorder=2)
 
 
 def diff1(x):
+    """Compute first order difference of array."""
     d = np.diff(x)
     return np.concatenate(([0], d))
 
 
 def diff2(x):
+    """Compute second order difference of array."""
     d = np.diff(x, n=2)
     return np.concatenate(([0, 0], d))
 
@@ -105,4 +109,4 @@ FEATURE_MAP = {
     "skew": _make_stat(skew, axis=1, bias=False),
 }
 
-all = ["FEATURE_MAP"]
+__all__ = ["FEATURE_MAP"]

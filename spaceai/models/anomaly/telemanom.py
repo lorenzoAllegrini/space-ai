@@ -92,12 +92,12 @@ class Telemanom(ErrorBasedDetector):
         self.y_true_buffer = np.array([])
         self.n_window: int = 0
 
-    def compute_error(
+    def compute_error(  # type: ignore[override]
         self,
         y_pred: np.ndarray,
         y_true: np.ndarray,
         reduce: Optional[Literal["mean", "min", "max"]] = None,
-    ) -> Union[np.ndarray, float]:
+    ) -> Union[np.ndarray, float]:  # type: ignore[override]
         """Compute the error between the actual and predicted values.
 
         Args:
@@ -117,9 +117,9 @@ class Telemanom(ErrorBasedDetector):
         if reduce == "max":
             return np.amax(err)
 
-    def detect_anomalies(
+    def detect_anomalies(  # type: ignore[override]
         self, y_pred: np.ndarray, y_true: np.ndarray, **kwargs
-    ) -> Optional[np.ndarray]:
+    ) -> List[Tuple[int, int]]:  # type: ignore[override]
         """Calculate the prediction errors between actual and predicted values.
 
         Args:
@@ -131,6 +131,9 @@ class Telemanom(ErrorBasedDetector):
         """
         # Compute the errors and update the window
         err = self.compute_error(y_pred, y_true)
+        # Ensure err is an ndarray for ewma
+        if isinstance(err, float):
+            err = np.array([err])
         err_s = self.ewma(err)
         if len(self.eval_buffer) == 0 and not self.force_early_anomaly:
             err_s[: self.pred_buffer] = [
@@ -188,7 +191,7 @@ class Telemanom(ErrorBasedDetector):
 
         return e_seqs
 
-    def flush_detector(self) -> Optional[np.ndarray]:
+    def flush_detector(self) -> List[Tuple[int, int]]:  # type: ignore[override]
         self.window = np.append(self.window, self.eval_buffer)[-self.window_size :]
         self.y_true_window = np.append(self.y_true_window, self.y_true_buffer)[
             -self.window_size :
@@ -213,7 +216,7 @@ class Telemanom(ErrorBasedDetector):
             ]
         return e_seqs
 
-    def process_window(self, old_i_anom: Optional[np.array] = None) -> np.ndarray:
+    def process_window(self, old_i_anom: Optional[np.ndarray] = None) -> np.ndarray:
         """Process the window of errors and identify the anomalies.
 
         Returns:
@@ -238,10 +241,10 @@ class Telemanom(ErrorBasedDetector):
             not (sd_e_s > (0.05 * sd_values) or max_error > (0.05 * inter_range))
             or not max_error > 0.05
         ):
-            i_anom: np.array = np.array([])
+            i_anom: np.ndarray = np.array([])
             e_seq: list = []
             non_anom_max: float = float("-inf")
-            i_anom_inv: np.array = np.array([])
+            i_anom_inv: np.ndarray = np.array([])
             e_seq_inv: list = []
             non_anom_max_inv: float = float("-inf")
         else:
@@ -419,7 +422,8 @@ class Telemanom(ErrorBasedDetector):
 
         i_to_remove = np.array(i_to_remove, dtype=int)
         if len(i_to_remove) > 0:
-            e_seq = np.delete(e_seq, i_to_remove, axis=0)
+            e_seq_arr = np.array(e_seq)
+            e_seq = np.delete(e_seq_arr, i_to_remove, axis=0).tolist()
 
         if len(e_seq) == 0:
             return np.array([])

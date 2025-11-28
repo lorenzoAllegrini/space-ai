@@ -1,6 +1,5 @@
-from typing import (
-    Optional,
-)
+import argparse
+from typing import Optional
 
 import numpy as np
 import torch as th
@@ -11,16 +10,17 @@ from torch_dpmm.models import (  # type: ignore
     IsotropicGaussianDPMM,
     UnitGaussianDPMM,
 )
-#TODO: rename single to isotropic
+# TODO: rename single to isotropic
 from tqdm import tqdm  # type: ignore
-import argparse
+
 from .anomaly_classifier import AnomalyClassifier
+
 
 def get_dpmm_argparser():
     parser = argparse.ArgumentParser()
-    #TODO: uniform with command line args
-    #parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"]) 
-    #parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
+    # TODO: uniform with command line args
+    # parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"])
+    # parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
     parser.add_argument("--K", type=int, default=100)
     parser.add_argument("--num-iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.1)
@@ -29,6 +29,7 @@ def get_dpmm_argparser():
     parser.add_argument("--var_prior_strength", type=float, default=1.0)
     parser.add_argument("--quantile", type=float, default=0.05)
     return parser
+
 
 class DPMMDetector(AnomalyClassifier):
     def __init__(
@@ -73,7 +74,7 @@ class DPMMDetector(AnomalyClassifier):
     ) -> np.ndarray:
         return self.predict(input)
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "DPMMDetector":  # type: ignore[name-defined]
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:
         """Fit del DPMM; in modalità 'cluster_labels' richiede y per derivare etichette di cluster."""
         # Validazioni
         if self.mode == "cluster_labels" and y is None:
@@ -94,6 +95,9 @@ class DPMMDetector(AnomalyClassifier):
         # Modello
         D = X_t.shape[1]
         self.dpmm_model = self._init_model(D).to(self.device)
+        if self.dpmm_model is None:
+            raise RuntimeError("Failed to initialize DPMM model")
+        
         self.dpmm_model.train()
         self.dpmm_model.init_var_params(X_t)
 
@@ -130,8 +134,6 @@ class DPMMDetector(AnomalyClassifier):
 
             perc = anom / (tot + 1e-6)
             self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
-
-        return self
 
     def predict(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
         """Predice etichetta anomalia per ciascun punto (bool) usando il modello fit-tato."""
@@ -185,7 +187,7 @@ class DPMMDetector(AnomalyClassifier):
                 var_prior_strength=self.var_prior_strength,
             )
         if self.model_type == "single":
-            return SingleGaussianDPMM(
+            return IsotropicGaussianDPMM(
                 self.K,
                 D,
                 self.alphaDP,
@@ -205,4 +207,5 @@ class DPMMDetector(AnomalyClassifier):
         raise ValueError(f"Invalid model_type: {self.model_type}")
 
     def detect_anomalies(self, X, y_true=None, **kwargs):
+        """Detect anomalies in the input data."""
         return self.predict(X)

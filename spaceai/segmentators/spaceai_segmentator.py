@@ -1,3 +1,5 @@
+"""SpaceAI segmentator module."""
+
 from typing import (
     Callable,
     Dict,
@@ -55,10 +57,21 @@ class SpaceAISegmentator:
                 mask[int(start) : int(end) + 1] = 1
         return mask
 
-    def segment(self, dataset_channel: AnomalyDataset, **kwargs):
+    def segment(self, dataset_channel: AnomalyDataset):
+        """
+        Segment the dataset channel into windows and extract features.
+
+        Args:
+            dataset_channel (AnomalyDataset): The dataset channel to segment.
+
+        Returns:
+            Tuple[np.ndarray, List[List[int]]]: Segments and anomaly intervals.
+        """
         data = dataset_channel.data[:, 0]  # type: ignore[attr-defined]
 
-        anomalies_mask = self._get_anomaly_mask(dataset_channel.anomalies, len(data))  # type: ignore[attr-defined]
+        anomalies_mask = self._get_anomaly_mask(
+            dataset_channel.anomalies, len(data)  # type: ignore[attr-defined]
+        )
 
         anomalies = apply_statistic_to_segments(
             data=anomalies_mask,
@@ -94,7 +107,7 @@ class SpaceAISegmentator:
         if self.extract_features:
             columns = list(self.transformations.keys())
 
-            segments = pd.DataFrame(segments, columns=columns)
-            segments = segments.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+            segments_df = pd.DataFrame(segments, columns=columns)
+            segments = segments_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
         return segments, anomalies_intervals

@@ -1,14 +1,16 @@
 import os
 
-import pandas as pd
-from spaceai.data import ESA, ESAMissions
-from spaceai.benchmark import ESABenchmark
-from spaceai.models.anomaly import Telemanom
-from spaceai.models.predictors import ESN
-
+import pandas as pd  # type: ignore
 from torch import nn
 
+from spaceai.benchmark import ESABenchmark
 from spaceai.benchmark.callbacks import SystemMonitorCallback
+from spaceai.data import (
+    ESA,
+    ESAMissions,
+)
+from spaceai.models.anomaly import Telemanom
+from spaceai.models.predictors import ESN
 
 
 def main():

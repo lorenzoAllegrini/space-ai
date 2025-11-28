@@ -1,3 +1,5 @@
+"""Benchmark module for evaluating anomaly detection models."""
+
 from .benchmark import Benchmark
 from .nasa import NASABenchmark
 from .esa import ESABenchmark

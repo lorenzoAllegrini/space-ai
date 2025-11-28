@@ -1,3 +1,5 @@
+"""NASA benchmark dataset module."""
+
 import ast
 import logging
 import math
@@ -160,8 +162,9 @@ class NASA(AnomalyDataset):
 
         if self._mode == "anomaly" and self.overlapping:
             logging.warning(
-                f"Channel {channel_id} is in anomaly mode and overlapping is set to True."
-                " Anomalies will be repeated in the dataset."
+                "Channel %s is in anomaly mode and overlapping is set to True."
+                " Anomalies will be repeated in the dataset.",
+                channel_id,
             )
 
         self.data, self.anomalies = self.load_and_preprocess()
@@ -199,7 +202,7 @@ class NASA(AnomalyDataset):
         if self.overlapping:
             length = self.data.shape[0] - self.window_size - self.n_predictions + 1
             return length
-        length = self.data.shape[0] / (self.window_size + self.n_predictions)
+        length = int(self.data.shape[0] / (self.window_size + self.n_predictions))
         if self.drop_last:
             return math.floor(length)
         return math.ceil(length)
@@ -253,7 +256,7 @@ class NASA(AnomalyDataset):
             if len(anomaly_seq_df) > 0:
                 anomalies = ast.literal_eval(anomaly_seq_df.values[0])
             else:
-                logging.warning(f"No anomalies found for channel {self.channel_id}")
+                logging.warning("No anomalies found for channel %s", self.channel_id)
 
         return data, anomalies
 
@@ -263,7 +266,7 @@ class NASA(AnomalyDataset):
         return os.path.join(self.raw_folder, "data", "train" if self.train else "test")
 
     @property
-    def in_features_size(self) -> str:
+    def in_features_size(self) -> int:
         """Return the size of the input features."""
         return self.data.shape[-1]
 

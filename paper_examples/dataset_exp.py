@@ -1,3 +1,5 @@
+"""Dataset experiment execution module."""
+
 from spaceai.benchmark import (
     ESABenchmark,
     NASABenchmark,
@@ -5,7 +7,6 @@ from spaceai.benchmark import (
 )
 from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.data import (
-    ESA,
     NASA,
     ESAMissions,
 )
@@ -17,6 +18,7 @@ from spaceai.segmentators import (
 
 
 def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
+    """Run experiment on ESA dataset."""
 
     segmentator = SpaceAISegmentator(
         window_size=50,
@@ -26,7 +28,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         run_id="channel_segments",
         exp_dir=exp_dir,
     )
-    print('Loading data...')
+    print("Loading data...")
 
     benchmark = ESABenchmark(
         run_id=run_id,
@@ -36,7 +38,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
     )
     callbacks = [SystemMonitorCallback()]
 
-    print('Data loaded!')
+    print("Data loaded!")
 
     for mission_wrapper in ESAMissions:
         mission = mission_wrapper.value
@@ -45,7 +47,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         for channel_id in mission.target_channels:
             if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46:
                 continue
-            print(f'Running classifier on channel {channel_id}')
+            print(f"Running classifier on channel {channel_id}")
 
             benchmark.run_classifier(
                 mission=mission,
@@ -57,6 +59,7 @@ def run_esa_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
 
 
 def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
+    """Run experiment on NASA dataset."""
 
     segmentator = SpaceAISegmentator(
         window_size=50,
@@ -66,7 +69,7 @@ def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
         exp_dir=exp_dir,
         run_id=run_id,
     )
-    print('Loading data...')
+    print("Loading data...")
 
     benchmark = NASABenchmark(
         run_id=run_id,
@@ -76,10 +79,10 @@ def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
     )
     callbacks = [SystemMonitorCallback()]
 
-    print('Data loaded!')
+    print("Data loaded!")
 
     channels = NASA.channel_ids
-    for i, channel_id in enumerate(channels):
+    for channel_id in channels:
 
         benchmark.run_classifier(
             channel_id,
@@ -89,6 +92,7 @@ def run_nasa_exp(classifier, extract_features, exp_dir, run_id):
 
 
 def run_ops_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
+    """Run experiment on OPS-SAT dataset."""
 
     segmentator = SpaceAISegmentator(
         window_size=50,
@@ -99,8 +103,7 @@ def run_ops_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
         exp_dir=exp_dir,
         run_id=run_id,
     )
-
-    print('Loading data...')
+    print("Loading data...")
 
     benchmark = OPSSATBenchmark(
         run_id=run_id,
@@ -110,11 +113,11 @@ def run_ops_exp(classifier, is_supervised, extract_features, exp_dir, run_id):
     )
     callbacks = [SystemMonitorCallback()]
 
-    print('Data loaded!')
+    print("Data loaded!")
 
     channels = OPSSAT.channel_ids
-    for i, channel_id in enumerate(channels):
-        print(f'Running classifier on channel {channel_id}')
+    for channel_id in channels:
+        print(f"Running classifier on channel {channel_id}")
         benchmark.run_classifier(
             channel_id,
             classifier=classifier,
