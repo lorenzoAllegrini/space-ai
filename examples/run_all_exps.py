@@ -4,11 +4,11 @@ import argparse
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-from .config import OMP_NUM_THREADS
+from .utils.config import OMP_NUM_THREADS
 
 os.environ["OMP_NUM_THREADS"] = f"{OMP_NUM_THREADS}"
 
-from .run_exp import (  
+from .run_segment_extraction_exp import (  
     DATASET_LIST,
     DPMM_MODE,
     DPMM_MODEL_TYPE,

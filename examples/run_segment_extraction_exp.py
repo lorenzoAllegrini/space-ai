@@ -7,9 +7,9 @@ import warnings
 
 from spaceai.preprocessing import get_feature_extractor
 
-from .config import OMP_NUM_THREADS
-from .dataset_exp import get_dataset_benchmark, run_dataset_experiment
-from .model_creators import (
+from .utils.config import OMP_NUM_THREADS
+from .utils.dataset_exp import get_dataset_benchmark, run_dataset_experiment
+from .utils.model_creators import (
     create_classifier,
     format_str,
 )

@@ -81,3 +81,57 @@ def create_classifier(args, other_args):
             return get_ridge_regression_classifier()
         case _:
             raise ValueError(f"Modello {args.model} non supportato!")
+            raise ValueError(f"Modello {args.model} non supportato!")
+
+
+from spaceai.models.predictors import ESN, LSTM
+from spaceai.models.anomaly import Telemanom
+from .config import Config
+
+
+def get_esn_predictor(input_size, config: Config):
+    """Get ESN predictor."""
+    return ESN(
+        input_size=input_size,
+        hidden_size=config.layers,
+        output_size=config.n_predictions,
+        reduce_out="mean",  # TODO: make configurable?
+        gradient_based=True, # TODO: make configurable?
+        washout=200, # TODO: make configurable?
+        activation=config.activation,
+        leakage=config.leakage,
+        input_scaling=config.input_scaling,
+        rho=config.rho,
+        kernel_initializer=config.kernel_initializer,
+        recurrent_initializer=config.recurrent_initializer,
+        net_gain_and_bias=config.net_gain_and_bias,
+        bias=config.bias,
+        l2=config.l2[0] if isinstance(config.l2, list) else config.l2,
+    )
+
+
+def get_lstm_predictor(input_size, config: Config):
+    """Get LSTM predictor."""
+    return LSTM(
+        input_size=input_size,
+        hidden_size=config.layers,
+        output_size=config.n_predictions,
+        dropout=config.dropout,
+    )
+
+
+def get_telemanom_detector(config: Config):
+    """Get Telemanom detector."""
+    return Telemanom(pruning_factor=config.p)
+
+
+def create_predictor(model_name, input_size, config: Config):
+    """Create predictor based on model name."""
+    model_id = format_str(model_name)
+    match model_id:
+        case "esn":
+            return get_esn_predictor(input_size, config)
+        case "lstm":
+            return get_lstm_predictor(input_size, config)
+        case _:
+            raise ValueError(f"Predictor {model_name} not supported!")
