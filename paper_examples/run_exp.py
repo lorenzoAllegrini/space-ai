@@ -13,6 +13,7 @@ from .model_creators import (
     create_classifier,
     format_str,
 )
+from spaceai.preprocessing import SpaceAISegmentator
 
 os.environ["OMP_NUM_THREADS"] = f"{OMP_NUM_THREADS}"
 
@@ -62,7 +63,7 @@ def run_exp(args, other_args=None, suppress_output=False):
 
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
-        run_id=base_dir,
+        data_path=args.base_dir,
         exp_dir=args.exp_dir,
         segmentator=segmentator,
         feature_extractor=feature_extractor,
@@ -70,8 +71,9 @@ def run_exp(args, other_args=None, suppress_output=False):
 
     run_dataset_experiment(
         benchmark=benchmark,
-        classifier=classifier_factory,
+        classifier_factory=classifier_factory,
         is_supervised=is_supervised,
+        model_id=args.model,
     )
 
 

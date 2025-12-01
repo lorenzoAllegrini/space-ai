@@ -280,11 +280,14 @@ class OPSSATBenchmark(Benchmark):
                 end = min(num_segments - 1, end)
                 train_labels[start : end + 1] = 1
 
+
+
         if self.feature_extractor is not None:
             train_channel = self.feature_extractor.fit_transform(train_channel)
-            
         if isinstance(train_channel, pd.DataFrame):
-            train_channel = train_channel.dropna().reset_index(drop=True)
+            train_channel = train_channel.reset_index(drop=True)
+
+
 
         logging.info("Fitting the classifier for channel %s...", channel_id)
 

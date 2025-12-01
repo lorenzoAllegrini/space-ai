@@ -19,6 +19,7 @@ def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
         The instantiated feature extractor or None.
     """
     if name == "base_statistics":
+        kwargs.pop("n_kernel", None)
         return StatisticsFeatureExtractor(transformations=FEATURE_MAP, **kwargs)
     elif name == "rocket":
         num_kernels = kwargs.get("n_kernel") or kwargs.get("num_kernels") or 100

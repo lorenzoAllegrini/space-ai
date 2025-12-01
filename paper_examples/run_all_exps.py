@@ -19,6 +19,7 @@ from .run_exp import (
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("--base_dir", required=True)
     arg_parser.add_argument("--n-workers", type=int, default=1)
     arg_parser.add_argument("--segmentator", action="store_true")
     arg_parser.add_argument("--feature-extractor", type=str, default="none")
@@ -71,7 +72,7 @@ if __name__ == "__main__":
     command_args_list = []
     for dataset in dataset_list:
         for model in model_list:
-            COMMAND_ARGS = f"--exp-dir {exp_path} --dataset {dataset} --model {model}"
+            COMMAND_ARGS = f"--base_dir {args.base_dir} --exp-dir {exp_path} --dataset {dataset} --model {model}"
 
             if model == "rockad":
                 command_args_list.append(

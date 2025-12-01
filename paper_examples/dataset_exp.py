@@ -114,9 +114,7 @@ def run_esa_experiment(
                 mission=mission,
                 channel_id=channel_id,
                 classifier=classifier,
-                supervised=supervised,
-                model_id=model_id,
-                exp_dir=exp_dir,
+                supervised=is_supervised,
             )
 
 
@@ -135,11 +133,8 @@ def run_nasa_experiment(
         benchmark.run_classifier(
             channel_id=channel_id,
             classifier=classifier,
-            supervised=supervised,
-            model_id=model_id,
-            exp_dir=exp_dir,
+            supervised=is_supervised,
         )
-
 
 def run_ops_sat_experiment(
     benchmark: OPSSATBenchmark,
@@ -156,7 +151,7 @@ def run_ops_sat_experiment(
         benchmark.run_classifier(
             channel_id=channel_id,
             classifier=classifier,
-            supervised=supervised,
+            supervised=is_supervised,
             model_id=model_id,
             exp_dir=exp_dir,
         )

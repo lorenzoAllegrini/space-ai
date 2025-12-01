@@ -86,7 +86,7 @@ class StatisticsFeatureExtractor:
         transformed_segments = np.column_stack(feature_list)
 
         df = pd.DataFrame(transformed_segments, columns=list(self.transformations.keys()))
-
+        df = df.fillna(df.mean()).fillna(0)
         return df
 
 __all__ = ["FEATURE_MAP", "StatisticsFeatureExtractor"]
