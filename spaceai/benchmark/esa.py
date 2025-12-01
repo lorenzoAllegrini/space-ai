@@ -45,6 +45,7 @@ class ESABenchmark(Benchmark):
         run_id: str,
         exp_dir: str,
         segmentator: Any,
+        feature_extractor: Optional[Any] = None,
         seq_length: int = 250,
         n_predictions: int = 1,
         data_root: str = "datasets",
@@ -63,6 +64,7 @@ class ESABenchmark(Benchmark):
         self.n_predictions: int = n_predictions
         self.all_results: List[Dict[str, Any]] = []
         self.segmentator = segmentator
+        self.feature_extractor = feature_extractor
 
     def run(
         self,
@@ -276,17 +278,22 @@ class ESABenchmark(Benchmark):
         results: Dict[str, Any] = {"channel_id": channel_id}
 
         if self.segmentator is not None:
-            train_channel, train_anomalies = self.segmentator.segment(train_channel)
+            seg_result = self.segmentator.segment(train_channel)
+            train_channel = seg_result["segments"]
+            train_labels = seg_result["labels"]
         else:
             train_anomalies = train_channel.anomalies
+            num_segments = len(train_channel)
+            train_labels = np.zeros(num_segments, dtype=int)
+            for start, end in train_anomalies:
+                start = max(0, start)
+                end = min(num_segments - 1, end)
+                train_labels[start : end + 1] = 1
+            
+        if self.feature_extractor is not None:
+            train_channel = self.feature_extractor.fit_transform(train_channel)
         logging.info("Fitting the classifier for channel %s...", channel_id)
 
-        num_segments = len(train_channel)
-        train_labels = np.zeros(num_segments, dtype=int)
-        for start, end in train_anomalies:
-            start = max(0, start)
-            end = min(num_segments - 1, end)
-            train_labels[start : end + 1] = 1
         callback_handler.start()
         if supervised:
             classifier.fit(X=train_channel, y=train_labels)
@@ -300,9 +307,14 @@ class ESABenchmark(Benchmark):
         logging.info("Predicting the test data for channel %s...", channel_id)
 
         if self.segmentator is not None:
-            test_channel, test_anomalies = self.segmentator.segment(test_channel)
+            seg_result = self.segmentator.segment(test_channel)
+            test_channel = seg_result["segments"]
+            test_anomalies = seg_result["intervals"]
         else:
             test_anomalies = test_channel.anomalies
+
+        if self.feature_extractor is not None:
+            test_channel = self.feature_extractor.transform(test_channel)
         callback_handler.start()
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)

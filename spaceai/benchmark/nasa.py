@@ -40,6 +40,7 @@ class NASABenchmark(Benchmark):
         run_id: str,
         exp_dir: str,
         segmentator: Optional[Any] = None,  # type: ignore[name-defined]
+        feature_extractor: Optional[Any] = None,
         seq_length: int = 250,
         n_predictions: int = 1,
         data_root: str = "data/nasa",
@@ -58,6 +59,7 @@ class NASABenchmark(Benchmark):
         self.n_predictions: int = n_predictions
         self.all_results: List[Dict[str, Any]] = []
         self.segmentator: Any = segmentator  # type: ignore[name-defined]
+        self.feature_extractor = feature_extractor
 
     def run(
         self,
@@ -257,21 +259,49 @@ class NASABenchmark(Benchmark):
         results: Dict[str, Any] = {"channel_id": channel_id}
 
         if self.segmentator is not None:
-            train_channel, _ = self.segmentator.segment(train_channel)
+            seg_result = self.segmentator.segment(train_channel)
+            train_channel = seg_result["segments"]
+            train_labels = seg_result["labels"]
+        else:
+            train_anomalies = train_channel.anomalies
+            num_segments = len(train_channel)
+            train_labels = np.zeros(num_segments, dtype=int)
+            for start, end in train_anomalies:
+                start = max(0, start)
+                end = min(num_segments - 1, end)
+                train_labels[start : end + 1] = 1
+
+        if self.feature_extractor is not None:
+            train_channel = self.feature_extractor.fit_transform(train_channel)
+            
+        if isinstance(train_channel, pd.DataFrame):
+            train_channel = train_channel.dropna().reset_index(drop=True)
 
         logging.info("Fitting the classifier for channel %s...", channel_id)
 
         callback_handler.start()
-        classifier.fit(train_channel, y=np.zeros(len(train_channel)))
+        if supervised:
+            unique, _ = np.unique(train_labels, return_counts=True)
+            if len(unique) < 2:
+                return
+            classifier.fit(X=train_channel, y=train_labels)
+        else:
+            classifier.fit(X=train_channel, y=train_labels)
         callback_handler.stop()
+
         results.update(
             {f"train_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
 
         if self.segmentator is not None:
-            test_channel, test_anomalies = self.segmentator.segment(test_channel)
+            seg_result = self.segmentator.segment(test_channel)
+            test_channel = seg_result["segments"]
+            test_anomalies = seg_result["intervals"]
         else:
             test_anomalies = test_channel.anomalies
+
+        if self.feature_extractor is not None:
+            test_channel = self.feature_extractor.transform(test_channel)
 
         callback_handler.start()
         y_pred = classifier.predict(test_channel)
@@ -316,11 +346,6 @@ class NASABenchmark(Benchmark):
         logging.info("Results for channel %s", channel_id)
 
         self.all_results.append(results)
-
-        pd.DataFrame.from_records(self.all_results).to_csv(
-            os.path.join(self.run_dir, "results.csv"), index=False
-        )
-
     def load_channel(
         self, channel_id: str, overlapping_train: bool = True
     ) -> Tuple[NASA, NASA]:

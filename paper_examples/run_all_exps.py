@@ -20,13 +20,16 @@ from .run_exp import (
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--n-workers", type=int, default=1)
-    arg_parser.add_argument("--segmentator", type=str, required=True)
+    arg_parser.add_argument("--segmentator", action="store_true")
+    arg_parser.add_argument("--feature-extractor", type=str, default="none")
     arg_parser.add_argument("--n-kernels", type=int)
     arg_parser.add_argument("--output-dir", type=str, default="")
     arg_parser.add_argument("--datasets", type=eval, default=f"{DATASET_LIST}")
     arg_parser.add_argument("--models", type=eval, default=f"{MODEL_LIST}")
     arg_parser.add_argument("--dpmm-types", type=eval, default=f"{DPMM_MODEL_TYPE}")
     arg_parser.add_argument("--dpmm-modes", type=eval, default=f"{DPMM_MODE}")
+    arg_parser.add_argument("--window-size", type=int)
+    arg_parser.add_argument("--step-size", type=int)
 
     args, other_exp_args = arg_parser.parse_known_args()
 
@@ -36,10 +39,20 @@ if __name__ == "__main__":
     dpmm_types_list = args.dpmm_types
     dpmm_modes_list = args.dpmm_modes
     segmentator = args.segmentator
+    feature_extractor = args.feature_extractor
+    window_size = args.window_size
+    step_size = args.step_size
 
-    EXP_DIR = f"experiments_{segmentator}"
-    SEGMENTATOR_ARGS = f" --segmentator {segmentator}"
-    if segmentator == "rocket":
+    EXP_DIR = f"experiments_{segmentator}_{feature_extractor}"
+    SEGMENTATOR_ARGS = f" --feature-extractor {feature_extractor}"
+    if segmentator:
+        SEGMENTATOR_ARGS += " --segmentator"
+        if window_size:
+            SEGMENTATOR_ARGS += f" --window-size {window_size}"
+        if step_size:
+            SEGMENTATOR_ARGS += f" --step-size {step_size}"
+
+    if feature_extractor == "rocket":
         EXP_DIR += f"_nkernels{n_kernels}"
         SEGMENTATOR_ARGS += f" --n-kernel {n_kernels}"
 
@@ -62,7 +75,7 @@ if __name__ == "__main__":
 
             if model == "rockad":
                 command_args_list.append(
-                    COMMAND_ARGS + f" --n-kernel {n_kernels} --segmentator rocket"
+                    COMMAND_ARGS + f" --n-kernel {n_kernels} --feature-extractor rocket"
                 )
             else:
                 if model != "dpmm":
