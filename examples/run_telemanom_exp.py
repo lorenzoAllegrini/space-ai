@@ -52,17 +52,15 @@ def run_exp(args, other_args=None):
     if args.window_size: config.l_s = args.window_size
     if args.prediction_steps: config.n_predictions = args.prediction_steps
 
-    # Create factories
-    # Note: create_predictor needs input_size, which is known only inside the loop.
-    # So we pass a factory that accepts input_size.
-    predictor_factory = lambda input_size: create_predictor(args.model, input_size, config)
-    detector_factory = lambda: get_telemanom_detector(config)
+    predictor_factory = create_predictor(args.model, config)
+    detector_factory = get_telemanom_detector(config)
 
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
         data_path=args.base_dir,
         exp_dir=args.exp_dir,
         run_id=f"{args.dataset}_{args.model}_pred",
+        n_predictions=config.n_predictions,
     )
 
     callbacks = [SystemMonitorCallback()]

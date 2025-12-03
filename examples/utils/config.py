@@ -57,7 +57,7 @@ class Config:
         self.esn_batch_number: int = 32
         self.weight_decay: float = 0
         self.epochs: int = (
-            15  # maximum number of epochs allowed
+            1 # maximum number of epochs allowed
             # (if early stopping criteria not met)
         )
         self.layers: list = [

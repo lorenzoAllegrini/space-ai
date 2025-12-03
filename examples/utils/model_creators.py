@@ -89,9 +89,9 @@ from spaceai.models.anomaly import Telemanom
 from .config import Config
 
 
-def get_esn_predictor(input_size, config: Config):
+def get_esn_predictor(config: Config):
     """Get ESN predictor."""
-    return ESN(
+    return lambda input_size: ESN(
         input_size=input_size,
         hidden_size=config.layers,
         output_size=config.n_predictions,
@@ -110,11 +110,11 @@ def get_esn_predictor(input_size, config: Config):
     )
 
 
-def get_lstm_predictor(input_size, config: Config):
+def get_lstm_predictor(config: Config):
     """Get LSTM predictor."""
-    return LSTM(
+    return lambda input_size: LSTM(
         input_size=input_size,
-        hidden_size=config.layers,
+        hidden_sizes=config.layers,
         output_size=config.n_predictions,
         dropout=config.dropout,
     )
@@ -122,16 +122,16 @@ def get_lstm_predictor(input_size, config: Config):
 
 def get_telemanom_detector(config: Config):
     """Get Telemanom detector."""
-    return Telemanom(pruning_factor=config.p)
+    return lambda: Telemanom(pruning_factor=config.p)
 
 
-def create_predictor(model_name, input_size, config: Config):
+def create_predictor(model_name, config: Config):
     """Create predictor based on model name."""
     model_id = format_str(model_name)
     match model_id:
         case "esn":
-            return get_esn_predictor(input_size, config)
+            return get_esn_predictor(config)
         case "lstm":
-            return get_lstm_predictor(input_size, config)
+            return get_lstm_predictor(config)
         case _:
             raise ValueError(f"Predictor {model_name} not supported!")

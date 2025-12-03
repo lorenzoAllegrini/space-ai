@@ -26,6 +26,7 @@ def get_dataset_benchmark(
     feature_extractor: Optional[Any] = None,
     run_id: str = "exp",
     exp_dir: str = "experiments",
+    n_predictions: int = 10,
 ):
     """Get the benchmark object for the dataset."""
     if dataset_name == "esa":
@@ -35,6 +36,7 @@ def get_dataset_benchmark(
             feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
+            n_predictions=n_predictions,
         )
     elif dataset_name == "nasa":
         return NASABenchmark(
@@ -43,6 +45,7 @@ def get_dataset_benchmark(
             feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
+            n_predictions=n_predictions,
         )
     elif dataset_name == "ops":
         return OPSSATBenchmark(
@@ -51,6 +54,7 @@ def get_dataset_benchmark(
             feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
+            n_predictions=n_predictions,
         )
     else:
         raise ValueError(f"Dataset {dataset_name} not supported.")
@@ -153,14 +157,6 @@ def run_ops_sat_experiment(
             classifier=classifier,
             supervised=is_supervised,
         )
-
-        classifier = classifier_factory()
-        benchmark.run_classifier(
-            channel_id=channel_id,
-            classifier=classifier,
-            supervised=is_supervised,
-        )
-
 
 def run_prediction_experiment(
     benchmark: Any,
