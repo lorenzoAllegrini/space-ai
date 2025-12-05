@@ -27,7 +27,7 @@ def apply_statistic_to_batch(
     Args:
         segments: 2D array of segments (n_segments, window_size).
         func: Function to apply to the segments. Must accept a 2D array.
-        preprocess: Optional function to apply to the segments BEFORE statistic (e.g., smoothing, diff).
+        preprocess: Optional function to apply to segments BEFORE statistic.
         func_kwargs: Optional keyword arguments to pass to func (e.g., axis=1).
     """
     if preprocess is not None:
@@ -105,6 +105,7 @@ FEATURE_MAP = {
     "kurtosis": _make_stat(kurtosis, axis=1, fisher=True, bias=False),
     "skew": _make_stat(skew, axis=1, bias=False),
 }
+
 
 # For backward compatibility if needed, though we are moving away from it
 def apply_statistic_to_segments(

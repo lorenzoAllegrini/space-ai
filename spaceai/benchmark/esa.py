@@ -32,8 +32,9 @@ from .benchmark import Benchmark
 from .callbacks import CallbackHandler
 
 if TYPE_CHECKING:
-    from spaceai.models.predictors import SequenceModel
     from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.predictors import SequenceModel
+
     from .callbacks import Callback
 
 
@@ -154,7 +155,7 @@ class ESABenchmark(Benchmark):
                 }
             )
             logging.info(
-                "Training time on channel %s: %s", channel_id, results['train_time']
+                "Training time on channel %s: %s", channel_id, results["train_time"]
             )
             train_history = pd.DataFrame.from_records(train_history).to_csv(
                 os.path.join(self.run_dir, f"train_history-{channel_id}.csv"),
@@ -193,9 +194,9 @@ class ESABenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
-        logging.info("Test loss for channel %s: %s", channel_id, results['test_loss'])
+        logging.info("Test loss for channel %s: %s", channel_id, results["test_loss"])
         logging.info(
-            "Prediction time for channel %s: %s", channel_id, results['predict_time']
+            "Prediction time for channel %s: %s", channel_id, results["predict_time"]
         )
 
         # Testing the detector
@@ -212,7 +213,7 @@ class ESABenchmark(Benchmark):
             {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         logging.info(
-            "Detection time for channel %s: %s", channel_id, results['detect_time']
+            "Detection time for channel %s: %s", channel_id, results["detect_time"]
         )
 
         true_anomalies = test_channel.anomalies
@@ -272,7 +273,11 @@ class ESABenchmark(Benchmark):
             call_every_ms=call_every_ms,
         )
         train_channel, test_channel = self.load_channel(
-            mission, channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
+            mission,
+            channel_id,
+            overlapping_train=(
+                overlapping_train if overlapping_train is not None else True
+            ),
         )
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
@@ -289,7 +294,7 @@ class ESABenchmark(Benchmark):
                 start = max(0, start)
                 end = min(num_segments - 1, end)
                 train_labels[start : end + 1] = 1
-            
+
         if self.feature_extractor is not None:
             train_channel = self.feature_extractor.fit_transform(train_channel)
         logging.info("Fitting the classifier for channel %s...", channel_id)

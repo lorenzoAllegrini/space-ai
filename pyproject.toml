@@ -13,7 +13,7 @@ homepage = "https://github.com/continualist/space-ai"
 repository = "https://github.com/continualist/space-ai"
 
 [tool.poetry.build]
-script = "build.py"
+script = "build_script.py"
 generate-setup-file = false
 
 [tool.poetry.dependencies]

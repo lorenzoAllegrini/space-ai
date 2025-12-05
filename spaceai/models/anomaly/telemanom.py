@@ -291,11 +291,11 @@ class Telemanom(ErrorBasedDetector):
             Tuple[float, float]: anomaly threshold and epsilon
         """
         sd_threshold = self.SD_LIM
-        epsilon = mean_e_s + self.SD_LIM * sd_e_s
+        epsilon = float(mean_e_s + self.SD_LIM * sd_e_s)
 
         max_score = float("-inf")
         for z in np.arange(2.5, self.SD_LIM, 0.5):
-            epsilon_z = mean_e_s + (sd_e_s * z)
+            epsilon_z = float(mean_e_s + (sd_e_s * z))
 
             pruned_e_s = e_s[e_s < epsilon_z]
 
@@ -324,7 +324,7 @@ class Telemanom(ErrorBasedDetector):
                     and len(e_seq) <= 5
                     and len(i_anom) < (len(e_s) * 0.5)
                 ):
-                    max_score, sd_threshold, epsilon = score, z, epsilon_z
+                    max_score, sd_threshold, epsilon = score, float(z), epsilon_z
         return sd_threshold, epsilon
 
     def compare_to_epsilon(
@@ -375,7 +375,7 @@ class Telemanom(ErrorBasedDetector):
 
         # group anomalous indices into continuous sequences
         groups: List[List[int]] = [
-            list(group) for group in mit.consecutive_groups(i_anom)
+            list(map(int, group)) for group in mit.consecutive_groups(i_anom)
         ]
         e_seq: List[Tuple[int, int]] = [
             (g[0], g[-1]) for g in groups if not g[0] == g[-1]

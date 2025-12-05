@@ -1,10 +1,14 @@
 """Utility functions for feature extractors."""
 
-from typing import Any, Optional
+from typing import (
+    Any,
+    Optional,
+)
 
 from spaceai.preprocessing.functions import FEATURE_MAP
-from .statistics_feature_extractor import StatisticsFeatureExtractor
+
 from .rocket_feature_extractor import RocketFeatureExtractor
+from .statistics_feature_extractor import StatisticsFeatureExtractor
 
 
 def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
@@ -28,7 +32,7 @@ def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
             del kwargs["n_kernel"]
         if "num_kernels" in kwargs:
             del kwargs["num_kernels"]
-            
+
         return RocketFeatureExtractor(num_kernels=num_kernels, **kwargs)
     elif name == "none" or name is None:
         return None

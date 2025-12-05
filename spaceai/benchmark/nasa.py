@@ -27,8 +27,9 @@ from .benchmark import Benchmark
 from .callbacks import CallbackHandler
 
 if TYPE_CHECKING:
-    from spaceai.models.predictors import SequenceModel
     from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.predictors import SequenceModel
+
     from .callbacks import Callback
 
 
@@ -147,7 +148,7 @@ class NASABenchmark(Benchmark):
                 }
             )
             logging.info(
-                "Training time on channel %s: %s", channel_id, results['train_time']
+                "Training time on channel %s: %s", channel_id, results["train_time"]
             )
             train_history = pd.DataFrame.from_records(train_history).to_csv(
                 os.path.join(self.run_dir, f"train_history-{channel_id}.csv"),
@@ -186,9 +187,9 @@ class NASABenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
-        logging.info("Test loss for channel %s: %s", channel_id, results['test_loss'])
+        logging.info("Test loss for channel %s: %s", channel_id, results["test_loss"])
         logging.info(
-            "Prediction time for channel %s: %s", channel_id, results['predict_time']
+            "Prediction time for channel %s: %s", channel_id, results["predict_time"]
         )
 
         # Testing the detector
@@ -205,7 +206,7 @@ class NASABenchmark(Benchmark):
             {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         logging.info(
-            "Detection time for channel %s: %s", channel_id, results['detect_time']
+            "Detection time for channel %s: %s", channel_id, results["detect_time"]
         )
 
         true_anomalies = test_channel.anomalies
@@ -239,6 +240,7 @@ class NASABenchmark(Benchmark):
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: Optional[int] = 100,
+        supervised: Optional[bool] = False,
     ):
         """Esegue il benchmark diretto per classificazione di anomalie su segmenti.
 
@@ -273,7 +275,7 @@ class NASABenchmark(Benchmark):
 
         if self.feature_extractor is not None:
             train_channel = self.feature_extractor.fit_transform(train_channel)
-            
+
         if isinstance(train_channel, pd.DataFrame):
             train_channel = train_channel.reset_index(drop=True)
 
@@ -346,6 +348,7 @@ class NASABenchmark(Benchmark):
         logging.info("Results for channel %s", channel_id)
 
         self.all_results.append(results)
+
     def load_channel(
         self, channel_id: str, overlapping_train: bool = True
     ) -> Tuple[NASA, NASA]:

@@ -1,5 +1,10 @@
 """Model creators module."""
 
+from spaceai.models.anomaly import Telemanom
+from spaceai.models.predictors import (
+    ESN,
+    LSTM,
+)
 from sklearn.dummy import DummyClassifier  # type: ignore
 from sklearn.linear_model import RidgeClassifier  # type: ignore
 from sklearn.pipeline import Pipeline  # type: ignore
@@ -13,15 +18,15 @@ from spaceai.models.anomaly_classifier.dpmm_detector import (
     get_dpmm_argparser,
 )
 
-from .config import XGBOOST_N_THREAD
+from .config import Config
 
 
 def get_ocsvm_classifier():
     """Get OneClassSVM classifier."""
-    return lambda: OneClassSVM(), False
+    return OneClassSVM, False
 
 
-def get_rockad_classifier(num_kernels):
+def get_rockad_classifier(_num_kernels):
     """Get ROCKAD classifier."""
     return (
         lambda: DummyClassifier(strategy="constant", constant=0),
@@ -32,7 +37,7 @@ def get_rockad_classifier(num_kernels):
 def get_xgboost_classifier():
     """Get XGBoost classifier."""
     return (
-        lambda: XGBClassifier(eval_metric="logloss", base_score=0.5, nthread=XGBOOST_N_THREAD),
+        lambda: XGBClassifier(eval_metric="logloss", base_score=0.5),
         True,
     )
 
@@ -53,7 +58,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args):
 
 def get_ridge_regression_classifier():
     """Get Ridge Regression classifier."""
-    return lambda: RidgeClassifier(), True
+    return RidgeClassifier, True
 
 
 def format_str(s):
@@ -61,8 +66,8 @@ def format_str(s):
     if "_" not in s:
         return s.lower()
 
-    l = s.split("_")
-    return "".join([l[0].lower()] + [x.capitalize() for x in l[1:]])
+    parts = s.split("_")
+    return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
 def create_classifier(args, other_args):
@@ -81,3 +86,51 @@ def create_classifier(args, other_args):
             return get_ridge_regression_classifier()
         case _:
             raise ValueError(f"Modello {args.model} non supportato!")
+
+
+def get_esn_predictor(config: Config):
+    """Get ESN predictor."""
+    return lambda input_size: ESN(
+        input_size=input_size,
+        layers=config.layers,
+        output_size=config.n_predictions,
+        reduce_out="mean",
+        gradient_based=True,
+        washout=200,
+        activation=config.activation,
+        leakage=config.leakage,
+        input_scaling=config.input_scaling,
+        rho=config.rho,
+        kernel_initializer=config.kernel_initializer,
+        recurrent_initializer=config.recurrent_initializer,
+        net_gain_and_bias=config.net_gain_and_bias,
+        bias=config.bias,
+    )
+
+
+def get_lstm_predictor(config: Config):
+    """Get LSTM predictor."""
+    return lambda input_size: LSTM(
+        input_size=input_size,
+        hidden_sizes=config.layers,
+        output_size=config.n_predictions,
+        reduce_out="first",
+        dropout=config.dropout,
+    )
+
+
+def get_telemanom_detector(config: Config):
+    """Get Telemanom detector."""
+    return lambda: Telemanom(pruning_factor=config.p)
+
+
+def create_predictor(model_name, config: Config):
+    """Create predictor based on model name."""
+    model_id = format_str(model_name)
+    match model_id:
+        case "esn":
+            return get_esn_predictor(config)
+        case "lstm":
+            return get_lstm_predictor(config)
+        case _:
+            raise ValueError(f"Predictor {model_name} not supported!")

@@ -8,7 +8,7 @@ from typing import (
 import numpy as np
 import pandas as pd  # type: ignore
 from sklearn.metrics.pairwise import distance_metrics  # type: ignore
-from sklearn.neighbors import NearestNeighbors # type: ignore
+from sklearn.neighbors import NearestNeighbors  # type: ignore
 from sklearn.preprocessing import (  # type: ignore
     PowerTransformer,
     StandardScaler,
@@ -103,10 +103,9 @@ class NearestNeighborOCC:
         # error handling for corner cases
         if numerator == 0:
             return 1
-        elif denominator == 0:
+        if denominator == 0:
             return -1
-        else:
-            return 1 if (numerator / denominator) <= 1 else -1
+        return 1 if (numerator / denominator) <= 1 else -1
 
 
 class NNEstimator:  # Renamed to avoid conflict with NN import
@@ -126,7 +125,7 @@ class NNEstimator:  # Renamed to avoid conflict with NN import
         self.random_state = random_state
         self.nn = None
 
-    def fit(self, X):
+    def fit(self, x):
         """Fit the estimator."""
         self.nn = NearestNeighbors(
             n_neighbors=self.n_neighbors,
@@ -135,11 +134,11 @@ class NNEstimator:  # Renamed to avoid conflict with NN import
             algorithm="ball_tree",
         )
 
-        self.nn.fit(X)
+        self.nn.fit(x)
 
-    def predict_proba(self, X, y=None):
+    def predict_proba(self, x, _y=None):
         """Predict class probabilities."""
-        scores = self.nn.kneighbors(X)
+        scores = self.nn.kneighbors(x)
         scores = scores[0].mean(axis=1).reshape(-1, 1)
 
         return scores
@@ -177,13 +176,15 @@ class ROCKAD:
         self.scaler = StandardScaler()
         self.power_transformer = PowerTransformer(standardize=False)
 
-    def init(self, X):
+    def init(self, x):
         """Initialize the model with data."""
 
         # Fit Rocket & Transform into rocket feature space
-        x_transformed = self.rocket_transformer.fit_transform(X)
+        x_transformed = self.rocket_transformer.fit_transform(x)
 
-        self.x_transformed_power = None  # X: values, t: (rocket) transformed, p: power transformed
+        self.x_transformed_power = (
+            None  # X: values, t: (rocket) transformed, p: power transformed
+        )
 
         if self.power_transform is True:
 
@@ -211,7 +212,9 @@ class ROCKAD:
             ]
 
             # Fit Scaler
-            x_transformed_power_scaled = self.scaler.fit_transform(self.x_transformed_power)
+            x_transformed_power_scaled = self.scaler.fit_transform(
+                self.x_transformed_power
+            )
 
             x_transformed_power_scaled = pd.DataFrame(
                 x_transformed_power_scaled, columns=self.x_transformed_power.columns
@@ -249,19 +252,19 @@ class ROCKAD:
             estimator.fit(x_transformed_power_scaled_sample)
             self.list_baggers.append(estimator)
 
-    def fit(self, X):
+    def fit(self, x):
         """Fit the model."""
-        self.init(X)
+        self.init(x)
         self.fit_estimators()
 
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, x):
         """Predict class probabilities."""
-        y_scores = np.zeros((len(X), self.n_estimators))
+        y_scores = np.zeros((len(x), self.n_estimators))
 
         # Transform into rocket feature space
-        x_transformed = self.rocket_transformer.transform(X)
+        x_transformed = self.rocket_transformer.transform(x)
 
         x_transformed_power_scaled = None
 
@@ -310,12 +313,13 @@ class ROCKAD:
 
         return y_scores
 
-    def _check_inf_values(self, X):
+    def _check_inf_values(self, x):
         """Check for infinite values in the data."""
-        if np.isinf(X[X.columns[~X.columns.isin(self.n_inf_cols)]]).any(axis=0).any():
-            self.n_inf_cols.extend(X.columns.to_series()[np.isinf(X).any()])
+        if np.isinf(x[x.columns[~x.columns.isin(self.n_inf_cols)]]).any(axis=0).any():
+            self.n_inf_cols.extend(x.columns.to_series()[np.isinf(x).any()])
             self.fit_estimators()
             return True
+        return False
 
 
 class RockadClassifier(AnomalyClassifier):
@@ -336,7 +340,7 @@ class RockadClassifier(AnomalyClassifier):
         self.rockad: Optional[ROCKAD] = None
         self.oc_model: Optional[Any] = None
 
-    def fit(self, X: np.ndarray, y=None) -> None:
+    def fit(self, X: np.ndarray, y=None) -> None:  # pylint: disable=invalid-name
         """
         1) Applica ROCKAD su X a scapito di y.
         2) Prende i punteggi di anomalia e allena il one‐class model.
@@ -353,7 +357,7 @@ class RockadClassifier(AnomalyClassifier):
         # rockad.fit si aspetta solo X
         self.rockad.fit(x_proc)
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
         """
         Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
         """

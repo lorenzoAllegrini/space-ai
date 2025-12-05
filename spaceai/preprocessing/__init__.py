@@ -1,3 +1,5 @@
+"""Preprocessing module."""
+
 from .functions import FEATURE_MAP
 from .spaceai_segmentator import SpaceAISegmentator
 from .feature_extractors import (
