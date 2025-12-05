@@ -1,3 +1,5 @@
+"""Anomaly classifier module."""
+
 from .anomaly_classifier import AnomalyClassifier
 from .dpmm_detector import DPMMDetector
 from .rockad import RockadClassifier, NearestNeighborOCC

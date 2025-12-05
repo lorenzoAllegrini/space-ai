@@ -14,7 +14,7 @@ from spaceai.preprocessing.functions import FEATURE_MAP
 class StatisticsFeatureExtractor:
     """
     Unified feature extractor for SpaceAI datasets.
-    
+
     This class expects already segmented data (2D arrays) and applies
     statistical transformations to each segment.
     """
@@ -32,20 +32,24 @@ class StatisticsFeatureExtractor:
         self.run_id = run_id
         self.exp_dir = exp_dir
 
-    def fit(self, X: np.ndarray, y=None):
+    def fit(  # pylint: disable=invalid-name
+        self, X: np.ndarray, _y=None  # pylint: disable=unused-argument
+    ):
         """
         Fit the feature extractor.
 
         Args:
             X: Input data (not used, stateless transformer).
-            y: Ignored.
+            _y: Ignored.
 
         Returns:
             self
         """
         return self
 
-    def fit_transform(self, X: np.ndarray, y=None) -> pd.DataFrame:
+    def fit_transform(  # pylint: disable=invalid-name
+        self, X: np.ndarray, y=None
+    ) -> pd.DataFrame:
         """
         Fit to data, then transform it.
 
@@ -58,7 +62,9 @@ class StatisticsFeatureExtractor:
         """
         return self.fit(X, y).transform(X)
 
-    def transform(self, X: np.ndarray) -> pd.DataFrame:
+    def transform(  # pylint: disable=invalid-name
+        self, X: np.ndarray
+    ) -> pd.DataFrame:
         """
         Extract statistical features from batches of segments.
 
@@ -77,16 +83,18 @@ class StatisticsFeatureExtractor:
 
         # Ensure 2D (n_samples, window_size)
         if data.ndim == 1:
-            raise ValueError("Input X must be 2D array of segments (n_samples, window_size)")
-            
-        feature_list = [
-            func(segments=data)
-            for func in self.transformations.values()
-        ]
+            raise ValueError(
+                "Input X must be 2D array of segments (n_samples, window_size)"
+            )
+
+        feature_list = [func(segments=data) for func in self.transformations.values()]
         transformed_segments = np.column_stack(feature_list)
 
-        df = pd.DataFrame(transformed_segments, columns=list(self.transformations.keys()))
+        df = pd.DataFrame(
+            transformed_segments, columns=list(self.transformations.keys())
+        )
         df = df.fillna(df.mean()).fillna(0)
         return df
+
 
 __all__ = ["FEATURE_MAP", "StatisticsFeatureExtractor"]

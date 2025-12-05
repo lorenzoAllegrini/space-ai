@@ -1,22 +1,22 @@
 """Dataset experiment execution module."""
 
-from typing import Any, Callable, Optional
+from typing import (
+    Any,
+    Callable,
+    Optional,
+)
 
 from spaceai.benchmark import (
     ESABenchmark,
     NASABenchmark,
     OPSSATBenchmark,
 )
-from spaceai.benchmark.callbacks import SystemMonitorCallback
 from spaceai.data import (
     NASA,
     ESAMissions,
 )
 from spaceai.data.ops_sat import OPSSAT
-from spaceai.preprocessing import (
-    FEATURE_MAP,
-    SpaceAISegmentator,
-)
+from spaceai.preprocessing import SpaceAISegmentator
 
 
 def get_dataset_benchmark(
@@ -97,8 +97,8 @@ def run_esa_experiment(
     benchmark: ESABenchmark,
     classifier_factory: Callable[[], Any],
     is_supervised: bool,
-    model_id: str,
-    exp_dir: str,
+    _model_id: str,
+    _exp_dir: str,
 ):
     """Run ESA experiment."""
     for mission_wrapper in ESAMissions:
@@ -106,12 +106,8 @@ def run_esa_experiment(
         if mission.index != 1:
             continue
         for channel_id in mission.target_channels:
-            if (
-                int(channel_id.split("_")[1]) < 41
-                or int(channel_id.split("_")[1]) > 46
-            ):
+            if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46:
                 continue
-
 
             classifier = classifier_factory()
             benchmark.run_classifier(
@@ -126,8 +122,8 @@ def run_nasa_experiment(
     benchmark: NASABenchmark,
     classifier_factory: Callable[[], Any],
     is_supervised: bool,
-    model_id: str,
-    exp_dir: str,
+    _model_id: str,
+    _exp_dir: str,
 ):
     """Run NASA experiment."""
     channels = NASA.channel_ids
@@ -140,12 +136,13 @@ def run_nasa_experiment(
             supervised=is_supervised,
         )
 
+
 def run_ops_sat_experiment(
     benchmark: OPSSATBenchmark,
     classifier_factory: Callable[[], Any],
     is_supervised: bool,
-    model_id: str,
-    exp_dir: str,
+    _model_id: str,
+    _exp_dir: str,
 ):
     """Run OPS-SAT experiment."""
     channels = OPSSAT.channel_ids
@@ -158,12 +155,13 @@ def run_ops_sat_experiment(
             supervised=is_supervised,
         )
 
+
 def run_prediction_experiment(
     benchmark: Any,
     predictor_factory: Callable[[int], Any],
     detector_factory: Callable[[], Any],
     config: Any,
-    callbacks: list = None,
+    callbacks: Optional[list] = None,
 ):
     """Run prediction experiment."""
     if isinstance(benchmark, ESABenchmark):
@@ -187,17 +185,21 @@ def run_esa_prediction_experiment(
     predictor_factory: Callable[[int], Any],
     detector_factory: Callable[[], Any],
     config: Any,
-    callbacks: list = None,
+    callbacks: Optional[list] = None,
 ):
     """Run ESA prediction experiment."""
+    from torch import (
+        nn,
+        optim,
+    )
+
     from spaceai.data import ESA
-    from torch import nn, optim
 
     for mission_wrapper in ESAMissions:
         mission = mission_wrapper.value
         # Filter missions/channels if needed (logic from original script)
         # if mission.index != 1: continue
-        
+
         for channel_id in mission.target_channels:
             # Filter channels if needed
             # if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46: continue
@@ -216,12 +218,14 @@ def run_esa_prediction_experiment(
                 predictor,
                 detector,
                 fit_predictor_args=dict(
-                    criterion=nn.MSELoss(), # TODO: make configurable
-                    optimizer=optim.Adam(predictor.model.parameters(), lr=config.learning_rate),
+                    criterion=nn.MSELoss(),  # TODO: make configurable
+                    optimizer=optim.Adam(
+                        predictor.model.parameters(), lr=config.learning_rate
+                    ),
                     epochs=config.epochs,
                     patience_before_stopping=config.patience,
                     min_delta=config.min_delta,
-                    batch_size=config.batch_size, # or esn_batch_number/lstm_batch_size
+                    batch_size=config.batch_size,  # or esn_batch_number/lstm_batch_size
                     restore_best=False,
                 ),
                 overlapping_train=True,
@@ -235,18 +239,22 @@ def run_nasa_prediction_experiment(
     predictor_factory: Callable[[int], Any],
     detector_factory: Callable[[], Any],
     config: Any,
-    callbacks: list = None,
+    callbacks: Optional[list] = None,
 ):
     """Run NASA prediction experiment."""
+    from torch import (
+        nn,
+        optim,
+    )
+
     from spaceai.data import NASA
-    from torch import nn, optim
 
     channels = NASA.channel_ids
     for channel_id in channels:
         nasa_channel = NASA(
             benchmark.data_root, channel_id, mode="anomaly", train=False
         )
-        
+
         detector = detector_factory()
         predictor = predictor_factory(nasa_channel.in_features_size)
         predictor.build()
@@ -257,7 +265,9 @@ def run_nasa_prediction_experiment(
             detector,
             fit_predictor_args=dict(
                 criterion=nn.MSELoss(),
-                optimizer=optim.Adam(predictor.model.parameters(), lr=config.learning_rate),
+                optimizer=optim.Adam(
+                    predictor.model.parameters(), lr=config.learning_rate
+                ),
                 epochs=config.epochs,
                 patience_before_stopping=config.patience,
                 min_delta=config.min_delta,
@@ -275,11 +285,15 @@ def run_ops_sat_prediction_experiment(
     predictor_factory: Callable[[int], Any],
     detector_factory: Callable[[], Any],
     config: Any,
-    callbacks: list = None,
+    callbacks: Optional[list] = None,
 ):
     """Run OPS-SAT prediction experiment."""
+    from torch import (
+        nn,
+        optim,
+    )
+
     from spaceai.data.ops_sat import OPSSAT
-    from torch import nn, optim
 
     channels = OPSSAT.channel_ids
     for channel_id in channels:
@@ -297,7 +311,9 @@ def run_ops_sat_prediction_experiment(
             detector,
             fit_predictor_args=dict(
                 criterion=nn.MSELoss(),
-                optimizer=optim.Adam(predictor.model.parameters(), lr=config.learning_rate),
+                optimizer=optim.Adam(
+                    predictor.model.parameters(), lr=config.learning_rate
+                ),
                 epochs=config.epochs,
                 patience_before_stopping=config.patience,
                 min_delta=config.min_delta,

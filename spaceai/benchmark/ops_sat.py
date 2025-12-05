@@ -29,8 +29,9 @@ from .benchmark import Benchmark
 from .callbacks import CallbackHandler
 
 if TYPE_CHECKING:
-    from spaceai.models.predictors import SequenceModel
     from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.predictors import SequenceModel
+
     from .callbacks import Callback
 
 
@@ -156,7 +157,7 @@ class OPSSATBenchmark(Benchmark):
             )
 
             logging.info(
-                "Training time on channel %s: %s", channel_id, results['train_time']
+                "Training time on channel %s: %s", channel_id, results["train_time"]
             )
             train_history = pd.DataFrame.from_records(train_history).to_csv(
                 os.path.join(self.run_dir, f"train_history-{channel_id}.csv"),
@@ -195,7 +196,7 @@ class OPSSATBenchmark(Benchmark):
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         results["test_loss"] = np.mean(((y_pred - y_trg) ** 2))  # type: ignore[operator]
-        logging.info("Test loss for channel %s: %s", channel_id, results['test_loss'])
+        logging.info("Test loss for channel %s: %s", channel_id, results["test_loss"])
         # Testing the detector
         logging.info("Detecting anomalies for channel %s", channel_id)
         callback_handler.start()
@@ -207,13 +208,10 @@ class OPSSATBenchmark(Benchmark):
         pred_anomalies += detector.flush_detector()
         callback_handler.stop()
         results.update(
-            {
-                f"detect_{k}": v
-                for k, v in callback_handler.collect(reset=True).items()
-            }
+            {f"detect_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         logging.info(
-            "Detection time for channel %s: %s", channel_id, results['detect_time']
+            "Detection time for channel %s: %s", channel_id, results["detect_time"]
         )
 
         true_anomalies = test_channel.anomalies
@@ -262,7 +260,10 @@ class OPSSATBenchmark(Benchmark):
             call_every_ms=call_every_ms if call_every_ms is not None else 100,
         )
         train_channel, test_channel = self.load_channel(
-            channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
+            channel_id,
+            overlapping_train=(
+                overlapping_train if overlapping_train is not None else True
+            ),
         )
         os.makedirs(self.run_dir, exist_ok=True)
         results: Dict[str, Any] = {"channel_id": channel_id}
@@ -275,19 +276,16 @@ class OPSSATBenchmark(Benchmark):
             train_anomalies = train_channel.anomalies
             num_segments = len(train_channel)
             train_labels = np.zeros(num_segments, dtype=int)
-            for start, end in train_anomalies:
-                start = max(0, start)
-                end = min(num_segments - 1, end)
-                train_labels[start : end + 1] = 1
-
-
+            if train_anomalies is not None:
+                for start, end in train_anomalies:
+                    start = max(0, start)
+                    end = min(num_segments - 1, end)
+                    train_labels[start : end + 1] = 1
 
         if self.feature_extractor is not None:
             train_channel = self.feature_extractor.fit_transform(train_channel)
         if isinstance(train_channel, pd.DataFrame):
             train_channel = train_channel.reset_index(drop=True)
-
-
 
         logging.info("Fitting the classifier for channel %s...", channel_id)
 

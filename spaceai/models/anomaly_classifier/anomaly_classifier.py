@@ -4,25 +4,29 @@ from abc import abstractmethod
 from typing import Optional
 
 import numpy as np
+
+
 class AnomalyClassifier:
     """
     Abstract base for time-series wrappers: defines common interface and input preparation.
     """
 
     @abstractmethod
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:
+    def fit(  # pylint: disable=invalid-name
+        self, X: np.ndarray, y: Optional[np.ndarray] = None
+    ) -> None:
         """
         Fit the model on time-series data X, optionally with labels y.
         """
 
     @abstractmethod
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
         """
         Predict on time-series data X, returning a numpy array of outputs.
         """
 
     @staticmethod
-    def _prepare_input(X: np.ndarray) -> np.ndarray:
+    def _prepare_input(X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
         """
         Ensure X is 3D with shape (n_samples, n_channels=1, n_timestamps).
         """

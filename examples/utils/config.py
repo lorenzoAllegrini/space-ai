@@ -57,7 +57,7 @@ class Config:
         self.esn_batch_number: int = 32
         self.weight_decay: float = 0
         self.epochs: int = (
-            1 # maximum number of epochs allowed
+            1  # maximum number of epochs allowed
             # (if early stopping criteria not met)
         )
         self.layers: list = [
@@ -105,8 +105,3 @@ class Config:
             0.13  # minimum percent decrease between max errors in
             # anomalous sequences (used for pruning)
         )
-
-
-DPMM_ENV_PATH = "/home/d227259/miniconda3/envs/dpmm-env/bin/python"
-OMP_NUM_THREADS = 1
-XGBOOST_N_THREAD = 1

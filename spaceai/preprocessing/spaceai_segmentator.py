@@ -2,7 +2,6 @@
 
 import more_itertools as mit
 import numpy as np
-import pandas as pd  # type: ignore
 
 from spaceai.data.anomaly_dataset import AnomalyDataset
 

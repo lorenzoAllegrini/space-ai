@@ -19,9 +19,7 @@ from .anomaly_dataset import AnomalyDataset
 from .utils import download_and_extract_zip
 
 
-class AnnotationLabel(
-    Enum
-):
+class AnnotationLabel(Enum):
     """Enuemeration of annotation labels for ESA dataset."""
 
     NOMINAL = 0
@@ -431,6 +429,6 @@ class ESA(
         return channel.values.astype(np.float32), [], []
 
     @property
-    def in_features_size(self) -> str:
+    def in_features_size(self) -> int:
         """Return the size of the input features."""
         return self.data.shape[-1]

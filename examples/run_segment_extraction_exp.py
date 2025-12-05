@@ -1,21 +1,20 @@
 """Run experiment module."""
 
 import argparse
-import os
-import sys
 import warnings
 
-from spaceai.preprocessing import get_feature_extractor
+from spaceai.preprocessing import (
+    SpaceAISegmentator,
+    get_feature_extractor,
+)
 
-from .utils.config import OMP_NUM_THREADS
-from .utils.dataset_exp import get_dataset_benchmark, run_dataset_experiment
+from .utils.dataset_exp import (
+    get_dataset_benchmark,
+    run_dataset_experiment,
+)
 from .utils.model_creators import (
     create_classifier,
-    format_str,
 )
-from spaceai.preprocessing import SpaceAISegmentator
-
-os.environ["OMP_NUM_THREADS"] = f"{OMP_NUM_THREADS}"
 
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -45,8 +44,7 @@ def parse_exp_args(str_args=None):
     return parser.parse_known_args(str_args)
 
 
-
-def run_exp(args, other_args=None, suppress_output=False):
+def run_exp(args, other_args=None, _suppress_output=False):
     """Run experiment."""
     classifier_factory, is_supervised = create_classifier(args, other_args)
 

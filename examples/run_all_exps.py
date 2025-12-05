@@ -4,11 +4,7 @@ import argparse
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-from .utils.config import OMP_NUM_THREADS
-
-os.environ["OMP_NUM_THREADS"] = f"{OMP_NUM_THREADS}"
-
-from .run_segment_extraction_exp import (  
+from .run_segment_extraction_exp import (
     DATASET_LIST,
     DPMM_MODE,
     DPMM_MODEL_TYPE,
@@ -44,21 +40,21 @@ if __name__ == "__main__":
     window_size = args.window_size
     step_size = args.step_size
 
-    EXP_DIR = f"experiments_{segmentator}_{feature_extractor}"
-    SEGMENTATOR_ARGS = f" --feature-extractor {feature_extractor}"
+    exp_dir = f"experiments_{segmentator}_{feature_extractor}"
+    segmentator_args = f" --feature-extractor {feature_extractor}"
     if segmentator:
-        SEGMENTATOR_ARGS += " --segmentator"
+        segmentator_args += " --segmentator"
         if window_size:
-            SEGMENTATOR_ARGS += f" --window-size {window_size}"
+            segmentator_args += f" --window-size {window_size}"
         if step_size:
-            SEGMENTATOR_ARGS += f" --step-size {step_size}"
+            segmentator_args += f" --step-size {step_size}"
 
     if feature_extractor == "rocket":
-        EXP_DIR += f"_nkernels{n_kernels}"
-        SEGMENTATOR_ARGS += f" --n-kernel {n_kernels}"
+        exp_dir += f"_nkernels{n_kernels}"
+        segmentator_args += f" --n-kernel {n_kernels}"
 
     if len(other_exp_args) > 0:
-        EXP_DIR += "_" + "_".join(
+        exp_dir += "_" + "_".join(
             sorted(
                 [
                     other_exp_args[i][2:].replace("_", "") + other_exp_args[i + 1]
@@ -67,28 +63,31 @@ if __name__ == "__main__":
             )
         )
 
-    exp_path = os.path.join(args.output_dir, EXP_DIR)
+    exp_path = os.path.join(args.output_dir, exp_dir)
 
     command_args_list = []
     for dataset in dataset_list:
         for model in model_list:
-            COMMAND_ARGS = f"--base_dir {args.base_dir} --exp-dir {exp_path} --dataset {dataset} --model {model}"
+            command_args = (
+                f"--base_dir {args.base_dir} --exp-dir {exp_path} "
+                f"--dataset {dataset} --model {model}"
+            )
 
             if model == "rockad":
                 command_args_list.append(
-                    COMMAND_ARGS + f" --n-kernel {n_kernels} --feature-extractor rocket"
+                    command_args + f" --n-kernel {n_kernels} --feature-extractor rocket"
                 )
             else:
                 if model != "dpmm":
-                    command_args_list.append(COMMAND_ARGS + SEGMENTATOR_ARGS)
+                    command_args_list.append(command_args + segmentator_args)
                 else:
                     for dpmm_type in dpmm_types_list:
                         for dpmm_mode in args.dpmm_modes:
-                            DPMM_ARGS = (
+                            dpmm_args = (
                                 f" --dpmm-type {dpmm_type} --dpmm-mode {dpmm_mode}"
                             )
                             command_args_list.append(
-                                COMMAND_ARGS + SEGMENTATOR_ARGS + DPMM_ARGS
+                                command_args + segmentator_args + dpmm_args
                             )
 
     print("START")
@@ -99,9 +98,7 @@ if __name__ == "__main__":
 
     for C_ARGS in command_args_list:
         exp_args, _ = parse_exp_args(C_ARGS.split(" "))
-        f = pool.submit(
-            run_exp, exp_args, other_args=other_exp_args, suppress_output=True
-        )
+        f = pool.submit(run_exp, exp_args, other_args=other_exp_args)
 
         def get_callback(cmd_args):
             """Get callback function."""

@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 
 class AnomalyDataset(Dataset):
     """Base class for anomaly detection datasets."""
+
     def __init__(self, root: str):
         """Initialize the AnomalyDataset.
 
