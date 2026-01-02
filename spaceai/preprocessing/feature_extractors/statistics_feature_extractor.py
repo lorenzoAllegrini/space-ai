@@ -23,14 +23,10 @@ class StatisticsFeatureExtractor:
         self,
         transformations: Dict[str, Callable],
         telecommands: bool = False,
-        run_id: str = "esa_segments",
-        exp_dir: str = "experiments",
     ) -> None:
 
         self.transformations = transformations
         self.telecommands = telecommands
-        self.run_id = run_id
-        self.exp_dir = exp_dir
 
     def fit(  # pylint: disable=invalid-name
         self, X: np.ndarray, _y=None  # pylint: disable=unused-argument
