@@ -110,8 +110,8 @@ def run_esa_experiment(
                 continue
 
             classifier = classifier_factory()
+            benchmark.mission = mission
             benchmark.run_classifier(
-                mission=mission,
                 channel_id=channel_id,
                 classifier=classifier,
                 supervised=is_supervised,
@@ -212,8 +212,8 @@ def run_esa_prediction_experiment(
             predictor = predictor_factory(esa_channel.in_features_size)
             predictor.build()
 
+            benchmark.mission = mission
             benchmark.run(
-                mission,
                 channel_id,
                 predictor,
                 detector,
