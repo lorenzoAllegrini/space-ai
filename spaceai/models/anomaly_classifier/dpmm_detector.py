@@ -23,12 +23,13 @@ def get_dpmm_argparser():
     # TODO: uniform with command line args
     # parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"])
     # parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
-    parser.add_argument("--K", type=int, default=100)
+    parser.add_argument("--n-clusters", type=int, default=100)
     parser.add_argument("--num-iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.1)
-    parser.add_argument("--alphaDP", type=float, default=1.0)
-    parser.add_argument("--var_prior", type=float, default=1.0)
-    parser.add_argument("--var_prior_strength", type=float, default=1.0)
+    parser.add_argument("--alpha-dp", type=float, default=1.0)
+    parser.add_argument("--var-prior", type=float, default=1.0)
+    parser.add_argument("--var-prior-strength", type=float, default=1.0)
+    parser.add_argument("--mu-prior-strength", type=float, default=0.001)
     parser.add_argument("--quantile", type=float, default=0.05)
     return parser
 

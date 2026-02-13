@@ -59,10 +59,15 @@ def run_exp(args, other_args=None, _suppress_output=False):
         args.feature_extractor, n_kernel=args.n_kernel
     )
 
+    run_id = f"{args.dataset}_{args.model}"
+    if args.model == "dpmm":
+        run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
+
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
         data_path=args.base_dir,
         exp_dir=args.exp_dir,
+        run_id=run_id,
         segmentator=segmentator,
         feature_extractor=feature_extractor,
     )
