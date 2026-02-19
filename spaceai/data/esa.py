@@ -131,6 +131,7 @@ class ESA(
         uniform_start_end_date: bool = True,
         drop_last: bool = True,
         use_telecommands: bool = True,
+        max_gap_sigma: float = 3.0,
     ):
         """ESABenchmark class that preprocesses and loads ESA dataset for training and
         testing.
@@ -166,6 +167,7 @@ class ESA(
         self.drop_last: bool = drop_last
         self.n_predictions: int = n_predictions
         self.use_telecommands: bool = use_telecommands
+        self.max_gap_sigma: float = max_gap_sigma
 
         if not channel_id in self.mission.all_channels:
             raise ValueError(f"Channel ID {channel_id} is not valid")
@@ -185,13 +187,13 @@ class ESA(
                 channel_id,
             )
 
-        self.data, self.anomalies, self.communication_gaps = self.load_and_preprocess(
+        self.timestamps = None
+        self.data, self.anomalies, self.communication_gaps, self.block_intervals = self.load_and_preprocess(
             channel_id
         )
 
     def __getitem__(self, index: int) -> Union[
         Tuple[torch.Tensor, torch.Tensor],
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
     ]:
         """Return the data at the given index."""
         if index < 0 or index >= len(self):
@@ -243,7 +245,7 @@ class ESA(
         return os.path.exists(os.path.join(self.root, self.mission.dirname))
 
     def _apply_resampling_rule_(
-        self, channel_df: pd.DataFrame, start_date: pd.DataFrame, end_date: pd.DataFrame
+        self, channel_df: pd.DataFrame, start_date: pd.Timestamp, end_date: pd.Timestamp
     ) -> pd.DataFrame:
         """Resample the dataframe using zero order hold.
 
@@ -265,21 +267,89 @@ class ESA(
         else:
             if start_date < self.mission.train_test_split:
                 start_date = self.mission.train_test_split
-        first_index_resampled = pd.Timestamp(start_date).floor(
-            freq=self.mission.resampling_rule
-        )
-        last_index_resampled = pd.Timestamp(end_date).ceil(
-            freq=self.mission.resampling_rule
-        )
-        resampled_range = pd.date_range(
-            first_index_resampled,
-            last_index_resampled,
-            freq=self.mission.resampling_rule,
-        )
-        final_param_df = channel_df.reindex(resampled_range, method="ffill")
-        # Initialize the first sample
-        final_param_df.iloc[0] = channel_df.iloc[0]
-        return final_param_df
+        
+         # Filter by adjusted bounds first
+        channel_df = channel_df[(channel_df.index >= start_date) & (channel_df.index <= end_date)].copy()
+        
+        if len(channel_df) == 0:
+            return pd.DataFrame(), []
+
+        # Ensure index is unique before processing
+        channel_df = channel_df[~channel_df.index.duplicated(keep='first')]
+        channel_df.to_csv(f"{self.channel_id}.csv")
+        timestamps = channel_df.index.values
+        # Detect gaps
+        if len(timestamps) > 1:
+            diffs = np.diff(timestamps)
+            diffs_sec = diffs.astype('timedelta64[ms]').astype(float) / 1000.0
+            
+            median_dt = np.median(diffs_sec)
+            std_dt = np.std(diffs_sec)
+            
+            # Additional safety margin: at least 20x median/resampling to avoid flagging normal jitter
+            # User requested a robust measure, using max of 20x median/resampling or 3000s
+            resampling_seconds = pd.Timedelta(self.mission.resampling_rule).total_seconds()
+            gap_threshold_sec = max(median_dt * 20.0, resampling_seconds * 20.0, 3000.0)
+            
+            gap_threshold = np.timedelta64(int(gap_threshold_sec * 1000), 'ms')
+            
+            # boolean mask for gaps
+            is_gap = diffs > gap_threshold
+        else:
+            is_gap = np.array([], dtype=bool)
+
+        if len(is_gap) > 0:
+            split_indices = np.where(is_gap)[0] + 1
+            block_boundaries = np.concatenate(([0], split_indices, [len(timestamps)]))
+        else:
+            block_boundaries = np.array([0, len(timestamps)])
+        resampled_blocks = []
+        
+        for i in range(len(block_boundaries) - 1):
+            start_idx, end_idx = block_boundaries[i], block_boundaries[i+1]
+            if start_idx >= end_idx: continue
+
+            block_df = channel_df.iloc[start_idx:end_idx]
+            
+            # Resample block
+            block_start_date = block_df.index[0]
+            block_end_date = block_df.index[-1]
+
+            first_index_resampled = pd.Timestamp(block_start_date).floor(
+                freq=self.mission.resampling_rule
+            )
+            last_index_resampled = pd.Timestamp(block_end_date).ceil(
+                freq=self.mission.resampling_rule
+            )
+            resampled_range = pd.date_range(
+                first_index_resampled,
+                last_index_resampled,
+                freq=self.mission.resampling_rule,
+            )
+            
+            block_resampled = block_df.reindex(resampled_range, method="ffill")
+            
+            # Handle start of block potential NaN if grid starts before data
+            if len(block_df) > 0 and pd.isna(block_resampled.iloc[0, 0]):
+                block_resampled.iloc[0] = block_df.iloc[0]
+                block_resampled = block_resampled.ffill()
+
+            resampled_blocks.append(block_resampled)
+            
+        if len(resampled_blocks) > 0:
+            final_param_df = pd.concat(resampled_blocks)
+            
+            # Reconstruct valid block intervals
+            block_intervals = []
+            curr_idx = 0
+            for block in resampled_blocks:
+                block_intervals.append((curr_idx, curr_idx + len(block)))
+                curr_idx += len(block)
+        else:
+            final_param_df = pd.DataFrame()
+            block_intervals = []
+
+        return final_param_df, block_intervals
 
     def load_and_preprocess(
         self,
@@ -312,7 +382,7 @@ class ESA(
         else:
             raise ValueError("channel_id not in available channels")
 
-        channel_df = self._apply_resampling_rule_(
+        channel_df, block_intervals = self._apply_resampling_rule_(
             channel_df,
             channel_df.index[0],
             channel_df.index[-1],
@@ -355,6 +425,13 @@ class ESA(
                 telecommands_df = telecommands_df.fillna(0)
                 channel_df = channel_df.join(telecommands_df, how="left")
 
+        if self.uniform_start_end_date:
+            channel_df, block_intervals = self._apply_resampling_rule_(
+                channel_df,
+                self.mission.start_date,
+                self.mission.end_date,
+            )
+        
         map_datetime_index = pd.DataFrame(
             list(range(0, len(channel_df))), index=channel_df.index, columns=["value"]
         )
@@ -385,28 +462,30 @@ class ESA(
                     map_datetime_index.index <= end_time,
                 )
             ]
-            start_idx = map_datetime_index_range.iloc[0]["value"]
-            end_idx = map_datetime_index_range.iloc[-1]["value"]
-            if (
-                label_row["Category"] == "Anomaly"
-                or label_row["Category"] == "Rare Event"
-            ):
-                anomalies.append((start_idx, end_idx))
-            elif label_row["Category"] == "Communication Gap":
-                communication_gaps.append((start_idx, end_idx))
-
-        if self.uniform_start_end_date:
-            channel_df = self._apply_resampling_rule_(
-                channel_df,
-                self.mission.start_date,
-                self.mission.end_date,
-            )
+            if len(map_datetime_index_range) > 0:
+                start_idx = map_datetime_index_range.iloc[0]["value"]
+                end_idx = map_datetime_index_range.iloc[-1]["value"]
+                if (
+                    label_row["Category"] == "Anomaly"
+                    or label_row["Category"] == "Rare Event"
+                ):
+                    anomalies.append((start_idx, end_idx))
+                elif label_row["Category"] == "Communication Gap":
+                    communication_gaps.append((start_idx, end_idx))
+        
+        if isinstance(channel_df.index, pd.DatetimeIndex):
+            self.timestamps = channel_df.index.values
+        else:
+            self.timestamps = None
 
         channel = channel_df.values.astype(np.float32)
         anomalies = sorted(anomalies, key=lambda x: x[0])
+        print("ground_truth ____-------------------------")
+        print([(self.timestamps[s], self.timestamps[e]) for s, e in anomalies])
+        print("---------------")
         communication_gaps = sorted(communication_gaps, key=lambda x: x[0])
 
-        return channel, anomalies, communication_gaps
+        return channel, anomalies, communication_gaps, block_intervals
 
     def load_challenge_channel(self, channel_id: str):
         """Load the challenge channel data."""
@@ -426,7 +505,7 @@ class ESA(
         selected_cols = [channel_id] + telecommand_cols
         channel = df[selected_cols]
 
-        return channel.values.astype(np.float32), [], []
+        return channel.values.astype(np.float32), [], [], [(0, len(channel))]
 
     @property
     def in_features_size(self) -> int:

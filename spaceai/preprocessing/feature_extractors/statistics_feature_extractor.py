@@ -70,21 +70,31 @@ class StatisticsFeatureExtractor:
         Returns:
             pd.DataFrame: Extracted features.
         """
-        # Convert to numpy if needed
         data = X
         if isinstance(X, pd.DataFrame):
             data = X.values
         if isinstance(X, pd.Series):
             data = X.values
 
-        # Ensure 2D (n_samples, window_size)
-        if data.ndim == 1:
+        different_lengths = False
+        try:
+            data = np.array(data.tolist(), dtype=float)
+        except (ValueError, TypeError):
+            different_lengths = True
+
+        if not different_lengths and data.ndim == 1:
             raise ValueError(
-                "Input X must be 2D array of segments (n_samples, window_size)"
+                "Input X must be 2D array of segments (n_samples, window_size) or ragged array of segments"
             )
 
-        feature_list = [func(segments=data) for func in self.transformations.values()]
-        transformed_segments = np.column_stack(feature_list)
+        if different_lengths:
+            transformed_segments = np.column_stack([
+                [np.atleast_1d(func(segments=np.atleast_2d(s)))[0] for s in data]
+                for func in self.transformations.values()
+            ])
+        else:
+            feature_list = [func(segments=data) for func in self.transformations.values()]
+            transformed_segments = np.column_stack(feature_list)
 
         df = pd.DataFrame(
             transformed_segments, columns=list(self.transformations.keys())

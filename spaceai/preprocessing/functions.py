@@ -54,15 +54,30 @@ def count_peaks_vectorized(windows: np.ndarray) -> np.ndarray:
     return np.array(counts)
 
 
-def smooth_10(x):
-    """Apply Savitzky-Golay smoothing filter with window length 10."""
-    return sig.savgol_filter(x, window_length=10, polyorder=2, axis=-1)
+def _safe_savgol(x, target_window, polyorder=2):
+    """
+    Helper function to apply Savitzky-Golay safely.
+    Reduces window size if input data is too short.
+    """
+    L = x.shape[-1]
+    
+    if L < polyorder + 1:
+        return x
+    
+    if L < target_window:
+        window_length = L if L % 2 == 1 else L - 1
+    else:
+        window_length = target_window
+        
+    return sig.savgol_filter(x, window_length=window_length, polyorder=polyorder, axis=-1)
 
+def smooth_10(x):
+    """Apply Savitzky-Golay smoothing filter (target window 10)."""
+    return _safe_savgol(x, target_window=11)
 
 def smooth_20(x):
-    """Apply Savitzky-Golay smoothing filter with window length 20."""
-    return sig.savgol_filter(x, window_length=20, polyorder=2, axis=-1)
-
+    """Apply Savitzky-Golay smoothing filter (target window 20)."""
+    return _safe_savgol(x, target_window=21)
 
 def diff1(x):
     """Compute first order difference of array."""

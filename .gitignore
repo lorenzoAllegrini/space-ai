@@ -165,10 +165,13 @@ cython_debug/
 #.idea/
 **/.DS_Store
 poetry.toml
+# Custom patterns for this project
 experiments/
 datasets/
-ESA-Mission1.zip?download=1
+ESA-Mission*.zip*
+*.csv
 preprocessed_*
 all_results/
 **/__pycache__
 .github
+.ipynb_checkpoints/

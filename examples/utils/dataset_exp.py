@@ -111,7 +111,7 @@ def run_esa_experiment(
 
             classifier = classifier_factory()
             benchmark.mission = mission
-            benchmark.run_classifier(
+            benchmark.run_channel_rolling_stats(
                 channel_id=channel_id,
                 classifier=classifier,
                 supervised=is_supervised,
@@ -130,7 +130,7 @@ def run_nasa_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.run_classifier(
+        benchmark.run_channel_rolling_stats(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
@@ -149,7 +149,7 @@ def run_ops_sat_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.run_classifier(
+        benchmark.run_channel_rolling_stats(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
@@ -213,7 +213,7 @@ def run_esa_prediction_experiment(
             predictor.build()
 
             benchmark.mission = mission
-            benchmark.run(
+            benchmark.run_channel_telemanom(
                 channel_id,
                 predictor,
                 detector,
@@ -259,7 +259,7 @@ def run_nasa_prediction_experiment(
         predictor = predictor_factory(nasa_channel.in_features_size)
         predictor.build()
 
-        benchmark.run(
+        benchmark.run_channel_telemanom(
             channel_id,
             predictor,
             detector,
@@ -305,7 +305,7 @@ def run_ops_sat_prediction_experiment(
         predictor = predictor_factory(ops_channel.in_features_size)
         predictor.build()
 
-        benchmark.run(
+        benchmark.run_channel_telemanom(
             channel_id,
             predictor,
             detector,

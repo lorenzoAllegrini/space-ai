@@ -25,6 +25,7 @@ from tqdm import tqdm  # type: ignore
 from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
+from .utils import merge_intervals
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
@@ -62,7 +63,88 @@ class Benchmark:
         self.segmentator = segmentator
         self.feature_extractor = feature_extractor
 
-    def run(
+    def run_event_level(
+        self,
+        channels: Optional[List[str]] = None,
+        overlapping_train: bool = True,
+        callbacks: Optional[List[Callback]] = None,
+        call_every_ms: int = 100,
+        predictor: Optional[SequenceModel] = None,
+        detector: Optional[AnomalyDetector] = None,
+        fit_predictor_args: Optional[Dict[str, Any]] = None,
+        perc_eval: float = 0.2,
+        restore_predictor: bool = False,
+        pred_buffer: int = 0,
+        supervised: bool = True,
+        time_aware: bool = True,
+    ):
+        """Run benchmark on a set of channels."""
+
+        if channels is None:
+            channels = self.get_default_channels()
+
+        event_labels = []
+        predicted_events = []
+        for channel_id in channels:
+            
+            if self.segmentator is not None:
+                _, label_intervals, pred_intervals = self.run_channel_rolling_stats(
+                    channel_id=channel_id,
+                    classifier=predictor,
+                    pred_buffer=pred_buffer,
+                    overlapping_train=overlapping_train,
+                    callbacks=callbacks,
+                    call_every_ms=call_every_ms,
+                    supervised=supervised,
+                )
+                event_labels.extend(label_intervals)
+                predicted_events.extend(pred_intervals)
+
+            elif predictor is not None and detector is not None:
+                _, label_intervals, pred_intervals = self.run_channel_telemanom(
+                    channel_id=channel_id,
+                    predictor=predictor,
+                    detector=detector,
+                    fit_predictor_args=fit_predictor_args,
+                    perc_eval=perc_eval,
+                    restore_predictor=restore_predictor,
+                    overlapping_train=overlapping_train,
+                    callbacks=callbacks,
+                    call_every_ms=call_every_ms,
+                )
+                event_labels.extend(label_intervals)
+                predicted_events.extend(pred_intervals)
+            else:
+                raise ValueError(
+                    "Either 'segmentator' or ('predictor' and 'detector') must be provided."
+                )
+
+        min_start_time, min_period = self.get_global_temporal_params(channels)
+        if time_aware and min_start_time is not None and min_period is not None:
+            event_labels_idx = [
+                (
+                    int((pd.Timestamp(s) - min_start_time).total_seconds() / min_period),
+                    int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
+                ) for s, e in event_labels
+            ]
+            predicted_events_idx = [
+                (
+                    int((pd.Timestamp(s) - min_start_time).total_seconds() / min_period),
+                    int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
+                ) for s, e in predicted_events
+            ]
+        else:
+            event_labels_idx = event_labels
+            predicted_events_idx = predicted_events
+
+        return self._aggregate_and_save_results(
+            event_labels_idx, 
+            predicted_events_idx
+        )
+
+
+
+    def run_channel_telemanom(
         self,
         channel_id: str,
         predictor: SequenceModel,
@@ -73,7 +155,7 @@ class Benchmark:
         overlapping_train: bool = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: int = 100,
-    ):
+    ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Runs the benchmark for a given channel.
 
         Args:
@@ -237,7 +319,27 @@ class Benchmark:
             os.path.join(self.run_dir, "results.csv"), index=False
         )
 
-    def run_classifier(
+        offset = test_channel.window_size - 1
+        pred_anomalies_global = [
+            (int(s + offset), int(e + offset)) for s, e in pred_anomalies
+        ]
+
+        if hasattr(test_channel, "timestamps") and test_channel.timestamps is not None:
+            pred_intervals = [
+                (test_channel.timestamps[s], test_channel.timestamps[e]) 
+                for s, e in pred_anomalies_global
+            ]
+            label_intervals = [
+                (test_channel.timestamps[s], test_channel.timestamps[e]) 
+                for s, e in true_anomalies
+            ]
+        else:
+            pred_intervals = pred_anomalies_global
+            label_intervals = true_anomalies
+
+        return results, label_intervals, pred_intervals
+
+    def run_channel_rolling_stats(
         self,
         channel_id: str,
         classifier,
@@ -245,7 +347,7 @@ class Benchmark:
         overlapping_train: Optional[bool] = True,
         callbacks: Optional[List[Callback]] = None,
         call_every_ms: int = 100,
-        supervised: bool = True,  
+        supervised: bool = True,
     ) -> Dict[str, Any]:
         """
         Runs the anomaly classifier benchmark for a given channel.
@@ -285,6 +387,10 @@ class Benchmark:
                     end = min(num_segments - 1, end)
                     train_labels[start : end + 1] = 1
             
+        if len(train_channel) == 0:
+            logging.warning("No training data for channel %s. Skipping...", channel_id)
+            return results
+
         if self.feature_extractor is not None:
             train_channel = self.feature_extractor.fit_transform(train_channel)
         logging.info("Fitting the classifier for channel %s...", channel_id)
@@ -300,16 +406,27 @@ class Benchmark:
         )
         # Evaluate the classifier on test data
         logging.info("Predicting the test data for channel %s...", channel_id)
+        # Keep reference to original test channel for timestamp access
+        original_test_channel = test_channel
 
         if self.segmentator is not None:
             seg_result = self.segmentator.segment(test_channel)
             test_channel = seg_result["segments"]
             test_anomalies = seg_result["intervals"]
+            segment_indices = seg_result["segment_indices"]
+            
         else:
             test_anomalies = test_channel.anomalies
+            segment_indices = None # Handle this case if needed, or assume it won't happen here
+
+    
+        if len(test_channel) == 0:
+            logging.warning("No test data for channel %s. Skipping evaluation...", channel_id)
+            return results, [], []
 
         if self.feature_extractor is not None:
             test_channel = self.feature_extractor.transform(test_channel)
+        
         callback_handler.start()
         y_pred = classifier.predict(X=test_channel)
         pred_anomalies = self.process_pred_anomalies(y_pred, pred_buffer)
@@ -319,11 +436,11 @@ class Benchmark:
             {f"predict_{k}": v for k, v in callback_handler.collect(reset=True).items()}
         )
         combined_anomalies = test_anomalies
-        combined_anomalies.sort(key=lambda x: x[0])
+        combined_anomalies.sort()
         classification_results = self.compute_classification_metrics(
             combined_anomalies, pred_anomalies
         )
-
+    
         corrected_results = self.compute_corrected_range_classification_metrics(
             classification_results,
             combined_anomalies,
@@ -332,7 +449,7 @@ class Benchmark:
         )
         classification_results.update(corrected_results)
         results.update(classification_results)
-        # Reconstruct binary mask for anomalies
+        
         test_anomalies_mask = np.zeros(len(y_pred), dtype=int)
         for start, end in test_anomalies:
             test_anomalies_mask[int(start) : int(end) + 1] = 1
@@ -352,7 +469,29 @@ class Benchmark:
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
         )
-        return results
+        
+        if segment_indices is not None:
+            if len(segment_indices) == 0:
+                return results, [], []
+
+
+            true_preds_intervals = [(segment_indices[s][0], segment_indices[e][1]) for s, e in pred_anomalies]
+            true_anomaly_intervals = [(segment_indices[s][0], segment_indices[e][1]) for s, e in combined_anomalies]
+
+            timestamps = getattr(original_test_channel, "timestamps", None)
+            if timestamps is not None and len(timestamps) > 0:
+                limit = len(timestamps)
+                true_preds_intervals = [(timestamps[s], timestamps[e]) for s, e in true_preds_intervals if e < limit]
+                true_anomaly_intervals = [(timestamps[s], timestamps[e]) for s, e in true_anomaly_intervals if e < limit]
+            else:
+                true_preds_intervals = []
+                true_anomaly_intervals = []
+
+            return results, true_anomaly_intervals, true_preds_intervals
+        else:
+            # Fallback if no segmentation mapping is available (e.g. raw point anomalies)
+            return results, test_channel.anomalies, pred_anomalies_time
+
 
     def process_pred_anomalies(
         self, y_pred: np.ndarray, pred_buffer: int
@@ -364,7 +503,7 @@ class Benchmark:
 
             groups = [list(group) for group in mit.consecutive_groups(pred_anomalies)]
             buffered_intervals = [
-                [max(0, int(group[0] - pred_buffer)), int(group[-1] + pred_buffer)]
+                [max(0, int(group[0] - pred_buffer)), min(len(y_pred) - 1, int(group[-1] + pred_buffer))]
                 for group in groups
             ]
 
@@ -486,6 +625,71 @@ class Benchmark:
             else 0
         )
         return corrected_results
+
+    def get_default_channels(self) -> List[str]:
+        """Get the default list of channels for the benchmark.
+
+        Returns:
+            List[str]: list of channel IDs.
+        """
+        raise NotImplementedError("Subclasses must implement get_default_channels.")
+
+    def get_global_temporal_params(self, channels: List[str]) -> Tuple[Optional[pd.Timestamp], Optional[float]]:
+        """Get global start time and period for event-level aggregation.
+
+        Args:
+            channels (List[str]): List of channels.
+
+        Returns:
+            Tuple[Optional[pd.Timestamp], Optional[float]]: global start time and period.
+        """
+        raise NotImplementedError("Subclasses must implement get_global_temporal_params.")
+
+    def _aggregate_and_save_results(
+        self,
+        event_labels: List[Tuple[int, int]],
+        predicted_events: List[Tuple[int, int]],
+    ) -> Dict[str, Any]:
+        """Aggregate event-level results and save them to disk.
+
+        Args:
+            event_labels (List[Tuple[int, int]]): List of true event intervals.
+            predicted_events (List[Tuple[int, int]]): List of predicted event intervals.
+        """
+
+        event_labels = merge_intervals(event_labels)
+        predicted_events = merge_intervals(predicted_events)
+        
+        classification_results = self.compute_classification_metrics(
+            event_labels, predicted_events
+        )
+
+        total_length = 0
+        if event_labels:
+            total_length = max(total_length, event_labels[-1][1])
+        if predicted_events:
+            total_length = max(total_length, predicted_events[-1][1])
+            
+        corrected_results = self.compute_corrected_range_classification_metrics(
+            classification_results,
+            event_labels, 
+            predicted_events,
+            total_length=total_length + 1000 # Add buffer
+        )
+        
+        global_results = {"channel_id": "GLOBAL_EVENT_LEVEL"}
+        global_results.update(classification_results)
+        global_results.update(corrected_results)
+        
+        logging.info("Global Event-Level Results: %s", global_results)
+
+        self.all_results.append(global_results)
+        pd.DataFrame.from_records(self.all_results).to_csv(
+            os.path.join(self.run_dir, "results.csv"), index=False
+        )
+
+        return global_results    
+
 
     @property
     def run_dir(self) -> str:
