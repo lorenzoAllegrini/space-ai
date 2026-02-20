@@ -12,7 +12,7 @@ from spaceai.preprocessing import (
     SpaceAISegmentator,
     get_feature_extractor,
 )
-
+from spaceai.benchmark.callbacks import SystemMonitorCallback
 from utils.model_creators import (
     create_classifier,
 )
@@ -20,7 +20,21 @@ from xgboost import XGBClassifier
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "esa"]
-MODEL_LIST = ["ocsvm", "xgboost", "ridge_regression", "dpmm"]
+MODEL_LIST = [
+    "ocsvm",
+    "xgboost",
+    "ridge_regression",
+    "dpmm",
+    "iforest",
+    "pca",
+    "knn",
+    "lof",
+    "pyod_ocsvm",
+    "ecod",
+    "copod",
+    "cblof",
+    "hbos",
+]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
 FEATURE_EXTRACTOR_LIST = ["none", "base_statistics", "rocket"]
@@ -70,6 +84,7 @@ def run_benchmark(args, other_args=None):
     feature_extractor = get_feature_extractor(
         args.feature_extractor, n_kernel=args.n_kernel
     )
+    callbacks = [SystemMonitorCallback()]
 
     run_id = f"{args.dataset}_{args.model}"
     if args.model == "dpmm":
@@ -88,20 +103,21 @@ def run_benchmark(args, other_args=None):
             exp_dir=args.exp_dir,
         )
         
-        target_channels = [f'channel_{n}' for n in range(12, 29)]
-        print(f"Running ESA Benchmark on channels: {target_channels}")
+        target_channels = [f'channel_{n}' for n in range(9,12)]
+
         
         classifier = XGBClassifier(
             n_estimators=300,
             max_depth=4,
             scale_pos_weight=0.02
         )
+        
         benchmark.run_event_level(
             channels=target_channels,
             predictor=classifier, 
+            callbacks=callbacks,
             supervised=is_supervised
         )
-
 
     elif args.dataset == "ops":
         benchmark = OPSSATBenchmark(

@@ -480,9 +480,7 @@ class ESA(
 
         channel = channel_df.values.astype(np.float32)
         anomalies = sorted(anomalies, key=lambda x: x[0])
-        print("ground_truth ____-------------------------")
-        print([(self.timestamps[s], self.timestamps[e]) for s, e in anomalies])
-        print("---------------")
+
         communication_gaps = sorted(communication_gaps, key=lambda x: x[0])
 
         return channel, anomalies, communication_gaps, block_intervals

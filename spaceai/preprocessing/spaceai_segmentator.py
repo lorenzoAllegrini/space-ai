@@ -98,9 +98,7 @@ class SpaceAISegmentator:
             groups = [list(group) for group in mit.consecutive_groups(indices)]
             anomalies_intervals = [[group[0], group[-1]] for group in groups]
 
-        print("------------------------------------------------")
-        print([(dataset_channel.timestamps[segment_indices[s][0]], dataset_channel.timestamps[segment_indices[e][1]]) for s, e in anomalies_intervals])
-        print("-----------------------------------------------------")
+
         return {
             "segments": segments,
             "labels": anomaly_labels,

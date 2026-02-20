@@ -19,7 +19,21 @@ from .utils.model_creators import (
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
-MODEL_LIST = ["ocsvm", "xgboost", "ridge_regression", "dpmm"]
+MODEL_LIST = [
+    "ocsvm",
+    "xgboost",
+    "ridge_regression",
+    "dpmm",
+    "iforest",
+    "pca",
+    "knn",
+    "lof",
+    "pyod_ocsvm",
+    "ecod",
+    "copod",
+    "cblof",
+    "hbos",
+]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
 FEATURE_EXTRACTOR_LIST = ["none", "base_statistics", "rocket"]
@@ -47,7 +61,7 @@ def parse_exp_args(str_args=None):
 def run_exp(args, other_args=None, _suppress_output=False):
     """Run experiment."""
     classifier_factory, is_supervised = create_classifier(args, other_args)
-
+    callbacks = [SystemMonitorCallback()]
     segmentator = None
     if args.segmentator:
         segmentator = SpaceAISegmentator(
@@ -77,6 +91,7 @@ def run_exp(args, other_args=None, _suppress_output=False):
         classifier_factory=classifier_factory,
         is_supervised=is_supervised,
         model_id=args.model,
+        callbacks=callbacks
     )
 
 

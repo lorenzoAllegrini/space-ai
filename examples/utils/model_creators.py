@@ -12,6 +12,17 @@ from sklearn.preprocessing import RobustScaler  # type: ignore
 from sklearn.svm import OneClassSVM  # type: ignore
 from xgboost import XGBClassifier  # type: ignore
 
+# PyOD models
+from pyod.models.iforest import IForest  # type: ignore
+from pyod.models.pca import PCA as PyOD_PCA  # type: ignore
+from pyod.models.knn import KNN  # type: ignore
+from pyod.models.lof import LOF  # type: ignore
+from pyod.models.ocsvm import OCSVM  # type: ignore
+from pyod.models.ecod import ECOD  # type: ignore
+from pyod.models.copod import COPOD  # type: ignore
+from pyod.models.cblof import CBLOF  # type: ignore
+from pyod.models.hbos import HBOS  # type: ignore
+
 # from spaceai.models.anomaly_classifier import RockadClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import (
     DPMMDetector,
@@ -61,6 +72,51 @@ def get_ridge_regression_classifier():
     return RidgeClassifier, True
 
 
+def get_iforest_classifier():
+    """Get Isolation Forest (IForest) classifier."""
+    return IForest, False
+
+
+def get_pca_classifier():
+    """Get PCA anomaly detector classifier."""
+    return PyOD_PCA, False
+
+
+def get_knn_classifier():
+    """Get K-Nearest Neighbors (KNN) classifier."""
+    return KNN, False
+
+
+def get_lof_classifier():
+    """Get Local Outlier Factor (LOF) classifier."""
+    return LOF, False
+
+
+def get_pyod_ocsvm_classifier():
+    """Get One-Class SVM (OCSVM) classifier from PyOD."""
+    return OCSVM, False
+
+
+def get_ecod_classifier():
+    """Get Empirical Cumulative Distribution (ECOD) classifier."""
+    return ECOD, False
+
+
+def get_copod_classifier():
+    """Get Copula-Based Outlier Detection (COPOD) classifier."""
+    return COPOD, False
+
+
+def get_cblof_classifier():
+    """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
+    return CBLOF, False
+
+
+def get_hbos_classifier():
+    """Get Histogram-based Outlier Score (HBOS) classifier."""
+    return HBOS, False
+
+
 def format_str(s):
     """Format string to CamelCase."""
     if "_" not in s:
@@ -84,6 +140,24 @@ def create_classifier(args, other_args):
             return get_xgboost_classifier()
         case "ridge_regression":
             return get_ridge_regression_classifier()
+        case "iforest":
+            return get_iforest_classifier()
+        case "pca":
+            return get_pca_classifier()
+        case "knn":
+            return get_knn_classifier()
+        case "lof":
+            return get_lof_classifier()
+        case "pyod_ocsvm":
+            return get_pyod_ocsvm_classifier()
+        case "ecod":
+            return get_ecod_classifier()
+        case "copod":
+            return get_copod_classifier()
+        case "cblof":
+            return get_cblof_classifier()
+        case "hbos":
+            return get_hbos_classifier()
         case _:
             raise ValueError(f"Modello {args.model} non supportato!")
 
