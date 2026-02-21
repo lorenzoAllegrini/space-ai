@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import os
@@ -136,16 +137,27 @@ class Benchmark:
         for metric in [m for m in global_results.keys() if m.endswith("cpu")]:
             global_results[metric] /= len(channels)
 
+        event_labels = merge_intervals(event_labels)
+        predicted_events = merge_intervals(predicted_events)
+        
+        
+        #normalization
         min_start_time, min_period = self.get_global_temporal_params(channels)
 
-        predicted_events, event_labels = self.aggregate_results_event_level(
-            min_start_time,
-            min_period,
-            event_labels, 
-            predicted_events,
-            time_aware
-        )
-        
+        if time_aware and min_start_time is not None and min_period is not None:
+            event_labels = [
+                (
+                    int((pd.Timestamp(s) - min_start_time).total_seconds() / min_period),
+                    int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
+                ) for s, e in event_labels
+            ]
+            predicted_events = [
+                (
+                    int((pd.Timestamp(s) - min_start_time).total_seconds() / min_period),
+                    int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
+                ) for s, e in predicted_events
+            ]
+
         global_results.update(
             Benchmark.compute_metrics(event_labels, predicted_events)
         )
@@ -691,6 +703,96 @@ class Benchmark:
             else 0
         )
         return results
+
+    @staticmethod
+    def timing_curve(x, a, b, exponent):
+        assert a >= pd.Timedelta(0)
+        assert b >= pd.Timedelta(0)
+        if (a == pd.Timedelta(0) or b == pd.Timedelta(0)) and x == pd.Timedelta(0):
+            return 1
+        if x <= -a or x >= b:
+            return 0
+        if -a < x <= pd.Timedelta(0):
+            return ((x + a)/a)**exponent
+        if pd.Timedelta(0) < x < b:
+            denom_part = x/(b - x)
+            return 1. / (1. + denom_part**exponent)
+    
+    @staticmethod
+    def adtqc_score(
+        label_intervals: List[Tuple],
+        pred_intervals: List[Tuple],
+        exponent: int = 2,
+        segment_duration: pd.Timedelta = pd.Timedelta(0),
+    ) -> dict:
+        """Compute ADTQC (Anomaly Detection Time-Quality Curve) score.
+
+        Args:
+            label_intervals: Sorted, merged list of (start, end) ground truth intervals (timestamps).
+            pred_intervals: Sorted, merged list of (start, end) predicted intervals (timestamps).
+            exponent: Exponent for the timing curve function.
+
+        Returns:
+            Dictionary with adtqc_n_before, adtqc_n_after, adtqc_after_rate, and adtqc_score.
+        """
+        if not label_intervals:
+            return {"adtqc_n_before": 0, "adtqc_n_after": 0,
+                    "adtqc_after_rate": np.nan, "adtqc_score": np.nan}
+
+        pred_starts = [pd.Timestamp(s) for s, _ in pred_intervals]
+
+        before_tps = []
+        after_tps = []
+        curve_scores = []
+
+        for i, (gt_start, gt_end) in enumerate(label_intervals):
+            gt_start = pd.Timestamp(gt_start)
+            gt_end = pd.Timestamp(gt_end)
+            anomaly_length = gt_end - gt_start
+
+            # Alpha: min(anomaly_length, distance to previous anomaly start)
+            if i > 0:
+                prev_start = pd.Timestamp(label_intervals[i - 1][0])
+                alpha = min(anomaly_length, gt_start - prev_start)
+            else:
+                alpha = anomaly_length
+
+            window_start = gt_start - alpha
+            idx = bisect.bisect_left(pred_starts, window_start)
+
+            first_detection = None
+            search_start = max(0, idx - 1)
+            for j in range(search_start, len(pred_intervals)):
+                p_start = pd.Timestamp(pred_intervals[j][0])
+                p_end = pd.Timestamp(pred_intervals[j][1])
+
+                if p_start >= gt_end:
+                    break
+
+                if p_end >= window_start and p_start < gt_end:
+                    first_detection = p_start
+                    break
+
+            if first_detection is None:
+                continue
+
+            latency = (first_detection + segment_duration) - gt_start
+            metric_value = Benchmark.timing_curve(latency, alpha, anomaly_length, exponent)
+            curve_scores.append(metric_value)
+
+            if latency < pd.Timedelta(0):
+                before_tps.append(metric_value)
+            else:
+                after_tps.append(metric_value)
+
+        curve_scores = np.array(curve_scores)
+
+        return {
+            "adtqc_n_before": len(before_tps),
+            "adtqc_n_after": len(after_tps),
+            "adtqc_after_rate": len(after_tps) / len(curve_scores) if len(curve_scores) > 0 else np.nan,
+            "adtqc_score": np.mean(curve_scores) if len(curve_scores) > 0 else np.nan,
+        }
 
 
     def get_default_channels(self) -> List[str]:
