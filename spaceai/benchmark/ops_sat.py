@@ -12,6 +12,10 @@ from .benchmark import Benchmark
 class OPSSATBenchmark(Benchmark):
     """Benchmark for OPS-SAT telemetry anomaly detection dataset."""
 
+    def __init__(self, split_percentage: float = 0.6, **kwargs):
+        super().__init__(**kwargs)
+        self.split_percentage = split_percentage
+
     def get_default_channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         return OPSSAT.channel_ids
@@ -41,6 +45,7 @@ class OPSSATBenchmark(Benchmark):
             overlapping=overlapping_train,
             seq_length=self.seq_length,
             n_predictions=self.n_predictions,
+            split_percentage=self.split_percentage,
         )
 
         test_channel = OPSSAT(
@@ -52,6 +57,7 @@ class OPSSATBenchmark(Benchmark):
             train=False,
             drop_last=False,
             n_predictions=1,
+            split_percentage=self.split_percentage,
         )
 
         return train_channel, test_channel

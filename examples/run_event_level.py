@@ -126,6 +126,7 @@ def run_benchmark(args, other_args=None):
             feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=args.exp_dir,
+            split_percentage=None,
         )
         results = benchmark.run_event_level(
             channels=None, 

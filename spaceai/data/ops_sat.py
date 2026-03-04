@@ -52,7 +52,7 @@ class OPSSAT(AnomalyDataset):
         download: bool = True,
         drop_last: bool = True,
         max_gap_sigma: float = 3.0,
-
+        split_percentage: Optional[float] = 0.6,
     ):
         """Initialize the dataset for a given channel.
 
@@ -77,6 +77,7 @@ class OPSSAT(AnomalyDataset):
         self.drop_last: bool = drop_last
         self.n_predictions: int = n_predictions
         self.max_gap_sigma = max_gap_sigma
+        self.split_percentage = split_percentage
 
         if download:
             self.download()
@@ -211,13 +212,18 @@ class OPSSAT(AnomalyDataset):
         Returns:
             pd.DataFrame: The resampled dataframe.
         """
+        # Determine split date
+        split_date = self.train_test_split
+        if self.split_percentage is not None:
+            split_date = start_date + (end_date - start_date) * self.split_percentage
+
         # Adjust bounds based on train/test mode and split date
         if self.train:
-            if end_date > self.train_test_split:
-                end_date = self.train_test_split
+            if end_date > split_date:
+                end_date = split_date
         else:
-            if start_date < self.train_test_split:
-                start_date = self.train_test_split
+            if start_date < split_date:
+                start_date = split_date
         
         # Filter by adjusted bounds first
         channel_df = channel_df[(channel_df.index >= start_date) & (channel_df.index <= end_date)].copy()
