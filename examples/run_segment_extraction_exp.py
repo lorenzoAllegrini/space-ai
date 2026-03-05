@@ -16,6 +16,8 @@ from .utils.model_creators import (
     create_classifier,
 )
 
+from spaceai.benchmark.callbacks import SystemMonitorCallback
+
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
@@ -91,7 +93,7 @@ def run_exp(args, other_args=None, _suppress_output=False):
         classifier_factory=classifier_factory,
         is_supervised=is_supervised,
         model_id=args.model,
-        callbacks=callbacks
+        #callbacks=callbacks
     )
 
 
