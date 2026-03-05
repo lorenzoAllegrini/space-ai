@@ -500,7 +500,7 @@ class Benchmark:
         results.update( 
             {
                 "test_length": len(test_channel),
-                "test_negatives": len(test_channel) - test_anomalies_mask.sum(),
+                "test_negatives": len(test_channel) - int(test_anomalies_mask.sum()),
                 "detected_negatives": int(
                     ((y_pred == 0) & (test_anomalies_mask == 0)).sum()
                 ),
