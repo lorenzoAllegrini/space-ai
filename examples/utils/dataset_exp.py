@@ -6,6 +6,10 @@ from typing import (
     Optional,
 )
 
+import os
+
+import torch
+
 from spaceai.benchmark import (
     ESABenchmark,
     NASABenchmark,
@@ -92,6 +96,12 @@ def run_dataset_experiment(
     else:
         raise ValueError(f"Benchmark type {type(benchmark)} not supported.")
 
+    if benchmark.feature_extractor is not None:
+        torch.save(
+            benchmark.feature_extractor,
+            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
+        )
+
 
 def run_esa_experiment(
     benchmark: ESABenchmark,
@@ -111,11 +121,17 @@ def run_esa_experiment(
 
             classifier = classifier_factory()
             benchmark.mission = mission
-            benchmark.run_channel_rolling_stats(
+            benchmark.train_channel_rolling_stats(
                 channel_id=channel_id,
                 classifier=classifier,
                 supervised=is_supervised,
             )
+            benchmark.test_channel_rolling_stats(
+                channel_id=channel_id,
+            )
+
+    if benchmark.feature_extractor is not None:
+        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_nasa_experiment(
@@ -130,11 +146,17 @@ def run_nasa_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.run_channel_rolling_stats(
+        benchmark.train_channel_rolling_stats(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
         )
+        benchmark.test_channel_rolling_stats(
+            channel_id=channel_id,
+        )
+
+    if benchmark.feature_extractor is not None:
+        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_ops_sat_experiment(
@@ -149,11 +171,17 @@ def run_ops_sat_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.run_channel_rolling_stats(
+        benchmark.train_channel_rolling_stats(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
         )
+        benchmark.test_channel_rolling_stats(
+            channel_id=channel_id,
+        )
+
+    if benchmark.feature_extractor is not None:
+        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_prediction_experiment(
@@ -197,13 +225,8 @@ def run_esa_prediction_experiment(
 
     for mission_wrapper in ESAMissions:
         mission = mission_wrapper.value
-        # Filter missions/channels if needed (logic from original script)
-        # if mission.index != 1: continue
 
         for channel_id in mission.target_channels:
-            # Filter channels if needed
-            # if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46: continue
-
             esa_channel = ESA(
                 benchmark.data_root, mission, channel_id, mode="anomaly", train=False
             )
@@ -213,25 +236,41 @@ def run_esa_prediction_experiment(
             predictor.build()
 
             benchmark.mission = mission
-            benchmark.run_channel_telemanom(
+            benchmark.train_channel_telemanom(
                 channel_id,
                 predictor,
-                detector,
                 fit_predictor_args=dict(
-                    criterion=nn.MSELoss(),  # TODO: make configurable
+                    criterion=nn.MSELoss(),
                     optimizer=optim.Adam(
                         predictor.model.parameters(), lr=config.learning_rate
                     ),
                     epochs=config.epochs,
                     patience_before_stopping=config.patience,
                     min_delta=config.min_delta,
-                    batch_size=config.batch_size,  # or esn_batch_number/lstm_batch_size
+                    batch_size=config.batch_size,
                     restore_best=False,
                 ),
                 overlapping_train=True,
                 restore_predictor=not config.train,
                 callbacks=callbacks,
             )
+            benchmark.test_channel_telemanom(
+                channel_id,
+                detector,
+                callbacks=callbacks,
+            )
+
+    if benchmark.feature_extractor is not None:
+        torch.save(
+            benchmark.feature_extractor,
+            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
+        )
+
+    if benchmark.feature_extractor is not None:
+        torch.save(
+            benchmark.feature_extractor,
+            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
+        )
 
 
 def run_nasa_prediction_experiment(
@@ -259,10 +298,9 @@ def run_nasa_prediction_experiment(
         predictor = predictor_factory(nasa_channel.in_features_size)
         predictor.build()
 
-        benchmark.run_channel_telemanom(
+        benchmark.train_channel_telemanom(
             channel_id,
             predictor,
-            detector,
             fit_predictor_args=dict(
                 criterion=nn.MSELoss(),
                 optimizer=optim.Adam(
@@ -276,6 +314,11 @@ def run_nasa_prediction_experiment(
             ),
             overlapping_train=True,
             restore_predictor=not config.train,
+            callbacks=callbacks,
+        )
+        benchmark.test_channel_telemanom(
+            channel_id,
+            detector,
             callbacks=callbacks,
         )
 
@@ -305,10 +348,9 @@ def run_ops_sat_prediction_experiment(
         predictor = predictor_factory(ops_channel.in_features_size)
         predictor.build()
 
-        benchmark.run_channel_telemanom(
+        benchmark.train_channel_telemanom(
             channel_id,
             predictor,
-            detector,
             fit_predictor_args=dict(
                 criterion=nn.MSELoss(),
                 optimizer=optim.Adam(
@@ -322,5 +364,10 @@ def run_ops_sat_prediction_experiment(
             ),
             overlapping_train=True,
             restore_predictor=not config.train,
+            callbacks=callbacks,
+        )
+        benchmark.test_channel_telemanom(
+            channel_id,
+            detector,
             callbacks=callbacks,
         )

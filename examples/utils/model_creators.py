@@ -129,37 +129,36 @@ def format_str(s):
 def create_classifier(args, other_args):
     """Create the classifier factory based on arguments."""
     model_id = format_str(args.model)
-    match model_id:
-        case "dpmm":
-            return get_dpmm_classifier(args.dpmm_type, args.dpmm_mode, other_args)
-        case "ocsvm":
-            return get_ocsvm_classifier()
-        case "rockad":
-            return get_rockad_classifier(args.n_kernel)
-        case "xgboost":
-            return get_xgboost_classifier()
-        case "ridge_regression":
-            return get_ridge_regression_classifier()
-        case "iforest":
-            return get_iforest_classifier()
-        case "pca":
-            return get_pca_classifier()
-        case "knn":
-            return get_knn_classifier()
-        case "lof":
-            return get_lof_classifier()
-        case "pyod_ocsvm":
-            return get_pyod_ocsvm_classifier()
-        case "ecod":
-            return get_ecod_classifier()
-        case "copod":
-            return get_copod_classifier()
-        case "cblof":
-            return get_cblof_classifier()
-        case "hbos":
-            return get_hbos_classifier()
-        case _:
-            raise ValueError(f"Modello {args.model} non supportato!")
+    if model_id == "dpmm":
+        return get_dpmm_classifier(args.dpmm_type, args.dpmm_mode, other_args)
+    elif model_id == "ocsvm":
+        return get_ocsvm_classifier()
+    elif model_id == "rockad":
+        return get_rockad_classifier(args.n_kernel)
+    elif model_id == "xgboost":
+        return get_xgboost_classifier()
+    elif model_id == "ridge_regression":
+        return get_ridge_regression_classifier()
+    elif model_id == "iforest":
+        return get_iforest_classifier()
+    elif model_id == "pca":
+        return get_pca_classifier()
+    elif model_id == "knn":
+        return get_knn_classifier()
+    elif model_id == "lof":
+        return get_lof_classifier()
+    elif model_id == "pyod_ocsvm":
+        return get_pyod_ocsvm_classifier()
+    elif model_id == "ecod":
+        return get_ecod_classifier()
+    elif model_id == "copod":
+        return get_copod_classifier()
+    elif model_id == "cblof":
+        return get_cblof_classifier()
+    elif model_id == "hbos":
+        return get_hbos_classifier()
+    else:
+        raise ValueError(f"Modello {args.model} non supportato!")
 
 
 def get_esn_predictor(config: Config):
@@ -201,10 +200,9 @@ def get_telemanom_detector(config: Config):
 def create_predictor(model_name, config: Config):
     """Create predictor based on model name."""
     model_id = format_str(model_name)
-    match model_id:
-        case "esn":
-            return get_esn_predictor(config)
-        case "lstm":
-            return get_lstm_predictor(config)
-        case _:
-            raise ValueError(f"Predictor {model_name} not supported!")
+    if model_id == "esn":
+        return get_esn_predictor(config)
+    elif model_id == "lstm":
+        return get_lstm_predictor(config)
+    else:
+        raise ValueError(f"Predictor {model_name} not supported!")

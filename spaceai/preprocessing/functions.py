@@ -1,5 +1,6 @@
 """Utility functions for feature extraction from time series segments."""
 
+from __future__ import annotations
 from functools import partial
 from typing import (
     Any,

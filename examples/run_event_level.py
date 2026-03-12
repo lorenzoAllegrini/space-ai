@@ -1,7 +1,10 @@
 """Event-level benchmark execution module."""
 
 import argparse
+import os
 import warnings
+
+import torch
 
 from spaceai.benchmark import (
     ESABenchmark,
@@ -105,19 +108,35 @@ def run_benchmark(args, other_args=None):
         
         target_channels = [f'channel_{n}' for n in range(9,12)]
 
-        
         classifier = XGBClassifier(
             n_estimators=300,
             max_depth=4,
             scale_pos_weight=0.02
         )
         
-        benchmark.run_event_level(
-            channels=target_channels,
-            predictor=classifier, 
-            callbacks=callbacks,
-            supervised=is_supervised
-        )
+        # Train all channels
+        for channel_id in target_channels:
+            benchmark.train_channel_rolling_stats(
+                channel_id=channel_id,
+                classifier=classifier,
+                callbacks=callbacks,
+                supervised=is_supervised,
+            )
+
+
+        if feature_extractor is not None:
+            torch.save(feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
+
+        # Test all channels
+        for channel_id in target_channels:
+            benchmark.test_channel_rolling_stats(
+                channel_id=channel_id,
+                callbacks=callbacks,
+            )
+
+        # aggregate global event-level metrics
+        results = benchmark.compute_global_event_metrics(channels=target_channels)
+        print(results)
 
     elif args.dataset == "ops":
         benchmark = OPSSATBenchmark(
@@ -128,12 +147,29 @@ def run_benchmark(args, other_args=None):
             exp_dir=args.exp_dir,
             split_percentage=None,
         )
-        results = benchmark.run_event_level(
-            channels=None, 
-            predictor=classifier_factory(),
-            supervised=is_supervised
-        )
 
+        channels = benchmark.get_default_channels()
+
+        # Train all channels
+        for channel_id in channels:
+            benchmark.train_channel_rolling_stats(
+                channel_id=channel_id,
+                classifier=classifier_factory(),
+                supervised=is_supervised,
+            )
+
+        # Save feature extractor for later use (e.g., SML server)
+        if feature_extractor is not None:
+            torch.save(feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
+
+        # Test all channels
+        for channel_id in channels:
+            benchmark.test_channel_rolling_stats(
+                channel_id=channel_id,
+            )
+
+        # Aggregate global event-level metrics
+        results = benchmark.compute_global_event_metrics(channels=channels)
         print(results)
 
 

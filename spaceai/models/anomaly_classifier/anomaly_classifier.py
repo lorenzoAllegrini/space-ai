@@ -4,6 +4,7 @@ from abc import abstractmethod
 from typing import Optional
 
 import numpy as np
+import torch
 
 
 class AnomalyClassifier:
@@ -24,6 +25,15 @@ class AnomalyClassifier:
         """
         Predict on time-series data X, returning a numpy array of outputs.
         """
+
+    def save(self, path: str) -> None:
+        """Save the classifier to disk."""
+        torch.save(self, path)
+
+    @staticmethod
+    def load(path: str) -> "AnomalyClassifier":
+        """Load a classifier from disk."""
+        return torch.load(path, weights_only=False)
 
     @staticmethod
     def _prepare_input(X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
