@@ -5,8 +5,10 @@ from typing import Optional
 import numpy as np
 from sktime.transformations.panel.rocket import Rocket  # type: ignore
 
+from .feature_extractor import FeatureExtractor
 
-class RocketFeatureExtractor:
+
+class RocketFeatureExtractor(FeatureExtractor):
     """
     Wrapper for Rocket to handle 2D input (n_samples, window_size)
     and convert it to 3D (n_samples, 1, window_size) for sktime.
@@ -16,14 +18,22 @@ class RocketFeatureExtractor:
         self.num_kernels = num_kernels
         self.rocket = Rocket(num_kernels=num_kernels, n_jobs=1)
 
-    def fit_transform(  # pylint: disable=invalid-name
+    def fit(
+        self, X: np.ndarray, _y: Optional[np.ndarray] = None
+    ) -> "RocketFeatureExtractor":
+        """Fit the Rocket transformer."""
+        X = self._prepare_input(X)
+        self.rocket.fit(X)
+        return self
+
+    def fit_transform(
         self, X: np.ndarray, _y: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """Fit and transform the data."""
         X = self._prepare_input(X)
         return self.rocket.fit_transform(X).values
 
-    def transform(self, X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
+    def transform(self, X: np.ndarray) -> np.ndarray:
         """Transform the data."""
         X = self._prepare_input(X)
         return self.rocket.transform(X).values

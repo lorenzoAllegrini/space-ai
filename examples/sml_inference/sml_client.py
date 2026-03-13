@@ -49,6 +49,9 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--n-kernel", type=int)
     parser.add_argument("--dpmm-type", choices=DPMM_MODEL_TYPE)
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
+    parser.add_argument("--window-size", type=int, default=100)
+    parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--sample-rate-ms", type=int, default=0)
     parser.add_argument("--max-duration-s", type=int, default=None)
     return parser.parse_known_args(str_args)
@@ -113,9 +116,13 @@ def main():
             channel_id=channel_id,
             server_ip=args.server_ip,
             port=args.port,
+            batch_size=args.batch_size,
             sample_rate_ms=args.sample_rate_ms,
             max_duration_s=args.max_duration_s,
         )
+    
+    results = benchmark.compute_global_event_metrics(channels=channels)
+    print(results)
 
 
 if __name__ == "__main__":

@@ -9,9 +9,10 @@ import numpy as np
 import pandas as pd  # type: ignore
 
 from spaceai.preprocessing.functions import FEATURE_MAP
+from .feature_extractor import FeatureExtractor
 
 
-class StatisticsFeatureExtractor:
+class StatisticsFeatureExtractor(FeatureExtractor):
     """
     Unified feature extractor for SpaceAI datasets.
 
@@ -43,20 +44,6 @@ class StatisticsFeatureExtractor:
         """
         return self
 
-    def fit_transform(  # pylint: disable=invalid-name
-        self, X: np.ndarray, y=None
-    ) -> pd.DataFrame:
-        """
-        Fit to data, then transform it.
-
-        Args:
-            X: Input data.
-            y: Ignored.
-
-        Returns:
-            pd.DataFrame: Extracted features.
-        """
-        return self.fit(X, y).transform(X)
 
     def transform(  # pylint: disable=invalid-name
         self, X: np.ndarray

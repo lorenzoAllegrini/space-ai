@@ -156,21 +156,29 @@ class Benchmark:
                 frames = sub_socket.recv_multipart(flags=zmq.NOBLOCK)
                 if len(frames) == 2:
                     alert = json.loads(frames[1].decode("utf-8"))
-                    if alert.get("channel_id") == channel_id:
-                        predictions.append(alert.get("timestep"))
+                    # Support both key naming conventions
+                    alert_channel = alert.get("channel") or alert.get("channel_id")
+                    alert_ts = alert.get("timestep_start") or alert.get("timestep")
+                    
+                    if alert_channel == channel_id and alert_ts is not None:
+                        predictions.append(alert_ts)
             except zmq.Again:
                 time.sleep(0.1)
             except Exception as e:
                 logging.error("Listener thread error: %s", e)
                 break
-                
-        self.global_results[channel_id] = Benchmark.process_pred_anomalies(np.array(predictions) if predictions else np.zeros((0,)), 0)
+
+        preds = np.full(len(data), 0)
+        for pred in predictions:
+            preds[pred] = 1
+        self.predicted_events_global.extend(Benchmark.process_pred_anomalies(preds, 0))
         
     def simulate_stream_to_server(
         self,
         channel_id: str,
         server_ip: str,
         port: int,
+        batch_size: int,
         sample_rate_ms: int = 1000,
         max_duration_s: Optional[int] = 500,
     ) -> Dict[str, List[int]]:
@@ -182,8 +190,6 @@ class Benchmark:
             sample_rate_ms: Delay in milliseconds between sending each window.
             max_duration_s: Maximum duration in seconds to stream.
 
-        Returns:
-            Dict[str, List[int]]: Empty dict (PUSH architecture does not receive predictions).
         """
 
         pub_port = port + 1
@@ -197,26 +203,32 @@ class Benchmark:
 
         _, test_dataset = self.load_channel(channel_id, overlapping_train=False)
         if test_dataset is None:
-            return {}
+            return 
 
         data = test_dataset.data[:, 0]
+        labels = np.full(len(data),0)
+        for start, end in test_dataset.anomalies:
+            labels[start:end] = 1
+
+        self.event_labels_global.extend(test_dataset.anomalies)
         logging.info("Streaming dataset for channel %s to %s:%d...", channel_id, server_ip, port)
 
         channel_bytes = channel_id.encode("utf-8")
         channel_start_time = time.perf_counter()
         
         with zmq.Context.instance() as context:
-            with context.socket(zmq.PUSH) as socket:
+            with context.socket(zmq.PUB) as socket:
                 socket.connect(f"tcp://{server_ip}:{port}")
 
-                for timestep in range(len(data)):
+                for timestep in range(0, len(data) - batch_size, batch_size):
                     if max_duration_s is not None and (time.perf_counter() - channel_start_time) > max_duration_s:
                         logging.info("Max duration reached. Halting channel %s.", channel_id)
                         break
 
                     payload = {
-                        "timestep": timestep,
-                        "value": float(data[timestep])
+                        "timesteps": (timestep, timestep + batch_size),
+                        "values": list(data[timestep:timestep + batch_size]),
+                        "labels": list(labels[timestep:timestep + batch_size]),
                     }
                     
                     socket.send_multipart([
@@ -227,7 +239,7 @@ class Benchmark:
                     if sample_rate_ms > 0:
                         time.sleep(sample_rate_ms / 1000.0)
 
-        return {}
+        return 
 
     def train_channel_telemanom(
         self,
