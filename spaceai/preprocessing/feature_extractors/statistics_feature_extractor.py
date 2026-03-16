@@ -23,11 +23,18 @@ class StatisticsFeatureExtractor(FeatureExtractor):
     def __init__(
         self,
         transformations: Dict[str, Callable],
+        window_size: int,
+        stride: int,
         telecommands: bool = False,
     ) -> None:
+        super().__init__(window_size, stride)
 
         self.transformations = transformations
         self.telecommands = telecommands
+
+    @property
+    def output_dim(self) -> int:
+        return len(self.transformations)
 
     def fit(  # pylint: disable=invalid-name
         self, X: np.ndarray, _y=None  # pylint: disable=unused-argument

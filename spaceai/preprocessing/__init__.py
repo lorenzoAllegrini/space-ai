@@ -1,7 +1,7 @@
 """Preprocessing module."""
 
 from .functions import FEATURE_MAP
-from .spaceai_segmentator import SpaceAISegmentator
+from .ts_splitter import TSSplitter
 from .feature_extractors import (
     StatisticsFeatureExtractor,
     RocketFeatureExtractor,
@@ -9,7 +9,7 @@ from .feature_extractors import (
 )
 
 __all__ = [
-    "SpaceAISegmentator",
+    "TSSplitter",
     "FEATURE_MAP",
     "StatisticsFeatureExtractor",
     "RocketFeatureExtractor",

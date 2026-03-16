@@ -11,12 +11,16 @@ from .rocket_feature_extractor import RocketFeatureExtractor
 from .statistics_feature_extractor import StatisticsFeatureExtractor
 
 
-def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
+def get_feature_extractor(
+    name: str, window_size: int, stride: int, **kwargs
+) -> Optional[Any]:
     """
     Factory function to get a feature extractor by name.
 
     Args:
         name: Name of the feature extractor ('base_statistics', 'rocket', 'none').
+        window_size: Size of the sliding window.
+        stride: Step size between windows.
         **kwargs: Additional arguments for the feature extractor constructor.
 
     Returns:
@@ -24,7 +28,12 @@ def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
     """
     if name == "base_statistics":
         kwargs.pop("n_kernel", None)
-        return StatisticsFeatureExtractor(transformations=FEATURE_MAP, **kwargs)
+        return StatisticsFeatureExtractor(
+            transformations=FEATURE_MAP,
+            window_size=window_size,
+            stride=stride,
+            **kwargs,
+        )
     elif name == "rocket":
         num_kernels = kwargs.get("n_kernel") or kwargs.get("num_kernels") or 100
         # Remove n_kernel/num_kernels from kwargs to avoid duplicates if passed explicitly
@@ -33,7 +42,9 @@ def get_feature_extractor(name: str, **kwargs) -> Optional[Any]:
         if "num_kernels" in kwargs:
             del kwargs["num_kernels"]
 
-        return RocketFeatureExtractor(num_kernels=num_kernels, **kwargs)
+        return RocketFeatureExtractor(
+            window_size=window_size, stride=stride, num_kernels=num_kernels, **kwargs
+        )
     elif name == "none" or name is None:
         return None
     else:

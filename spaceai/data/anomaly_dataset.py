@@ -22,5 +22,10 @@ class AnomalyDataset(Dataset):
         """Return the path to the raw data folder."""
         return os.path.join(self.root, self.__class__.__name__)
 
+    @property
+    def sampling_period(self) -> float:
+        """Return the sampling period in seconds. Default is 1.0."""
+        return 1.0
+
     def __getitem__(self, index):
         raise NotImplementedError

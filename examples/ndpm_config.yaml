@@ -1,0 +1,91 @@
+# NDPM Configuration for SML Time-Series Anomaly Detection
+# Adapted from debug_cn_dpm.yaml 
+
+###########
+# Dataset #
+###########
+batch_size: 10
+num_workers: 0
+sleep_batch_size: 100
+sleep_num_workers: 0
+eval_batch_size: 256
+eval_num_workers: 0
+
+#########
+# Model #
+#########
+# Input dimensions: (channels, height, width)
+# For 1D time-series with window_size 100: (1, 1, 100)
+x_c: 1
+x_h: 1
+x_w: 100
+y_c: 1
+
+device: 'cpu'  # Will be overridden by server if CUDA is available
+
+model_name: 'ndpm_model'
+# Use MLP for non-image data
+g: 'mlp_sharing_vae'
+d: 'mlp_sharing_classifier'
+disable_d: True  # Anomaly detection usually only needs the generative part
+
+vae_nf_base: 64
+vae_nf_ext: 16
+cls_nf_base: 64
+cls_nf_ext: 16
+z_dim: 16
+z_samples: 16
+
+recon_loss: 'gaussian'
+x_log_var_param: 0
+learn_x_log_var: false
+classifier_chill: 0.01
+
+#########
+# DPMoE #
+#########
+log_alpha: 10
+stm_capacity: 1000
+stm_erase_period: 0
+sleep_step_g: 500
+sleep_step_d: 500
+sleep_summary_step: 100
+sleep_val_size: 0
+update_min_usage: 0.1
+implicit_lr_decay: false
+weight_decay: 0.0001
+
+optimizer_g:
+  type: Adam
+  options:
+    lr: 0.001
+
+lr_scheduler_g:
+  type: MultiStepLR
+  options:
+    milestones_list: [ 1 ]
+    gamma: 1.0
+
+optimizer_d:
+  type: Adam
+  options:
+    lr: 0.0001
+
+lr_scheduler_d:
+  type: MultiStepLR
+  options:
+    milestones_list: [ 1 ]
+    gamma: 1.0
+
+clip_grad:
+  type: value
+  options:
+    clip_value: 0.5
+
+###########
+# Summary #
+###########
+summary_step: 100
+eval_step: 250
+summarize_samples: False
+anomaly_threshold: -50.0

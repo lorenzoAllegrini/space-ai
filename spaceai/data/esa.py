@@ -122,7 +122,7 @@ class ESA(
         root: str,
         mission: ESAMission,
         channel_id: str,
-        mode: Literal["prediction", "anomaly", "challenge"],
+        mode: Literal["prediction", "anomaly", "challenge", "continual"],
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
@@ -153,13 +153,13 @@ class ESA(
         if seq_length is None or seq_length < 1:
             raise ValueError(f"Invalid window size: {seq_length}")
 
-        if mode not in ["prediction", "anomaly", "challenge"]:
+        if mode not in ["prediction", "anomaly", "challenge", "continual"]:
             raise ValueError(f"Invalid mode {mode}")
 
         self.root = root
         self.mission = mission
         self.channel_id: str = channel_id
-        self._mode: Literal["prediction", "anomaly", "challenge"] = mode
+        self._mode: Literal["prediction", "anomaly", "challenge", "continual"] = mode
         self.overlapping: bool = overlapping
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
@@ -258,7 +258,7 @@ class ESA(
             pd.DataFrame: The resampled dataframe.
         """
         # Resample using zero order hold
-        if self._mode == "challenge":
+        if self._mode == "challenge" or self._mode == "continual":
             end_date = self.mission.end_date
             start_date = self.mission.start_date
         elif self.train:
@@ -285,9 +285,7 @@ class ESA(
             
             median_dt = np.median(diffs_sec)
             std_dt = np.std(diffs_sec)
-            
-            # Additional safety margin: at least 20x median/resampling to avoid flagging normal jitter
-            # User requested a robust measure, using max of 20x median/resampling or 3000s
+    
             resampling_seconds = pd.Timedelta(self.mission.resampling_rule).total_seconds()
             gap_threshold_sec = max(median_dt * 20.0, resampling_seconds * 20.0, 3000.0)
             
@@ -504,6 +502,11 @@ class ESA(
         channel = df[selected_cols]
 
         return channel.values.astype(np.float32), [], [], [(0, len(channel))]
+
+    @property
+    def sampling_period(self) -> float:
+        """Return the sampling period in seconds."""
+        return self.mission.resampling_rule.total_seconds()
 
     @property
     def in_features_size(self) -> int:

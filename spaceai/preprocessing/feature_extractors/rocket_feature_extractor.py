@@ -14,9 +14,14 @@ class RocketFeatureExtractor(FeatureExtractor):
     and convert it to 3D (n_samples, 1, window_size) for sktime.
     """
 
-    def __init__(self, num_kernels: int = 100):
+    def __init__(self, window_size: int, stride: int, num_kernels: int = 100):
+        super().__init__(window_size, stride)
         self.num_kernels = num_kernels
         self.rocket = Rocket(num_kernels=num_kernels, n_jobs=1)
+
+    @property
+    def output_dim(self) -> int:
+        return 2 * self.num_kernels
 
     def fit(
         self, X: np.ndarray, _y: Optional[np.ndarray] = None

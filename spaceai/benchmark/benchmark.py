@@ -18,6 +18,7 @@ from typing import (
 import more_itertools as mit
 import numpy as np
 import pandas as pd  # type: ignore
+import zmq
 from torch.utils.data import (
     DataLoader,
     Subset,
@@ -28,6 +29,7 @@ from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
 from .utils import merge_intervals
+from spaceai.preprocessing.ts_splitter import TSSplitter
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
@@ -39,6 +41,8 @@ import time
 
 import threading
 import json
+
+from spaceai.preprocessing import TSSplitter
 
 class Benchmark:
     """Base class for benchmark runners."""
@@ -142,104 +146,127 @@ class Benchmark:
 
         return self.global_results
 
-    def anomaly_listener(self, channel_id, server_ip, pub_port):
-        """Listen passively for anomaly alerts from the server."""
-        ctx = zmq.Context.instance()
-        sub_socket = ctx.socket(zmq.SUB)
-        sub_socket.connect(f"tcp://{server_ip}:{pub_port}")
-        
-        sub_socket.setsockopt_string(zmq.SUBSCRIBE, channel_id)
-        
-        predictions = []
-        while True:
-            try:
-                frames = sub_socket.recv_multipart(flags=zmq.NOBLOCK)
-                if len(frames) == 2:
-                    alert = json.loads(frames[1].decode("utf-8"))
-                    # Support both key naming conventions
-                    alert_channel = alert.get("channel") or alert.get("channel_id")
-                    alert_ts = alert.get("timestep_start") or alert.get("timestep")
-                    
-                    if alert_channel == channel_id and alert_ts is not None:
-                        predictions.append(alert_ts)
-            except zmq.Again:
-                time.sleep(0.1)
-            except Exception as e:
-                logging.error("Listener thread error: %s", e)
-                break
-
-        preds = np.full(len(data), 0)
-        for pred in predictions:
-            preds[pred] = 1
-        self.predicted_events_global.extend(Benchmark.process_pred_anomalies(preds, 0))
         
     def simulate_stream_to_server(
         self,
         channel_id: str,
         server_ip: str,
         port: int,
-        batch_size: int,
-        sample_rate_ms: int = 1000,
-        max_duration_s: Optional[int] = 500,
-    ) -> Dict[str, List[int]]:
+        experience_size: Union[int, str, pd.Timedelta] = "30D",
+        window_size: int = 100,
+        stride: int = 20,
+    ) -> Dict[str, Dict[str, float]]:
         """Simulate real-time streaming telemetry to the SML server.
 
         Args:
             server_ip: IP address of the remote SML server.
             port: Port the SML server is listening on.
-            sample_rate_ms: Delay in milliseconds between sending each window.
-            max_duration_s: Maximum duration in seconds to stream.
-
+            experience_size: Size of each experience (e.g. "30D").
+            window_size: Inference window size (must match server config).
+            stride: Inference stride (must match server config).
         """
+        train_dataset, _ = self.load_channel(channel_id, overlapping_train=False, continual=True)
+        
+        experience_splitter = TSSplitter(window_size=experience_size, step_size=experience_size)
+        splitted = experience_splitter.segment_dataset(train_dataset, mode="experience")
+        
+        experiences = splitted["segments"]
+        experience_labels = splitted["labels"] # pointwise labels (N, exp_length)
+        segment_indices = splitted["segment_indices"]
 
-        pub_port = port + 1
-
-        listener = threading.Thread(
-            target=self.anomaly_listener,
-            args=(channel_id, server_ip, pub_port),
-            daemon=True
-        )
-        listener.start()
-
-        _, test_dataset = self.load_channel(channel_id, overlapping_train=False)
-        if test_dataset is None:
-            return 
-
-        data = test_dataset.data[:, 0]
-        labels = np.full(len(data),0)
-        for start, end in test_dataset.anomalies:
-            labels[start:end] = 1
-
-        self.event_labels_global.extend(test_dataset.anomalies)
         logging.info("Streaming dataset for channel %s to %s:%d...", channel_id, server_ip, port)
 
         channel_bytes = channel_id.encode("utf-8")
-        channel_start_time = time.perf_counter()
+        experience_log = {}
+        past_labels = np.array([], dtype=int)
+        all_forward_predictions = []
+        all_backward_predictions = []
         
         with zmq.Context.instance() as context:
-            with context.socket(zmq.PUB) as socket:
+            with context.socket(zmq.REQ) as socket:
                 socket.connect(f"tcp://{server_ip}:{port}")
 
-                for timestep in range(0, len(data) - batch_size, batch_size):
-                    if max_duration_s is not None and (time.perf_counter() - channel_start_time) > max_duration_s:
-                        logging.info("Max duration reached. Halting channel %s.", channel_id)
-                        break
+                for i in range(len(experiences)):
+                    print(f"experience {i}/{len(experiences)}")
+                    exp_data = experiences[i]
+                    exp_labels = experience_labels[i]
+                    start_idx, end_idx = segment_indices[i]
 
                     payload = {
-                        "timesteps": (timestep, timestep + batch_size),
-                        "values": list(data[timestep:timestep + batch_size]),
-                        "labels": list(labels[timestep:timestep + batch_size]),
+                        "timesteps": (int(start_idx), int(end_idx)),
+                        "experience_data": exp_data.tolist(),
+                        "labels": exp_labels.tolist(),
                     }
                     
-                    socket.send_multipart([
-                        channel_bytes, 
-                        json.dumps(payload).encode("utf-8")
-                    ])
+                    socket.send_multipart([channel_bytes, json.dumps(payload).encode("utf-8")])
 
-                    if sample_rate_ms > 0:
-                        time.sleep(sample_rate_ms / 1000.0)
+                    resp_frames = socket.recv_multipart()
+                    if len(resp_frames) != 2:
+                        continue
 
-        return 
+                    resp_channel = resp_frames[0].decode("utf-8")
+                    if resp_channel != channel_id:
+                        continue
+
+                    response = json.loads(resp_frames[1].decode("utf-8"))
+                    
+                    forward_predictions = response.get("forward_predictions")
+                    backward_predictions = response.get("backward_predictions")
+
+                    all_forward_predictions.extend(forward_predictions)
+                    all_backward_predictions.extend(backward_predictions)
+                    
+                    if forward_predictions is None or len(forward_predictions) == 0:
+                        logging.warning("No forward predictions received for experience %d (likely first experience).", i)
+                        continue
+
+                    true_window_labels = np.array(response.get("labels"))
+                    
+                    if true_window_labels is None:
+                        logging.warning("Server did not return labels for experience %d. Accuracy might be incorrect.", i)
+                        continue
+
+                    pred_forward_intervals = Benchmark.process_pred_anomalies(forward_predictions, 0)
+                    true_forward_intervals = Benchmark.process_pred_anomalies(true_window_labels, 0)
+
+                    pred_backward_intervals = Benchmark.process_pred_anomalies(backward_predictions, 0)
+                    true_backward_intervals = Benchmark.process_pred_anomalies(past_labels, 0)
+                    
+                    metrics = Benchmark.compute_metrics(
+                        true_forward_intervals, pred_forward_intervals, total_length=len(forward_predictions)
+                    ) 
+                    
+                    metrics.update({f"backward_{metric}": value for metric, value in Benchmark.compute_metrics(
+                        true_backward_intervals, pred_backward_intervals, total_length=len(backward_predictions)
+                    ).items()})
+                    
+                    experience_log[f"experience_{i}"] = metrics
+                    past_labels = np.concatenate((past_labels, true_window_labels), axis=0)
+                    if not os.path.exists(os.path.join(self.run_dir, f"{channel_id}_stream_history.json")):
+                        os.makedirs(os.path.join(self.run_dir), exist_ok=True)
+                    with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
+                        json.dump(experience_log, f, indent=2)
+                    
+                    np.savez_compressed(
+                        os.path.join(self.run_dir, f"{channel_id}_streaming_results.npz"),
+                        forward_predictions=np.array(all_forward_predictions),
+                        backward_predictions=np.array(all_backward_predictions),
+                        labels=past_labels
+                    )
+            
+        
+
+        os.makedirs(self.run_dir, exist_ok=True)
+        results_path = os.path.join(self.run_dir, f"{channel_id}_streaming_results.npz")
+        np.savez_compressed(
+            results_path,
+            forward_predictions=np.array(all_forward_predictions),
+            backward_predictions=np.array(all_backward_predictions),
+            labels=past_labels
+        )
+        logging.info("Saved streaming results for channel %s to %s", channel_id, results_path)
+
+        return experience_log
 
     def train_channel_telemanom(
         self,
@@ -501,7 +528,7 @@ class Benchmark:
 
         if self.segmentator is not None:
             callback_handler.start()
-            seg_result = self.segmentator.segment(train_channel)
+            seg_result = self.segmentator.segment_dataset(train_channel)
             callback_handler.stop()
             results.update({f"train_set_segmentation_{k}": v for k, v in callback_handler.collect(reset=True).items()})
             train_channel = seg_result["segments"]
@@ -581,7 +608,7 @@ class Benchmark:
 
         if self.segmentator is not None:
             callback_handler.start()
-            seg_result = self.segmentator.segment(test_channel)
+            seg_result = self.segmentator.segment_dataset(test_channel)
             callback_handler.stop()
             results.update({f"test_set_segmentation_{k}": v for k, v in callback_handler.collect(reset=True).items()})
             test_channel = seg_result["segments"]
@@ -678,6 +705,7 @@ class Benchmark:
         y_pred: np.ndarray, pred_buffer: int
     ) -> List[List[int]]:
         """Process predicted anomalies by grouping consecutive indices and applying buffer."""
+        y_pred = np.atleast_1d(y_pred)
         pred_anomalies = np.where(y_pred == 1)[0]
 
         if len(pred_anomalies) > 0:

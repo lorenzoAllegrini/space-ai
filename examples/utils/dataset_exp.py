@@ -20,13 +20,13 @@ from spaceai.data import (
     ESAMissions,
 )
 from spaceai.data.ops_sat import OPSSAT
-from spaceai.preprocessing import SpaceAISegmentator
+from spaceai.preprocessing import TSSplitter
 
 
 def get_dataset_benchmark(
     dataset_name: str,
     data_path: str,
-    segmentator: Optional[SpaceAISegmentator] = None,
+    segmentator: Optional[TSSplitter] = None,
     feature_extractor: Optional[Any] = None,
     run_id: str = "exp",
     exp_dir: str = "experiments",
@@ -70,6 +70,7 @@ def run_dataset_experiment(
     is_supervised: bool,
     model_id: str,
     exp_dir: str = "experiments",
+    callbacks: Optional[list] = None,
 ):
     """
     Run experiment for a specific dataset using the provided benchmark.
@@ -80,18 +81,19 @@ def run_dataset_experiment(
         is_supervised (bool): Whether the model is supervised.
         model_id (str): ID of the model.
         exp_dir (str): Experiment directory.
+        callbacks (list): List of callbacks to use.
     """
     if isinstance(benchmark, ESABenchmark):
         run_esa_experiment(
-            benchmark, classifier_factory, is_supervised, model_id, exp_dir
+            benchmark, classifier_factory, is_supervised, model_id, exp_dir, callbacks
         )
     elif isinstance(benchmark, NASABenchmark):
         run_nasa_experiment(
-            benchmark, classifier_factory, is_supervised, model_id, exp_dir
+            benchmark, classifier_factory, is_supervised, model_id, exp_dir, callbacks
         )
     elif isinstance(benchmark, OPSSATBenchmark):
         run_ops_sat_experiment(
-            benchmark, classifier_factory, is_supervised, model_id, exp_dir
+            benchmark, classifier_factory, is_supervised, model_id, exp_dir, callbacks
         )
     else:
         raise ValueError(f"Benchmark type {type(benchmark)} not supported.")
@@ -109,6 +111,7 @@ def run_esa_experiment(
     is_supervised: bool,
     _model_id: str,
     _exp_dir: str,
+    callbacks: Optional[list] = None,
 ):
     """Run ESA experiment."""
     for mission_wrapper in ESAMissions:
@@ -125,6 +128,7 @@ def run_esa_experiment(
                 channel_id=channel_id,
                 classifier=classifier,
                 supervised=is_supervised,
+                callbacks=callbacks,
             )
             benchmark.test_channel_rolling_stats(
                 channel_id=channel_id,
@@ -140,6 +144,7 @@ def run_nasa_experiment(
     is_supervised: bool,
     _model_id: str,
     _exp_dir: str,
+    callbacks: Optional[list] = None,
 ):
     """Run NASA experiment."""
     channels = NASA.channel_ids
@@ -150,6 +155,7 @@ def run_nasa_experiment(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
+            callbacks=callbacks,
         )
         benchmark.test_channel_rolling_stats(
             channel_id=channel_id,
@@ -165,6 +171,7 @@ def run_ops_sat_experiment(
     is_supervised: bool,
     _model_id: str,
     _exp_dir: str,
+    callbacks: Optional[list] = None,
 ):
     """Run OPS-SAT experiment."""
     channels = OPSSAT.channel_ids
@@ -175,6 +182,7 @@ def run_ops_sat_experiment(
             channel_id=channel_id,
             classifier=classifier,
             supervised=is_supervised,
+            callbacks=callbacks,
         )
         benchmark.test_channel_rolling_stats(
             channel_id=channel_id,

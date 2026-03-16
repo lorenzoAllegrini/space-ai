@@ -12,7 +12,7 @@ from spaceai.benchmark import (
 )
 from spaceai.data import ESAMissions, OPSSAT
 from spaceai.preprocessing import (
-    SpaceAISegmentator,
+    TSSplitter,
     get_feature_extractor,
 )
 from spaceai.benchmark.callbacks import SystemMonitorCallback
@@ -79,7 +79,7 @@ def run_benchmark(args, other_args=None):
 
     segmentator = None
     if args.segmentator:
-        segmentator = SpaceAISegmentator(
+        segmentator = TSSplitter(
             window_size=args.window_size,
             step_size=args.step_size,
         )
@@ -108,17 +108,11 @@ def run_benchmark(args, other_args=None):
         
         target_channels = [f'channel_{n}' for n in range(9,12)]
 
-        classifier = XGBClassifier(
-            n_estimators=300,
-            max_depth=4,
-            scale_pos_weight=0.02
-        )
-        
         # Train all channels
         for channel_id in target_channels:
             benchmark.train_channel_rolling_stats(
                 channel_id=channel_id,
-                classifier=classifier,
+                classifier=classifier_factory(),
                 callbacks=callbacks,
                 supervised=is_supervised,
             )

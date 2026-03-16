@@ -6,7 +6,7 @@ import warnings
 
 from spaceai.benchmark import ESABenchmark, NASABenchmark, OPSSATBenchmark
 from spaceai.data import ESAMissions
-from spaceai.preprocessing import SpaceAISegmentator, get_feature_extractor
+from spaceai.preprocessing import TSSplitter, get_feature_extractor
 
 warnings.simplefilter("ignore", FutureWarning)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [CLIENT] %(message)s")
@@ -26,6 +26,7 @@ MODEL_LIST = [
     "copod",
     "cblof",
     "hbos",
+    "ndpm",
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
@@ -61,13 +62,16 @@ def create_benchmark(args):
     """Create a Benchmark instance matching the test configuration."""
     segmentator = None
     if args.segmentator:
-        segmentator = SpaceAISegmentator(
+        segmentator = TSSplitter(
             window_size=args.window_size,
             step_size=args.step_size,
         )
 
     feature_extractor = get_feature_extractor(
-        args.feature_extractor, n_kernel=args.n_kernel
+        args.feature_extractor,
+        window_size=args.window_size,
+        stride=args.step_size,
+        n_kernel=args.n_kernel,
     )
 
     run_id = f"{args.dataset}_{args.model}" if args.model != "dpmm" else f"{args.dataset}_{args.model}_{args.dpmm_type}_{args.dpmm_mode}"
@@ -116,9 +120,9 @@ def main():
             channel_id=channel_id,
             server_ip=args.server_ip,
             port=args.port,
-            batch_size=args.batch_size,
-            sample_rate_ms=args.sample_rate_ms,
-            max_duration_s=args.max_duration_s,
+            experience_size="10D", # Default or configurable
+            window_size=args.window_size,
+            stride=args.step_size,
         )
     
     results = benchmark.compute_global_event_metrics(channels=channels)

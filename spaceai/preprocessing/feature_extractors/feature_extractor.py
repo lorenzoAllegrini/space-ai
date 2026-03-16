@@ -26,6 +26,11 @@ class FeatureExtractor:
         """Step size between consecutive windows."""
         return self._stride
 
+    @property
+    @abstractmethod
+    def output_dim(self) -> int:
+        """Dimensionality of the extracted features."""
+
     @abstractmethod
     def fit(
         self, X: np.ndarray, y: Optional[np.ndarray] = None

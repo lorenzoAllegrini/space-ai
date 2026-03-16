@@ -1,4 +1,5 @@
 """Model creators module."""
+import torch
 
 from spaceai.models.anomaly import Telemanom
 from spaceai.models.predictors import (
@@ -28,6 +29,11 @@ from spaceai.models.anomaly_classifier.dpmm_detector import (
     DPMMDetector,
     get_dpmm_argparser,
 )
+from spaceai.models.anomaly_classifier import NDPMDetector
+from spaceai.models.anomaly_classifier.ndpm_internal import Config as NdpmConfig
+import os
+import logging
+import torch
 
 from .config import Config
 
@@ -65,6 +71,51 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args):
         ]
     )
     return lambda: pipeline, mode != "likelihood_threshold"
+
+
+    return lambda: pipeline, mode != "likelihood_threshold"
+
+
+def get_ndpm_classifier(args, device="cpu", input_dim=None):
+    """Get NDPM classifier factory."""
+
+    def factory():
+        config_path = getattr(args, "ndpm_config", None)
+        if not config_path or not os.path.exists(config_path):
+            raise ValueError(
+                f"Valid NDPM configuration required. Please check --ndpm_config (path: {config_path})"
+            )
+
+        logging.info("Loading NDPM config from %s", config_path)
+        config = NdpmConfig.from_yaml_file(config_path)
+
+        # Deducing x_w
+        if input_dim is not None:
+            x_w = input_dim
+        else:
+            # Fallback deduction from args if input_dim is not provided
+            fe_type = getattr(args, "feature_extractor", "none")
+            if fe_type == "base_statistics":
+                from spaceai.preprocessing.functions import FEATURE_MAP
+                x_w = len(FEATURE_MAP)
+            elif fe_type == "rocket":
+                n_kernel = getattr(args, "n_kernel", 100)
+                x_w = 2 * n_kernel
+            else:
+                x_w = getattr(args, "window_size", 100)
+
+        channel_id = getattr(args, "channel", "default") or "default"
+        run_dir = getattr(args, "run_dir", ".") or "."
+        config["log_dir"] = os.path.join(run_dir, "logs", channel_id)
+        config["x_w"] = x_w
+
+        detector = NDPMDetector(config, device=device)
+        logging.info(
+            "Initialized NDPM detector (x_w=%d) for channel: %s", x_w, channel_id
+        )
+        return detector
+
+    return factory, False
 
 
 def get_ridge_regression_classifier():
@@ -126,7 +177,7 @@ def format_str(s):
     return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
-def create_classifier(args, other_args):
+def create_classifier(args, other_args, input_dim=None):
     """Create the classifier factory based on arguments."""
     model_id = format_str(args.model)
     if model_id == "dpmm":
@@ -157,6 +208,9 @@ def create_classifier(args, other_args):
         return get_cblof_classifier()
     elif model_id == "hbos":
         return get_hbos_classifier()
+    elif model_id == "ndpm":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        return get_ndpm_classifier(args, device, input_dim=input_dim)
     else:
         raise ValueError(f"Modello {args.model} non supportato!")
 

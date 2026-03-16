@@ -4,18 +4,18 @@ import argparse
 import warnings
 
 from spaceai.preprocessing import (
-    SpaceAISegmentator,
+    TSSplitter,
     get_feature_extractor,
 )
 
-from .utils.dataset_exp import (
+from utils.dataset_exp import (
     get_dataset_benchmark,
     run_dataset_experiment,
 )
-from .utils.model_creators import (
+from utils.model_creators import (
     create_classifier,
 )
-
+from spaceai.benchmark.callbacks import SystemMonitorCallback
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
@@ -33,6 +33,7 @@ MODEL_LIST = [
     "copod",
     "cblof",
     "hbos",
+    "ndpm"
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
@@ -55,23 +56,33 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
     parser.add_argument("--window-size", type=int, default=50)
     parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument("--ndpm_config", type=str, default=None, help="Path to NDPM config")
     return parser.parse_known_args(str_args)
 
 
 def run_exp(args, other_args=None, _suppress_output=False):
     """Run experiment."""
-    classifier_factory, is_supervised = create_classifier(args, other_args)
+    feature_extractor = get_feature_extractor(
+        args.feature_extractor,
+        window_size=args.window_size,
+        stride=args.step_size,
+        n_kernel=args.n_kernel,
+    )
+
+    # Determine input dimensionality for the classifier
+    input_dim = feature_extractor.output_dim if feature_extractor else args.window_size
+
+    classifier_factory, is_supervised = create_classifier(
+        args, other_args, input_dim=input_dim
+    )
+
     callbacks = [SystemMonitorCallback()]
     segmentator = None
     if args.segmentator:
-        segmentator = SpaceAISegmentator(
+        segmentator = TSSplitter(
             window_size=args.window_size,
             step_size=args.step_size,
         )
-
-    feature_extractor = get_feature_extractor(
-        args.feature_extractor, n_kernel=args.n_kernel
-    )
 
     run_id = f"{args.dataset}_{args.model}"
     if args.model == "dpmm":
