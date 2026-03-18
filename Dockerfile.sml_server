@@ -1,0 +1,53 @@
+FROM --platform=linux/arm64 python:3.10-slim
+
+WORKDIR /workspace
+
+# Installiamo TUTTE le dipendenze per compilare da zero
+RUN apt-get update && apt-get install -y \
+    gcc g++ git make cmake \
+    libgomp1 libopenblas-dev liblapack-dev \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installiamo pip, setuptools e pyinstaller
+RUN pip install --upgrade pip "setuptools<70.0.0" wheel
+RUN pip install pyinstaller
+
+# 1. Installiamo NumPy dai sorgenti (ci metterà un po')
+RUN pip install --no-binary numpy numpy==1.26.4
+
+# 3. Installiamo le dipendenze STRETTAMENTE NECESSARIE per lo streaming
+# Abbiamo rimosso pandas, sktime, etc. per ridurre l'impronta sulla Leopard DPU.
+RUN pip install \
+    scikit-learn==1.4.2 \
+    torch==2.3.1 \
+    pyzmq==26.0.3 \
+    pyyaml==6.0.1 \
+    xgboost==1.7.6
+
+# 4. Copiamo il codice (incluso torch-dpmm)
+COPY . /workspace/
+
+# 5. Installiamo la dipendenza locale torch-dpmm
+RUN pip install --no-deps -e ./torch-dpmm
+
+# 6. Installiamo il package spaceai
+RUN pip install --no-deps .
+
+# 7. Generiamo il binario standalone con PyInstaller
+ENV PYTHONPATH=/workspace:/workspace/examples
+
+# SERVER SML (Streaming & Continual Learning)
+RUN pyinstaller --onefile --log-level INFO \
+    --name sml_server \
+    --hidden-import ipaddress \
+    --hidden-import xgboost \
+    --hidden-import torch_dpmm \
+    --hidden-import spaceai.models.anomaly_classifier \
+    --hidden-import spaceai.models.anomaly_classifier.ndpm_internal \
+    --hidden-import spaceai.preprocessing.ts_splitter \
+    --hidden-import examples.utils.model_creators \
+    --hidden-import spaceai.preprocessing.feature_extractors.utils \
+    --add-binary '/usr/local/lib/python3.10/site-packages/xgboost/lib/libxgboost.so:xgboost/lib' \
+    --add-data '/usr/local/lib/python3.10/site-packages/xgboost/VERSION:xgboost' \
+    examples/sml_inference/sml_server.py

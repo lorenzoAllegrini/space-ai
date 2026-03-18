@@ -1,0 +1,72 @@
+# --- Build Stage ---
+FROM --platform=linux/arm64 python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc g++ git make cmake \
+    libgomp1 libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools wheel pyinstaller
+
+# Core scientific stack (Aligned with EGSE: Python 3.12, Numpy 2.x, Torch 2.x)
+RUN pip install \
+    numpy==2.2.1 \
+    pandas==2.2.3 \
+    scikit-learn==1.6.0 \
+    torch==2.5.1 \
+    pyzmq==27.1.0 \
+    pyyaml==6.0.2 \
+    tqdm==4.66.5 \
+    more-itertools==10.5.0 \
+    xgboost==2.1.3 \
+    psutil==6.1.0 \
+    requests==2.32.3 \
+    pyod==2.0.6
+
+# Copy source code and local dependencies
+COPY . /build/
+
+# Install local project
+RUN pip install --no-deps ./torch-dpmm
+RUN pip install --no-deps .
+
+# Generate standalone binary.
+ENV PYTHONPATH=/build:/build/examples
+RUN pyinstaller --onefile --log-level INFO \
+    --name sml_server_inference \
+    --hidden-import ipaddress \
+    --collect-submodules sklearn \
+    --collect-submodules scipy \
+    --collect-submodules xgboost \
+    --collect-submodules pandas \
+    --collect-submodules spaceai \
+    --collect-all torch_dpmm \
+    --collect-all pyod \
+    --add-binary '/usr/local/lib/python3.12/site-packages/xgboost/lib/libxgboost.so:xgboost/lib' \
+    --add-data '/usr/local/lib/python3.12/site-packages/xgboost/VERSION:xgboost' \
+    examples/sml_inference/sml_server_inference.py
+
+# --- Runtime Stage ---
+FROM --platform=linux/arm64 python:3.12-slim
+
+WORKDIR /app
+
+# Minimal runtime system libraries
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Extracted binary
+COPY --from=builder /build/dist/sml_server_inference /app/
+
+# Environment
+ENV RUN_DIR=/app/experiments
+RUN mkdir -p ${RUN_DIR}
+
+EXPOSE 5556
+
+ENTRYPOINT ["/app/sml_server_inference"]
+CMD ["--run_dir", "/app/experiments", "--port", "5556"]

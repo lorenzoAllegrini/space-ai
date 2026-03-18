@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Abstract base class for anomaly classifiers."""
 
 from abc import abstractmethod
@@ -6,11 +7,25 @@ from typing import Optional
 import numpy as np
 import torch
 
+from spaceai.benchmark.callbacks import CallbackHandler
+from contextlib import contextmanager
 
 class AnomalyClassifier:
     """
     Abstract base for time-series wrappers: defines common interface and input preparation.
     """
+    def __init__(self, callback_handler: Optional[CallbackHandler] = None):
+        self.callback_handler = callback_handler
+        
+    @contextmanager
+    def _callback_context(self, name: str, results: dict):
+        if self.callback_handler:
+            self.callback_handler.start()
+            yield
+            self.callback_handler.stop()
+            results.update({f"{name}_{k}": v for k, v in self.callback_handler.collect(reset=True).items()})
+        else:
+            yield
 
     @abstractmethod
     def fit(  # pylint: disable=invalid-name

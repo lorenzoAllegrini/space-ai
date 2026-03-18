@@ -1,9 +1,22 @@
 """Anomaly classifier module."""
 
-from .anomaly_classifier import AnomalyClassifier
-from .dpmm_detector import DPMMDetector
-from .rockad import RockadClassifier, NearestNeighborOCC
-from .ndpm_detector import NDPMDetector
+def __getattr__(name):
+    if name == "AnomalyClassifier":
+        from .anomaly_classifier import AnomalyClassifier
+        return AnomalyClassifier
+    if name == "DPMMDetector":
+        from .dpmm_detector import DPMMDetector
+        return DPMMDetector
+    if name == "RockadClassifier":
+        from .rockad import RockadClassifier
+        return RockadClassifier
+    if name == "NearestNeighborOCC":
+        from .rockad import NearestNeighborOCC
+        return NearestNeighborOCC
+    if name == "NDPMDetector":
+        from .ndpm_detector import NDPMDetector
+        return NDPMDetector
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "AnomalyClassifier",

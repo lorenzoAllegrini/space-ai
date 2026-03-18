@@ -175,3 +175,10 @@ all_results/
 **/__pycache__
 .github
 .ipynb_checkpoints/
+*.zip
+logs/
+remote_models/
+CL-DPMixtureModel/
+sml_server_inference_leopard
+sml_server_leopard
+

@@ -9,7 +9,16 @@ from typing import Optional, Dict, Any
 
 from .ndpm_internal import Ndpm, Config
 
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+except ImportError:
+    class SummaryWriter:
+        """Dummy SummaryWriter for systems without tensorboardX."""
+        def __init__(self, *args, **kwargs):
+            pass
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
 from .anomaly_classifier import AnomalyClassifier
 
 
@@ -42,7 +51,7 @@ class NDPMDetector(AnomalyClassifier):
         self.threshold = threshold if threshold is not None else self.config.get("anomaly_threshold", -100.0)
         self.ll_buffer = []
         self.max_buffer_size = self.config.get("ll_buffer_size", 5000)
-        self.percentile = self.config.get("ll_percentile", 0.5)  
+        self.percentile = self.config.get("ll_percentile", 5.0)  
         
         self.global_step = 0
 
@@ -58,11 +67,17 @@ class NDPMDetector(AnomalyClassifier):
     def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:
         if hasattr(X, "values"):
             X = X.values  # Handle pd.DataFrame
+        
+        # In unsupervised mode, we might need to predict to find "normal" data
+        # but if the model is empty, we consider everything normal for the first fit.
         if y is not None:
             normal_X = X[y == 0]
         else:
-            is_anomaly = self.predict(X) 
-            normal_X = X[~is_anomaly] 
+            if len(self.model.experts) > 1:
+                is_anomaly = self.predict(X) 
+                normal_X = X[~is_anomaly] 
+            else:
+                normal_X = X # Bootstrapping
         
         if len(normal_X) == 0:
             return
@@ -72,16 +87,29 @@ class NDPMDetector(AnomalyClassifier):
 
         self._ensure_writer()
         self.model.train()
+        
+        # We temporarily force all data to STM if we have no experts to ensure birthing
+        old_stm_always = self.config.get('send_to_stm_always', False)
+        if len(self.model.experts) == 1:
+            self.config['send_to_stm_always'] = True
+            
         self.model.learn(x_tensor, dummy_y, self.global_step)
         self.global_step += 1
+        
+        # Reset stm flag
+        self.config['send_to_stm_always'] = old_stm_always
+
+        # Birth expert if enough data is in STM (or force it if it's the first time)
+        self.sleep()
 
         # Update adaptive threshold using training data (nominal by assumption)
-        with torch.no_grad():
-            self.model.eval()
-            ll_nominal = self.model(x_tensor).cpu().numpy()
-            self._update_ll_buffer(ll_nominal)
-
-        self.sleep()
+        # ONLY if we have at least one real expert to avoid "No expert to run" crash
+        if len(self.model.experts) > 1:
+            with torch.no_grad():
+                self.model.eval()
+                # Batch prediction to avoid memory issues
+                log_likelihood = self.model(x_tensor).cpu().numpy()
+                self._update_ll_buffer(log_likelihood)
 
     def _update_ll_buffer(self, new_lls: np.ndarray) -> None:
         """Update the log-likelihood buffer and recalculate the threshold."""
@@ -101,13 +129,17 @@ class NDPMDetector(AnomalyClassifier):
         if hasattr(X, "values"):
             X = X.values  # Handle pd.DataFrame
 
+        # If no experts birthed yet, we can't predict. Return "not anomaly" for all.
+        if len(self.model.experts) <= 1:
+            return np.zeros(len(X), dtype=bool)
+
         self.model.eval()
         x_tensor = torch.from_numpy(X).float().to(self.device)
         
         with torch.no_grad():
             log_likelihood = self.model(x_tensor)
 
-        return (log_likelihood < self.threshold).cpu().numpy()
+        return (log_likelihood.cpu().numpy() < self.threshold)
 
     def sleep(self) -> None:
         print("sleeping")

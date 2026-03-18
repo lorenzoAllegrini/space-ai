@@ -19,6 +19,7 @@ import more_itertools as mit
 import numpy as np
 import pandas as pd  # type: ignore
 import zmq
+import torch
 from torch.utils.data import (
     DataLoader,
     Subset,
@@ -41,7 +42,7 @@ import time
 
 import threading
 import json
-
+import torch
 from spaceai.preprocessing import TSSplitter
 
 class Benchmark:
@@ -146,7 +147,145 @@ class Benchmark:
 
         return self.global_results
 
+    
+    def channel_rolling_stats_sml(
+        self,
+        channel_id: str,
+        classifier,
+        server_ip: str,
+        port: int,
+        overlapping_train: Optional[bool] = True,
+        callbacks: Optional[List[Callback]] = None,
+        call_every_ms: int = 100,
+        supervised: bool = True,
+    ) -> Dict[str, Any]:
+        """Trains (and optionally tests) the anomaly classifier for a given channel remotely."""
+        callback_handler = CallbackHandler(
+            callbacks=callbacks if callbacks is not None else [],
+            call_every_ms=call_every_ms,
+        )
         
+        train_channel, test_channel = self.load_channel(
+            channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
+        )
+        os.makedirs(self.run_dir, exist_ok=True)
+        results: Dict[str, Any] = {"channel_id": channel_id}
+        original_test_channel = test_channel
+
+        if self.segmentator is not None:
+            train_split_res = self.segmentator.segment_dataset(train_channel)
+            test_split_res = self.segmentator.segment_dataset(test_channel)
+            
+            train_channel, test_channel = train_split_res["segments"], test_split_res["segments"]
+            train_labels, test_labels = train_split_res["labels"], test_split_res["labels"]
+            
+            test_anomalies = test_split_res["intervals"]
+            segment_indices = test_split_res["segment_indices"]
+        else:
+            raise ValueError("Segmentator not found. Please provide a segmentator.")
+
+        with zmq.Context() as context:
+            with context.socket(zmq.REQ) as socket:
+                socket.setsockopt(zmq.LINGER, 0)
+                socket.connect(f"tcp://{server_ip}:{port}")
+            
+                socket.send_pyobj({
+                    "channel_id": channel_id,
+                    "train_data": train_channel,
+                    "train_labels": train_labels,   
+                    "test_data": test_channel,
+                    "test_labels": test_labels,
+                    "classifier": classifier,
+                    "feature_extractor": self.feature_extractor,
+                })
+                
+                response = socket.recv_pyobj()
+
+        if "error" in response:
+            raise RuntimeError(f"Server error during SML processing: {response['error']}")
+
+        remote_classifier = response.get("classifier")
+        if remote_classifier is not None:
+            self.trained_classifiers[channel_id] = remote_classifier
+            classifier = remote_classifier
+            logging.info("Successfully retrieved trained classifier from server for channel %s", channel_id)
+
+        remote_fe = response.get("feature_extractor")
+        if remote_fe is not None:
+            self.feature_extractor = remote_fe
+            logging.info("Successfully retrieved fitted feature extractor from server")
+
+        y_pred = response.get("y_pred")
+        remote_metrics = response.get("metrics", {})
+        results.update(remote_metrics)
+
+        if y_pred is None:
+            logging.warning("No predictions returned for channel %s", channel_id)
+            return results
+
+        y_pred = np.array(y_pred)
+        pred_anomalies = Benchmark.process_pred_anomalies(y_pred, 0)
+        
+        test_anomalies.sort()
+        all_metrics = Benchmark.compute_metrics(
+            test_anomalies, pred_anomalies, total_length=len(y_pred)
+        )
+        results.update(all_metrics)
+
+        test_anomalies_mask = np.zeros(len(y_pred), dtype=int)
+        for start, end in test_anomalies:
+            test_anomalies_mask[int(start) : int(end) + 1] = 1
+
+        results.update({
+            "test_length": len(test_channel),
+            "test_negatives": len(test_channel) - test_anomalies_mask.sum(),
+            "detected_negatives": int(((y_pred == 0) & (test_anomalies_mask == 0)).sum()),
+        })
+
+        self.channel_predictions[channel_id] = {
+            "y_pred": y_pred.tolist(),
+            "pred_anomalies": pred_anomalies,
+            "true_anomalies": test_anomalies
+        }
+            
+        if segment_indices is not None and len(segment_indices) > 0:
+            true_preds_intervals = [(segment_indices[s][0], segment_indices[e][1]) for s, e in pred_anomalies]
+            true_anomaly_intervals = [(segment_indices[s][0], segment_indices[e][1]) for s, e in test_anomalies]
+
+            timestamps = getattr(original_test_channel, "timestamps", None)
+            if timestamps is not None and len(timestamps) > 0:
+                limit = len(timestamps)
+                true_preds_intervals = [(timestamps[s], timestamps[e]) for s, e in true_preds_intervals if e < limit]
+                true_anomaly_intervals = [(timestamps[s], timestamps[e]) for s, e in true_anomaly_intervals if e < limit]
+                
+                self.event_labels_global.extend(true_anomaly_intervals)
+                self.predicted_events_global.extend(true_preds_intervals)
+
+                with open(os.path.join(self.run_dir, f"{channel_id}_intervals.json"), "w") as f:
+                    json.dump({
+                        "pred_intervals": [[str(s), str(e)] for s, e in true_preds_intervals],
+                        "true_intervals": [[str(s), str(e)] for s, e in true_anomaly_intervals],
+                    }, f, indent=2)
+
+        self.all_results.append(results)
+        pd.DataFrame.from_records(self.all_results).to_csv(
+            os.path.join(self.run_dir, "results.csv"), index=False
+        )
+       
+        classifier_path = os.path.join(self.run_dir, f"classifier-{channel_id}.pt")
+        if hasattr(classifier, 'save'):
+            classifier.save(classifier_path)
+        else:
+            torch.save(classifier, classifier_path)
+    
+        for metric in [m for m in results.keys() if m.endswith("time") or m.endswith("cpu")]:
+            if metric not in self.global_results:
+                self.global_results[metric] = results[metric]
+            else:
+                self.global_results[metric] += results[metric]
+
+        return results
+
     def simulate_stream_to_server(
         self,
         channel_id: str,
@@ -203,13 +342,13 @@ class Benchmark:
                     resp_frames = socket.recv_multipart()
                     if len(resp_frames) != 2:
                         continue
-
+                    
                     resp_channel = resp_frames[0].decode("utf-8")
                     if resp_channel != channel_id:
                         continue
 
                     response = json.loads(resp_frames[1].decode("utf-8"))
-                    
+
                     forward_predictions = response.get("forward_predictions")
                     backward_predictions = response.get("backward_predictions")
 
@@ -569,7 +708,6 @@ class Benchmark:
         if hasattr(classifier, 'save'):
             classifier.save(classifier_path)
         else:
-            import torch
             torch.save(classifier, classifier_path)
     
         for metric in [m for m in results.keys() if m.endswith("time") or m.endswith("cpu")]:
@@ -579,7 +717,7 @@ class Benchmark:
                 self.global_results[metric] += results[metric]
 
         return results
-
+ 
     def test_channel_rolling_stats(
         self,
         channel_id: str,

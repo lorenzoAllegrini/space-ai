@@ -64,28 +64,34 @@ class ESABenchmark(Benchmark):
 
 
     def load_channel(
-        self, channel_id: str, overlapping_train: bool = True
-    ) -> Tuple[ESA, ESA]:
+        self, channel_id: str, overlapping_train: bool = True, continual: bool = False
+    ) -> Tuple[ESA, Optional[ESA]]:
         """Load the training and testing datasets for a given channel.
 
         Args:
             channel_id (str): the ID of the channel to be used
             overlapping_train (bool): whether to use overlapping sequences for the training dataset
+            continual (bool): whether to use continual mode for the training dataset
 
         Returns:
-            Tuple[ESA, ESA]: training and testing datasets
+            Tuple[ESA, Optional[ESA]]: training and testing datasets
         """
         if self.mission is None:
             raise ValueError("Mission must be set for ESABenchmark")
+        
+        mode = "continual" if continual else "prediction"
         train_channel = ESA(
             root=self.data_root,
             mission=self.mission,
             channel_id=channel_id,
-            mode="prediction",
+            mode=mode,
             overlapping=overlapping_train,
             seq_length=self.seq_length,
             n_predictions=self.n_predictions,
         )
+
+        if continual:
+            return train_channel, None
 
         test_channel = ESA(
             root=self.data_root,
