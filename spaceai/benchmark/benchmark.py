@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 import zmq
 import json
 import time
+from datetime import datetime, timezone
 
 import threading
 import json
@@ -165,11 +166,13 @@ class Benchmark:
             call_every_ms=call_every_ms,
         )
         
+        start_time = datetime.now(timezone.utc).isoformat()
+        
         train_channel, test_channel = self.load_channel(
             channel_id, overlapping_train=overlapping_train if overlapping_train is not None else True
         )
         os.makedirs(self.run_dir, exist_ok=True)
-        results: Dict[str, Any] = {"channel_id": channel_id}
+        results: Dict[str, Any] = {"channel_id": channel_id, "start_datetime": start_time}
         original_test_channel = test_channel
 
         if self.segmentator is not None:
@@ -267,6 +270,7 @@ class Benchmark:
                         "true_intervals": [[str(s), str(e)] for s, e in true_anomaly_intervals],
                     }, f, indent=2)
 
+        results["end_datetime"] = datetime.now(timezone.utc).isoformat()
         self.all_results.append(results)
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False

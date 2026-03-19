@@ -25,16 +25,13 @@ DATASET_LIST = ["ops", "nasa", "esa"]
 MODEL_LIST = [
     "ocsvm",
     "xgboost",
-    "ridge_regression",
     "dpmm",
     "iforest",
     "pca",
     "knn",
     "lof",
-    "pyod_ocsvm",
     "ecod",
     "copod",
-    "cblof",
     "hbos"
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
