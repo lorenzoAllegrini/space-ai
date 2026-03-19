@@ -12,7 +12,7 @@ from spaceai.benchmark import (
 )
 from spaceai.data import ESAMissions, OPSSAT
 from spaceai.preprocessing import (
-    TSSplitter,
+    TimeSeriesSplitter,
     get_feature_extractor,
 )
 from spaceai.benchmark.callbacks import SystemMonitorCallback
@@ -77,18 +77,6 @@ def run_benchmark(args, other_args=None):
 
     classifier_factory, is_supervised = create_classifier(args, other_args)
 
-    segmentator = None
-    if args.segmentator:
-        segmentator = TSSplitter(
-            window_size=args.window_size,
-            step_size=args.step_size,
-        )
-
-    feature_extractor = get_feature_extractor(
-        args.feature_extractor, n_kernel=args.n_kernel
-    )
-    callbacks = [SystemMonitorCallback()]
-
     run_id = f"{args.dataset}_{args.model}"
     if args.model == "dpmm":
         run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
@@ -99,9 +87,7 @@ def run_benchmark(args, other_args=None):
         mission = ESAMissions.MISSION_1.value if args.mission == 1 else ESAMissions.MISSION_2.value
         benchmark = ESABenchmark(
             data_root=args.base_dir,
-            segmentator=segmentator,
             mission=mission,
-            feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=args.exp_dir,
         )
@@ -110,22 +96,15 @@ def run_benchmark(args, other_args=None):
 
         # Train all channels
         for channel_id in target_channels:
-            benchmark.train_channel_rolling_stats(
+            benchmark.fit_channel(
                 channel_id=channel_id,
                 classifier=classifier_factory(),
-                callbacks=callbacks,
-                supervised=is_supervised,
             )
-
-
-        if feature_extractor is not None:
-            torch.save(feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
         # Test all channels
         for channel_id in target_channels:
-            benchmark.test_channel_rolling_stats(
+            benchmark.test_channel(
                 channel_id=channel_id,
-                callbacks=callbacks,
             )
 
         # aggregate global event-level metrics
@@ -135,8 +114,6 @@ def run_benchmark(args, other_args=None):
     elif args.dataset == "ops":
         benchmark = OPSSATBenchmark(
             data_root=args.base_dir,
-            segmentator=segmentator,
-            feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=args.exp_dir,
             split_percentage=None,
@@ -146,19 +123,14 @@ def run_benchmark(args, other_args=None):
 
         # Train all channels
         for channel_id in channels:
-            benchmark.train_channel_rolling_stats(
+            benchmark.fit_channel(
                 channel_id=channel_id,
                 classifier=classifier_factory(),
-                supervised=is_supervised,
             )
-
-        # Save feature extractor for later use (e.g., SML server)
-        if feature_extractor is not None:
-            torch.save(feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
         # Test all channels
         for channel_id in channels:
-            benchmark.test_channel_rolling_stats(
+            benchmark.test_channel(
                 channel_id=channel_id,
             )
 

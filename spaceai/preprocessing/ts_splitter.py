@@ -6,10 +6,16 @@ import pandas as pd
 from typing import Union, Dict, List, Optional
 
 from spaceai.data.anomaly_dataset import AnomalyDataset
-from spaceai.data.nasa import NASA
+from dataclasses import dataclass
 
+@dataclass
+class SegmentationResult:
+    segments: Union[np.ndarray, List[Any]]
+    labels: np.ndarray
+    segment_indices: np.ndarray
+    intervals: List[Tuple[int, int]]
 
-class TSSplitter:
+class TimeSeriesSplitter:
     """
     Unified time-series splitter for SpaceAI datasets (ESA, NASA, OPS-SAT).
     Inherits vectorized segmentation logic and adds:
@@ -77,7 +83,7 @@ class TSSplitter:
         label_windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=window_size)[starts]
         return (label_windows.max(axis=1) > 0).astype(int)
 
-    def segment_dataset(self, dataset_channel: AnomalyDataset, mode: str = "anomaly") -> Dict:
+    def segment_dataset(self, dataset_channel: AnomalyDataset, mode: str = "anomaly") -> SegmentationResult:
         """
         High-level method to segment an AnomalyDataset channel.
         Uses split() internally but handles masks, blocks, and labels.
@@ -100,7 +106,6 @@ class TSSplitter:
             for start, end in dataset_channel.anomalies:
                 pointwise_labels[max(0, start):min(len(data), end)] = 1
 
-        # 2. Block-aware windows
         block_intervals = getattr(dataset_channel, "block_intervals", [(0, len(data))])
         
         all_segments = []
@@ -108,45 +113,52 @@ class TSSplitter:
         all_indices = []
 
         for start_idx, end_idx in block_intervals:
-            if end_idx - start_idx < window_size:
-                continue
-            
             block_data = data[start_idx:end_idx]
             block_pointwise_labels = pointwise_labels[start_idx:end_idx]
             
-            # Use internal split logic
-            starts = np.arange(0, len(block_data) - window_size + 1, step_size)
+            segments = self.split(block_data, sampling_period)
+            if len(segments) == 0:
+                continue
             
-            segments = np.lib.stride_tricks.sliding_window_view(block_data, window_shape=window_size)[starts]
-            labels = np.lib.stride_tricks.sliding_window_view(block_pointwise_labels, window_shape=window_size)[starts]
+            if mode == "experience":
+                labels = self.split(block_pointwise_labels, sampling_period)
+            else:
+                labels = self.split_labels(block_pointwise_labels, sampling_period)
             
             all_segments.append(segments)
             all_labels.append(labels)
             
+            starts = np.arange(len(segments)) * step_size
             global_starts = starts + start_idx
             global_ends = global_starts + window_size - 1
             all_indices.append(np.column_stack((global_starts, global_ends)))
 
         if not all_segments:
-            return {
-                "segments": np.empty((0, window_size)),
-                "labels": np.array([]),
-                "intervals": [],
-                "segment_indices": np.empty((0, 2)),
-            }
+            return SegmentationResult(
+                segments=np.empty((0, window_size)),
+                labels=np.array([]),
+                intervals=[],
+                segment_indices=np.empty((0, 2)),
+            )
 
         segments = np.vstack(all_segments)
-        segment_labels = np.vstack(all_labels)
         segment_indices = np.vstack(all_indices)
 
         if mode == "experience":
-            return {
-                "segments": segments,
-                "labels": segment_labels, 
-                "segment_indices": segment_indices,
-            }
-        else: # anomaly
-            final_labels = segment_labels.max(axis=1)
+            segment_labels = np.vstack(all_labels)
+            
+            subset_segments = []
+            for s, e in segment_indices:
+                subset_segments.append(AnomalyDatasetSubset(dataset_channel, int(s), int(e)))
+                
+            return SegmentationResult(
+                segments=subset_segments,
+                labels=segment_labels, 
+                segment_indices=segment_indices,
+                intervals=[],
+            )
+        else:
+            final_labels = np.concatenate(all_labels)
             indices = np.where(final_labels == 1)[0]
             if indices.size == 0:
                 anomalies_intervals = []
@@ -154,9 +166,47 @@ class TSSplitter:
                 groups = [list(group) for group in mit.consecutive_groups(indices)]
                 anomalies_intervals = [[group[0], group[-1]] for group in groups]
 
-            return {
-                "segments": segments,
-                "labels": final_labels,
-                "intervals": anomalies_intervals,
-                "segment_indices": segment_indices,
-            }
+            return SegmentationResult(
+                segments=segments,
+                labels=final_labels,
+                intervals=anomalies_intervals,
+                segment_indices=segment_indices,
+            )
+
+    def get_timestamp_intervals(self, dataset_channel: AnomalyDataset, window_intervals: List[Tuple[int, int]]) -> List[Tuple[Any, Any]]:
+        """Map window anomaly intervals back to timestamp intervals or absolute indices."""
+        has_timestamps = hasattr(dataset_channel, "timestamps") and dataset_channel.timestamps is not None and len(dataset_channel.timestamps) > 0
+        
+        result = self.segment_dataset(dataset_channel, mode="experience")
+        segment_indices = result.segment_indices
+        
+        limit = float('inf')
+        if has_timestamps:
+            timestamps = dataset_channel.timestamps
+            limit = len(timestamps)
+        elif hasattr(dataset_channel, "data") and dataset_channel.data is not None:
+            limit = len(dataset_channel.data)
+        
+        time_intervals = []
+        offset = getattr(dataset_channel, "start_idx", 0)
+        
+        for w_start, w_end in window_intervals:
+            if w_start >= len(segment_indices):
+                continue
+            if w_end >= len(segment_indices):
+                w_end = len(segment_indices) - 1
+                
+            s_idx = segment_indices[w_start][0]
+            e_idx = segment_indices[w_end][1]
+            
+            if s_idx >= limit:
+                continue
+            if e_idx >= limit:
+                e_idx = limit - 1
+                
+            if has_timestamps:
+                time_intervals.append((timestamps[s_idx], timestamps[e_idx]))
+            else:
+                time_intervals.append((s_idx + offset, e_idx + offset))
+                
+        return time_intervals

@@ -20,14 +20,12 @@ from spaceai.data import (
     ESAMissions,
 )
 from spaceai.data.ops_sat import OPSSAT
-from spaceai.preprocessing import TSSplitter
+from spaceai.preprocessing import TimeSeriesSplitter
 
 
 def get_dataset_benchmark(
     dataset_name: str,
     data_path: str,
-    segmentator: Optional[TSSplitter] = None,
-    feature_extractor: Optional[Any] = None,
     run_id: str = "exp",
     exp_dir: str = "experiments",
     n_predictions: int = 10,
@@ -36,8 +34,6 @@ def get_dataset_benchmark(
     if dataset_name == "esa":
         return ESABenchmark(
             data_root=data_path,
-            segmentator=segmentator,
-            feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
             n_predictions=n_predictions,
@@ -45,8 +41,6 @@ def get_dataset_benchmark(
     elif dataset_name == "nasa":
         return NASABenchmark(
             data_root=data_path,
-            segmentator=segmentator,
-            feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
             n_predictions=n_predictions,
@@ -54,8 +48,6 @@ def get_dataset_benchmark(
     elif dataset_name == "ops":
         return OPSSATBenchmark(
             data_root=data_path,
-            segmentator=segmentator,
-            feature_extractor=feature_extractor,
             run_id=run_id,
             exp_dir=exp_dir,
             n_predictions=n_predictions,
@@ -78,7 +70,7 @@ def run_dataset_experiment(
     Args:
         benchmark (Any): The benchmark instance.
         classifier_factory (Callable): Function that returns a new classifier instance.
-        is_supervised (bool): Whether the model is supervised.
+        is_supervised (bool): Whether the model is supervised (no longer strictly used for fit).
         model_id (str): ID of the model.
         exp_dir (str): Experiment directory.
         callbacks (list): List of callbacks to use.
@@ -97,12 +89,6 @@ def run_dataset_experiment(
         )
     else:
         raise ValueError(f"Benchmark type {type(benchmark)} not supported.")
-
-    if benchmark.feature_extractor is not None:
-        torch.save(
-            benchmark.feature_extractor,
-            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
-        )
 
 
 def run_esa_experiment(
@@ -124,18 +110,13 @@ def run_esa_experiment(
 
             classifier = classifier_factory()
             benchmark.mission = mission
-            benchmark.train_channel_rolling_stats(
+            benchmark.fit_channel(
                 channel_id=channel_id,
                 classifier=classifier,
-                supervised=is_supervised,
-                callbacks=callbacks,
             )
-            benchmark.test_channel_rolling_stats(
+            benchmark.test_channel(
                 channel_id=channel_id,
             )
-
-    if benchmark.feature_extractor is not None:
-        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_nasa_experiment(
@@ -151,18 +132,13 @@ def run_nasa_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.train_channel_rolling_stats(
+        benchmark.fit_channel(
             channel_id=channel_id,
             classifier=classifier,
-            supervised=is_supervised,
-            callbacks=callbacks,
         )
-        benchmark.test_channel_rolling_stats(
+        benchmark.test_channel(
             channel_id=channel_id,
         )
-
-    if benchmark.feature_extractor is not None:
-        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_ops_sat_experiment(
@@ -178,18 +154,13 @@ def run_ops_sat_experiment(
     for channel_id in channels:
 
         classifier = classifier_factory()
-        benchmark.train_channel_rolling_stats(
+        benchmark.fit_channel(
             channel_id=channel_id,
             classifier=classifier,
-            supervised=is_supervised,
-            callbacks=callbacks,
         )
-        benchmark.test_channel_rolling_stats(
+        benchmark.test_channel(
             channel_id=channel_id,
         )
-
-    if benchmark.feature_extractor is not None:
-        torch.save(benchmark.feature_extractor, os.path.join(benchmark.run_dir, "feature_extractor.pt"))
 
 
 def run_prediction_experiment(
@@ -267,18 +238,6 @@ def run_esa_prediction_experiment(
                 detector,
                 callbacks=callbacks,
             )
-
-    if benchmark.feature_extractor is not None:
-        torch.save(
-            benchmark.feature_extractor,
-            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
-        )
-
-    if benchmark.feature_extractor is not None:
-        torch.save(
-            benchmark.feature_extractor,
-            os.path.join(benchmark.run_dir, "feature_extractor.pt"),
-        )
 
 
 def run_nasa_prediction_experiment(

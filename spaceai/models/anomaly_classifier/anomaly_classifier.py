@@ -1,11 +1,11 @@
 """Abstract base class for anomaly classifiers."""
 
 from abc import abstractmethod
-from typing import Optional
+from typing import Optional, List, Tuple, Any, Union
 
 import numpy as np
+import pandas as pd
 import torch
-
 
 class AnomalyClassifier:
     """
@@ -21,10 +21,32 @@ class AnomalyClassifier:
         """
 
     @abstractmethod
-    def predict(self, X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
+    def predict(self, X: Any) -> Tuple[np.ndarray, Dict[str, Any]]:  # pylint: disable=invalid-name
         """
-        Predict on time-series data X, returning a numpy array of outputs.
+        Predict on time-series data X, returning a tuple of (predictions, metrics).
         """
+
+    def fit_predict(self, X: Any, y: Optional[np.ndarray] = None, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Convenience method for continual learning. Predicts on X, then fits on (X, y).
+        Streaming wrappers can override this to optimize the roundtrip.
+        """
+        preds, metrics = self.predict(X)
+        self.fit(X, y)
+        return preds, metrics
+
+    def map_to_timestamps(
+        self, channel_data: Any, anomalies: List[Tuple[int, int]]
+    ) -> List[Tuple[pd.Timestamp, pd.Timestamp]]:
+        """
+        Map a list of predicted or ground-truth anomaly indices to global timestamps.
+        Must be implemented by child classes according to their prediction domains (window vs sample level).
+        """
+        return []
+
+    @abstractmethod
+    def prepare_labels(channel_labels):
+        """ Prepare the ground trutg to uniform with the predicted labels"""
 
     def save(self, path: str) -> None:
         """Save the classifier to disk."""
@@ -44,3 +66,4 @@ class AnomalyClassifier:
         if X.ndim != 2:
             raise ValueError("Input X must be 2D (n_samples, n_timestamps)")
         return X.reshape(X.shape[0], 1, X.shape[1])
+

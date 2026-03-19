@@ -64,39 +64,37 @@ class ESABenchmark(Benchmark):
 
 
     def load_channel(
-        self, channel_id: str, overlapping_train: bool = True
-    ) -> Tuple[ESA, ESA]:
-        """Load the training and testing datasets for a given channel.
-
-        Args:
-            channel_id (str): the ID of the channel to be used
-            overlapping_train (bool): whether to use overlapping sequences for the training dataset
-
-        Returns:
-            Tuple[ESA, ESA]: training and testing datasets
-        """
+        self, channel_id: str, mode: str = "train", overlapping_train: bool = True, **kwargs
+    ) -> ESA:
+        """Load the training or testing dataset for a given channel."""
         if self.mission is None:
             raise ValueError("Mission must be set for ESABenchmark")
-        train_channel = ESA(
-            root=self.data_root,
-            mission=self.mission,
-            channel_id=channel_id,
-            mode="prediction",
-            overlapping=overlapping_train,
-            seq_length=self.seq_length,
-            n_predictions=self.n_predictions,
-        )
-
-        test_channel = ESA(
-            root=self.data_root,
-            mission=self.mission,
-            channel_id=channel_id,
-            mode="anomaly",
-            overlapping=False,
-            seq_length=self.seq_length,
-            train=False,
-            drop_last=False,
-            n_predictions=1,
-        )
-
-        return train_channel, test_channel
+            
+        continual = kwargs.pop("continual", False)
+            
+        if mode == "train":
+            return ESA(
+                root=self.data_root,
+                mission=self.mission,
+                channel_id=channel_id,
+                mode="prediction" if not continual else "continual",
+                overlapping=overlapping_train,
+                seq_length=self.seq_length,
+                n_predictions=self.n_predictions,
+                **kwargs
+            )
+        elif mode == "test":
+            return ESA(
+                root=self.data_root,
+                mission=self.mission,
+                channel_id=channel_id,
+                mode="anomaly",
+                overlapping=False,
+                seq_length=self.seq_length,
+                train=False,
+                drop_last=False,
+                n_predictions=1,
+                **kwargs
+            )
+        else:
+            raise ValueError(f"Invalid mode {mode}. Expected 'train' or 'test'.")

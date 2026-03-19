@@ -4,7 +4,7 @@ import argparse
 import warnings
 
 from spaceai.preprocessing import (
-    TSSplitter,
+    TimeSeriesSplitter,
     get_feature_extractor,
 )
 
@@ -76,14 +76,6 @@ def run_exp(args, other_args=None, _suppress_output=False):
         args, other_args, input_dim=input_dim
     )
 
-    callbacks = [SystemMonitorCallback()]
-    segmentator = None
-    if args.segmentator:
-        segmentator = TSSplitter(
-            window_size=args.window_size,
-            step_size=args.step_size,
-        )
-
     run_id = f"{args.dataset}_{args.model}"
     if args.model == "dpmm":
         run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
@@ -93,8 +85,6 @@ def run_exp(args, other_args=None, _suppress_output=False):
         data_path=args.base_dir,
         exp_dir=args.exp_dir,
         run_id=run_id,
-        segmentator=segmentator,
-        feature_extractor=feature_extractor,
     )
 
     run_dataset_experiment(
@@ -102,7 +92,6 @@ def run_exp(args, other_args=None, _suppress_output=False):
         classifier_factory=classifier_factory,
         is_supervised=is_supervised,
         model_id=args.model,
-        callbacks=callbacks
     )
 
 

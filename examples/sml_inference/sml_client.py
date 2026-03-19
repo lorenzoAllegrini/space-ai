@@ -6,7 +6,7 @@ import warnings
 
 from spaceai.benchmark import ESABenchmark, NASABenchmark, OPSSATBenchmark
 from spaceai.data import ESAMissions
-from spaceai.preprocessing import TSSplitter, get_feature_extractor
+from spaceai.preprocessing import TimeSeriesSplitter, get_feature_extractor
 
 warnings.simplefilter("ignore", FutureWarning)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [CLIENT] %(message)s")
@@ -62,7 +62,7 @@ def create_benchmark(args):
     """Create a Benchmark instance matching the test configuration."""
     segmentator = None
     if args.segmentator:
-        segmentator = TSSplitter(
+        segmentator = TimeSeriesSplitter(
             window_size=args.window_size,
             step_size=args.step_size,
         )
@@ -116,13 +116,12 @@ def main():
 
     logging.info("Starting stream to %s:%d...", args.server_ip, args.port)
     for channel_id in channels:
-        benchmark.simulate_stream_to_server(
+        from spaceai.models.anomaly_classifier.sml_client_classifier import SMLClientClassifier
+        classifier = SMLClientClassifier(server_ip=args.server_ip, port=args.port, channel_id=channel_id)
+        benchmark.test_continual(
             channel_id=channel_id,
-            server_ip=args.server_ip,
-            port=args.port,
+            classifier=classifier,
             experience_size="10D", # Default or configurable
-            window_size=args.window_size,
-            stride=args.step_size,
         )
     
     results = benchmark.compute_global_event_metrics(channels=channels)
