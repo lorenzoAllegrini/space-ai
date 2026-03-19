@@ -33,7 +33,6 @@ MODEL_LIST = [
     "copod",
     "cblof",
     "hbos",
-    "ndpm"
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
