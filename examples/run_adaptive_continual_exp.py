@@ -1,24 +1,26 @@
-"""Run experiment module."""
+"""Run adaptive continual experiment module.
+
+Like run_continual_exp.py but uses AdaptiveRollingWindowClassifier,
+which performs online drift detection (ADWIN) and retrains the base
+classifier whenever a concept drift is detected in the stream.
+"""
 
 import argparse
+import logging
 import warnings
 
 from spaceai.preprocessing import (
     TimeSeriesSplitter,
     get_feature_extractor,
 )
-
-from utils.dataset_exp import (
-    get_dataset_benchmark,
-    run_dataset_experiment,
-)
-from utils.model_creators import (
-    create_classifier,
-)
+from utils.dataset_exp import get_dataset_benchmark
+from utils.model_creators import create_classifier
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
-from spaceai.benchmark import Benchmark, ESABenchmark
+from spaceai.models.anomaly_classifier.adaptive_rolling_window_classifier import (
+    AdaptiveRollingWindowClassifier,
+)
+from spaceai.models.drift_detectors import ADWINDetector
+
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
@@ -36,16 +38,19 @@ MODEL_LIST = [
     "copod",
     "cblof",
     "hbos",
-    "ndpm"
+    "ndpm",
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
 FEATURE_EXTRACTOR_LIST = ["none", "base_statistics", "rocket"]
+DRIFT_DETECTOR_LIST = ["adwin"]
 
 
 def parse_exp_args(str_args=None):
     """Parse experiment arguments."""
-    parser = argparse.ArgumentParser(description="paper experiments execution")
+    parser = argparse.ArgumentParser(
+        description="Adaptive continual learning experiments with drift detection"
+    )
     parser.add_argument("--base_dir", required=True)
     parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
@@ -61,18 +66,52 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
     parser.add_argument("--window-size", type=int, default=50)
     parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument(
+        "--experience-size",
+        type=str,
+        default="1D",
+        help="Size of each experience chunk (int samples or time duration like '1D', '12H').",
+    )
     parser.add_argument("--ndpm_config", type=str, default=None, help="Path to NDPM config")
+
+    # Drift detection configuration
+    parser.add_argument(
+        "--drift-detector",
+        choices=DRIFT_DETECTOR_LIST,
+        default="adwin",
+        help="Drift detection algorithm to use.",
+    )
+    parser.add_argument(
+        "--adwin-delta",
+        type=float,
+        default=0.002,
+        help="ADWIN confidence parameter (lower = fewer false alarms). Default: 0.002.",
+    )
+    parser.add_argument(
+        "--buffer-size",
+        type=str,
+        default="",
+        help="Maximum number of segments to retain (int or time duration like '30D').",
+    )
+
     return parser.parse_known_args(str_args)
 
 
-def run_exp(args, other_args=None, _suppress_output=False):
-    """Run experiment."""
+def build_drift_detector(args):
+    """Instantiate the chosen drift detector from CLI args."""
+    if args.drift_detector == "adwin":
+        return ADWINDetector(delta=args.adwin_delta)
+    raise ValueError(f"Unknown drift detector: {args.drift_detector}")
+
+
+def run_exp(args, other_args=None):
+    """Run adaptive continual experiment."""
 
     ts_splitter = TimeSeriesSplitter(
         window_size=args.window_size,
         step_size=args.step_size,
     )
-        
+
     feature_extractor = get_feature_extractor(
         args.feature_extractor,
         window_size=args.window_size,
@@ -80,18 +119,25 @@ def run_exp(args, other_args=None, _suppress_output=False):
         n_kernel=args.n_kernel,
     )
 
-    classifier, is_supervised = create_classifier(args, other_args)
-    
+    base_classifier, is_supervised = create_classifier(args, other_args)
+    drift_detector = build_drift_detector(args)
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
-    run_id = f"{args.dataset}_{args.model}"
+    run_id = f"adaptive_continual_{args.dataset}_{args.model}_{args.drift_detector}"
     if args.model == "dpmm":
         run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
-    
-    rolling_window_classifier = RollingWindowClassifier(
-        base_classifier=classifier,
-        supervised_classifier=is_supervised,
+
+    try:
+        buffer_size = int(args.buffer_size)
+    except ValueError:
+        buffer_size = args.buffer_size
+
+    adaptive_classifier = AdaptiveRollingWindowClassifier(
+        drift_detector=drift_detector,
+        buffer_size=buffer_size,
         ts_splitter=ts_splitter,
+        base_classifier=base_classifier,
+        supervised_classifier=is_supervised,
         feature_extractor=feature_extractor,
         callback_handler=handler,
     )
@@ -105,26 +151,30 @@ def run_exp(args, other_args=None, _suppress_output=False):
     )
 
     channels = benchmark.channels if args.channels is None else args.channels
-     
+
     for channel_name in channels:
+        logging.info("Starting adaptive continual test for channel %s...", channel_name)
+
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
-            classifier=rolling_window_classifier,
-        )
-        print(fitting_metrics)
-        
-        benchmark.test_channel(
-            channel_id=channel_name,
-            classifier=fitted_classifier,
+            classifier=adaptive_classifier,
         )
 
-    if isinstance(benchmark, ESABenchmark):
-        results = benchmark.compute_global_event_metrics(channels=channels)
-        print(results)
+        logging.info("Fit metrics for channel %s: %s", channel_name, fitting_metrics)
+
+        experience_log = benchmark.test_continual(
+            channel_id=channel_name,
+            classifier=fitted_classifier,
+            experience_size=args.experience_size,
+        )
+
+        logging.info("Finished adaptive continual test for channel %s.", channel_name)
+
 
 def main():
     """Main function."""
     args, other_args = parse_exp_args()
+    logging.basicConfig(level=logging.INFO)
     run_exp(args, other_args)
 
 

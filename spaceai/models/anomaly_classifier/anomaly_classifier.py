@@ -1,8 +1,8 @@
 """Abstract base class for anomaly classifiers."""
 
 from abc import abstractmethod
-from typing import Optional, List, Tuple, Any, Union
-
+from typing import Optional, List, Tuple, Any, Union, Dict
+from contextlib import contextmanager
 import numpy as np
 import pandas as pd
 import torch
@@ -11,7 +11,7 @@ class AnomalyClassifier:
     """
     Abstract base for time-series wrappers: defines common interface and input preparation.
     """
-
+    
     @abstractmethod
     def fit(  # pylint: disable=invalid-name
         self, X: np.ndarray, y: Optional[np.ndarray] = None
@@ -25,6 +25,26 @@ class AnomalyClassifier:
         """
         Predict on time-series data X, returning a tuple of (predictions, metrics).
         """
+
+    @contextmanager
+    def _callback_context(self, phase_name: str, results: dict):
+        """
+        Context manager che avvia il monitoraggio, esegue il codice,
+        lo ferma e salva le metriche collezionate con il prefisso corretto.
+        """
+
+        if self.callback_handler is not None:
+            self.callback_handler.start()
+            
+        try:
+            yield 
+            
+        finally:
+            if self.callback_handler is not None:
+                self.callback_handler.stop()
+                results.update(
+                    {f"{phase_name}_{k}": v for k, v in self.callback_handler.collect(reset=True).items()}
+                )
 
     def fit_predict(self, X: Any, y: Optional[np.ndarray] = None, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """

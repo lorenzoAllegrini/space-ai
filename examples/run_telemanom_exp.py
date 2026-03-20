@@ -5,16 +5,16 @@ import warnings
 
 from spaceai.benchmark.callbacks import SystemMonitorCallback
 
-from .utils.config import Config
-from .utils.dataset_exp import (
+from utils.config import Config
+from utils.dataset_exp import (
     get_dataset_benchmark,
-    run_prediction_experiment,
+    run_dataset_experiment,
 )
-from .utils.model_creators import (
+from utils.model_creators import (
     create_predictor,
     get_telemanom_detector,
 )
-
+from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
@@ -28,6 +28,8 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
     parser.add_argument("--model", choices=MODEL_LIST, required=True)
+    parser.add_argument("--run-id", default="exp")
+    parser.add_argument("--channels", type=str, nargs="+")
 
     # Config overrides
     parser.add_argument("--epochs", type=int)
@@ -57,24 +59,42 @@ def run_exp(args, _other_args=None):
 
     predictor_factory = create_predictor(args.model, config)
     detector_factory = get_telemanom_detector(config)
+    callbacks = [SystemMonitorCallback()]
+
+    telemanom_classifier = SequenceModelClassifier(
+        predictor=predictor_factory,
+        detector=detector_factory,
+        callback_handler=callbacks,
+    )
 
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
         data_path=args.base_dir,
         exp_dir=args.exp_dir,
         run_id=f"{args.dataset}_{args.model}_pred",
-        n_predictions=config.n_predictions,
     )
 
-    callbacks = [SystemMonitorCallback()]
-
-    run_prediction_experiment(
-        benchmark=benchmark,
-        predictor_factory=predictor_factory,
-        detector_factory=detector_factory,
-        config=config,
-        callbacks=callbacks,
-    )
+    channels = args.channels or benchmark.get_default_channels()
+    
+    for channel_id in channels:
+        # Load channel to get input dimension
+        train_data = benchmark.load_channel(channel_id, mode="train")
+        input_dim = train_data.in_features_size
+        
+        # Instantiate model components with correct input dimension
+        predictor = predictor_factory(input_dim)
+        detector = detector_factory()
+        
+        # Create classifier instance
+        classifier = SequenceModelClassifier(
+            predictor=predictor,
+            detector=detector,
+            callback_handler=callbacks,
+        )
+        
+        # Run fit and test for this channel
+        benchmark.fit_channel(channel_id, classifier)
+        benchmark.test_channel(channel_id)
 
 
 def main():

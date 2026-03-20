@@ -42,6 +42,7 @@ tensorboardx = "^2.6.4"
 pyyaml = "^6.0.3"
 continuum = "^1.2.7"
 timm = "^1.0.25"
+river = ">=0.23"
 
 
 [tool.poetry.group.dev]

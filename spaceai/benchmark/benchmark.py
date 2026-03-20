@@ -29,7 +29,6 @@ from tqdm import tqdm  # type: ignore
 from spaceai.data.utils import seq_collate_fn
 
 from .callbacks import CallbackHandler
-from .utils import merge_intervals
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 
 if TYPE_CHECKING:
@@ -82,7 +81,6 @@ class Benchmark:
             classifier (Any): The pre-trained model/classifier instance.
         """
         self.trained_classifiers[channel_id] = classifier
-
 
     @staticmethod
     def merge_intervals(
@@ -203,7 +201,7 @@ class Benchmark:
     
         self._update_global_state(channel_id, metrics)
 
-        return metrics
+        return classifier, metrics
 
     def test_channel(
         self,
@@ -263,14 +261,22 @@ class Benchmark:
     def test_continual(
         self,
         channel_id: str,
-        classifier: AnomalyClassifier,
+        classifier: Optional[AnomalyClassifier] = None,
         experience_size: Union[int, str, pd.Timedelta] = 500,
     ) -> None:
-        """Simulate continual real-time streaming telemetry."""
-        train_dataset = self.load_channel(channel_id, mode="train", overlapping_train=False, continual=True)
+        """Simulate continual real-time streaming telemetry,
+        the AnomalyClassifier needs to be fitted on the training set before executing"""
+
+        if classifier is None:
+            if channel_id not in self.trained_classifiers:
+                logging.warning("Classifier for channel %s not found in state. Call train_channel_rolling_stats first.", channel_id)
+                return {"channel_id": channel_id}, [], []
+            classifier = self.trained_classifiers[channel_id]
+            
+        test_dataset = self.load_channel(channel_id, mode="test", overlapping_train=False)
         
         experience_splitter = TimeSeriesSplitter(window_size=experience_size, step_size=experience_size)
-        splitted = experience_splitter.segment_dataset(train_dataset, mode="experience")
+        splitted = experience_splitter.segment_dataset(test_dataset, mode="experience")
 
         logging.info("Streaming dataset for channel %s experience by experience...", channel_id)
 

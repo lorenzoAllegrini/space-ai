@@ -54,6 +54,7 @@ class OPSSAT(AnomalyDataset):
         drop_last: bool = True,
         max_gap_sigma: float = 3.0,
         split_percentage: Optional[float] = 0.6,
+        **kwargs,
     ):
         """Initialize the dataset for a given channel.
 

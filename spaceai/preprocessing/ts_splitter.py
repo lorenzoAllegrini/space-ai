@@ -3,9 +3,10 @@
 import more_itertools as mit
 import numpy as np
 import pandas as pd
-from typing import Union, Dict, List, Optional
+from typing import Union, Dict, List, Optional, Any, Tuple
 
-from spaceai.data.anomaly_dataset import AnomalyDataset
+from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
+
 from dataclasses import dataclass
 
 @dataclass

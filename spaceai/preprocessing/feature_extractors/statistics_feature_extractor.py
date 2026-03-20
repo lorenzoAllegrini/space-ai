@@ -82,6 +82,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             )
 
         if different_lengths:
+            print("Different lengths")
             transformed_segments = np.column_stack([
                 [np.atleast_1d(func(segments=np.atleast_2d(s)))[0] for s in data]
                 for func in self.transformations.values()

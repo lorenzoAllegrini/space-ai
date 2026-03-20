@@ -102,7 +102,6 @@ def main():
             
             response = {"forward_predictions": [], "backward_predictions": [], "labels": []}
             
-            # 1. Predict Phase
             if action in ("predict", "fit_predict"):
                 forward_preds, forward_metrics = classifier.predict(exp_np)
                 response["forward_predictions"] = forward_preds.tolist() if isinstance(forward_preds, np.ndarray) else list(forward_preds)

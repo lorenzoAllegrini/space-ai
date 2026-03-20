@@ -3,7 +3,8 @@ from __future__ import annotations
 """Abstract base class for anomaly classifiers."""
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Optional, Any, List, Union, Tuple
+from typing import TYPE_CHECKING, Optional, Any, List, Union, Tuple, Dict, Callable
+from contextlib import contextmanager
 
 if TYPE_CHECKING:
     from spaceai.data import AnomalyDataset
@@ -13,11 +14,11 @@ import pandas as pd
 import torch
 
 from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
-from spaceai.models.sequence_model import SequenceModel
+from spaceai.models.predictors.seq_model import SequenceModel
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.models.anomaly import AnomalyDetector
 
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, Subset
 from spaceai.data.utils import seq_collate_fn
 
 class SequenceModelClassifier(AnomalyClassifier):
@@ -44,11 +45,11 @@ class SequenceModelClassifier(AnomalyClassifier):
         """
         results = {}
 
-        channel_data, fit_predictor_args = self._prepare_input(channel_data, fit_predictor_args)
+        channel_loader, fit_predictor_args = self._prepare_fit_input(channel_data, fit_predictor_args)
 
         with self._callback_context("train_", results):
             self.predictor.fit(
-                train_loader=channel_data,
+                train_loader=channel_loader,
                 **fit_predictor_args,
             )
 

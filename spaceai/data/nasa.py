@@ -127,6 +127,7 @@ class NASA(AnomalyDataset):
         train: bool = True,
         download: bool = True,
         drop_last: bool = True,
+        **kwargs,
     ):
         """Initialize the dataset for a given channel.
 

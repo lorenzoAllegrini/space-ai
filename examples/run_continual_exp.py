@@ -1,7 +1,8 @@
-"""Run experiment module."""
+"""Run continual experiment module."""
 
 import argparse
 import warnings
+import logging
 
 from spaceai.preprocessing import (
     TimeSeriesSplitter,
@@ -10,15 +11,14 @@ from spaceai.preprocessing import (
 
 from utils.dataset_exp import (
     get_dataset_benchmark,
-    run_dataset_experiment,
 )
 from utils.model_creators import (
     create_classifier,
 )
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
-from spaceai.benchmark import Benchmark, ESABenchmark
+from spaceai.benchmark import ESABenchmark
+
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
@@ -45,7 +45,7 @@ FEATURE_EXTRACTOR_LIST = ["none", "base_statistics", "rocket"]
 
 def parse_exp_args(str_args=None):
     """Parse experiment arguments."""
-    parser = argparse.ArgumentParser(description="paper experiments execution")
+    parser = argparse.ArgumentParser(description="continual learning experiments execution")
     parser.add_argument("--base_dir", required=True)
     parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
@@ -61,11 +61,12 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
     parser.add_argument("--window-size", type=int, default=50)
     parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument("--experience-size", type=str, default="30D", help="Size of each experience (int or time duration like '30D')")
     parser.add_argument("--ndpm_config", type=str, default=None, help="Path to NDPM config")
     return parser.parse_known_args(str_args)
 
 
-def run_exp(args, other_args=None, _suppress_output=False):
+def run_exp(args, other_args=None):
     """Run experiment."""
 
     ts_splitter = TimeSeriesSplitter(
@@ -84,7 +85,7 @@ def run_exp(args, other_args=None, _suppress_output=False):
     
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
-    run_id = f"{args.dataset}_{args.model}"
+    run_id = f"continual_{args.dataset}_{args.model}"
     if args.model == "dpmm":
         run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
     
@@ -107,24 +108,26 @@ def run_exp(args, other_args=None, _suppress_output=False):
     channels = benchmark.channels if args.channels is None else args.channels
      
     for channel_name in channels:
+        logging.info("Starting continual test for channel %s...", channel_name)
+
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=rolling_window_classifier,
         )
+
         print(fitting_metrics)
-        
-        benchmark.test_channel(
+
+        experience_log = benchmark.test_continual(
             channel_id=channel_name,
             classifier=fitted_classifier,
+            experience_size=args.experience_size,
         )
 
-    if isinstance(benchmark, ESABenchmark):
-        results = benchmark.compute_global_event_metrics(channels=channels)
-        print(results)
 
 def main():
     """Main function."""
     args, other_args = parse_exp_args()
+    logging.basicConfig(level=logging.INFO)
     run_exp(args, other_args)
 
 

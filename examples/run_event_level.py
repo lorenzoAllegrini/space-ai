@@ -101,11 +101,8 @@ def run_benchmark(args, other_args=None):
                 classifier=classifier_factory(),
             )
 
-        # Test all channels
         for channel_id in target_channels:
-            benchmark.test_channel(
-                channel_id=channel_id,
-            )
+            benchmark.test_channel(channel_id=channel_id)
 
         # aggregate global event-level metrics
         results = benchmark.compute_global_event_metrics(channels=target_channels)

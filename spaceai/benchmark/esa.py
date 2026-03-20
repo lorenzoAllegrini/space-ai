@@ -29,11 +29,7 @@ class ESABenchmark(Benchmark):
         self,
         run_id: str,
         exp_dir: str,
-        segmentator: Any = None,
         mission: Optional[ESAMission] = None,
-        feature_extractor: Optional[Any] = None,
-        seq_length: int = 250,
-        n_predictions: int = 1,
         data_root: str = "datasets",
     ):
         """Initializes a new benchmark run.
@@ -42,12 +38,12 @@ class ESABenchmark(Benchmark):
             run_id (str): A unique identifier for this run.
             exp_dir (str): The directory where the results of this run are stored.
             mission (Optional[ESAMission]): the ESA mission to use.
-            seq_length (int): The length of the sequences used for training and testing.
         """
-        super().__init__(run_id, exp_dir, segmentator, feature_extractor, seq_length, n_predictions, data_root)
+        super().__init__(run_id, exp_dir, data_root)
         self.mission = mission
 
-    def get_default_channels(self) -> List[str]:
+    @property
+    def channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         if self.mission is None:
             raise ValueError("Mission must be set for ESABenchmark")
@@ -79,8 +75,6 @@ class ESABenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="prediction" if not continual else "continual",
                 overlapping=overlapping_train,
-                seq_length=self.seq_length,
-                n_predictions=self.n_predictions,
                 **kwargs
             )
         elif mode == "test":
@@ -90,10 +84,8 @@ class ESABenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="anomaly",
                 overlapping=False,
-                seq_length=self.seq_length,
                 train=False,
                 drop_last=False,
-                n_predictions=1,
                 **kwargs
             )
         else:

@@ -16,7 +16,8 @@ class OPSSATBenchmark(Benchmark):
         super().__init__(**kwargs)
         self.split_percentage = split_percentage
 
-    def get_default_channels(self) -> List[str]:
+    @property
+    def channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         return OPSSAT.channel_ids
 
@@ -36,8 +37,6 @@ class OPSSATBenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="anomaly",
                 overlapping=overlapping_train,
-                seq_length=self.seq_length,
-                n_predictions=self.n_predictions,
                 split_percentage=self.split_percentage,
                 **kwargs
             )
@@ -47,10 +46,8 @@ class OPSSATBenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="anomaly",
                 overlapping=False,
-                seq_length=self.seq_length,
                 train=False,
                 drop_last=False,
-                n_predictions=1,
                 split_percentage=self.split_percentage,
                 **kwargs
             )

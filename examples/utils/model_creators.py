@@ -46,7 +46,7 @@ def get_ocsvm_classifier():
 def get_rockad_classifier(_num_kernels):
     """Get ROCKAD classifier."""
     return (
-        lambda: DummyClassifier(strategy="constant", constant=0),
+        DummyClassifier(strategy="constant", constant=0),
         False,
     )  # RockadClassifier(num_kernels=num_kernels), False
 
@@ -54,7 +54,7 @@ def get_rockad_classifier(_num_kernels):
 def get_xgboost_classifier():
     """Get XGBoost classifier."""
     return (
-        lambda: XGBClassifier(eval_metric="logloss", base_score=0.5),
+        XGBClassifier(eval_metric="logloss", base_score=0.5),
         True,
     )
 
@@ -70,10 +70,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args):
             ("dpmm", DPMMDetector(mode=mode, model_type=model_type, **config_dict)),
         ]
     )
-    return lambda: pipeline, mode != "likelihood_threshold"
-
-
-    return lambda: pipeline, mode != "likelihood_threshold"
+    return pipeline, mode != "likelihood_threshold"
 
 
 def get_ndpm_classifier(args, device="cpu", input_dim=None):
@@ -177,7 +174,7 @@ def format_str(s):
     return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
-def create_classifier(args, other_args, input_dim=None):
+def create_classifier(args, other_args):
     """Create the classifier factory based on arguments."""
     model_id = format_str(args.model)
     if model_id == "dpmm":
@@ -217,8 +214,8 @@ def create_classifier(args, other_args, input_dim=None):
 
 def get_esn_predictor(config: Config):
     """Get ESN predictor."""
-    return lambda input_size: ESN(
-        input_size=input_size,
+    return ESN(
+        input_size=1,
         layers=config.layers,
         output_size=config.n_predictions,
         reduce_out="mean",

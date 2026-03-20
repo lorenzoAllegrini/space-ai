@@ -13,7 +13,11 @@ from .benchmark import Benchmark
 class NASABenchmark(Benchmark):
     """Benchmark for NASA telemetry anomaly detection dataset."""
 
-    def get_default_channels(self) -> List[str]:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    @property
+    def channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         return NASA.channel_ids
 
@@ -31,8 +35,6 @@ class NASABenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="prediction",
                 overlapping=overlapping_train,
-                seq_length=self.seq_length,
-                n_predictions=self.n_predictions,
                 **kwargs
             )
         elif mode == "test":
@@ -41,10 +43,8 @@ class NASABenchmark(Benchmark):
                 channel_id=channel_id,
                 mode="anomaly",
                 overlapping=False,
-                seq_length=self.seq_length,
                 train=False,
                 drop_last=False,
-                n_predictions=1,
                 **kwargs
             )
         else:

@@ -16,6 +16,7 @@ from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifi
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.models.anomaly import AnomalyDetector
+from spaceai.data import AnomalyDataset
 
 class RollingWindowClassifier(AnomalyClassifier):
     """
@@ -29,11 +30,12 @@ class RollingWindowClassifier(AnomalyClassifier):
                 callback_handler: Optional[CallbackHandler] = None,
                 detector: Optional[AnomalyDetector] = None,
                 ):
-        super().__init__(callback_handler=callback_handler)
+        super().__init__()
         self.ts_splitter = ts_splitter
         self.feature_extractor = feature_extractor
         self.base_classifier = base_classifier
         self.supervised_classifier = supervised_classifier
+        self.callback_handler = callback_handler
         self.detector = detector
     
     def fit( 
@@ -54,6 +56,7 @@ class RollingWindowClassifier(AnomalyClassifier):
 
         with self._callback_context("fitting", results):
             if self.supervised_classifier:
+                print(channel_labels)
                 self.base_classifier.fit(channel_data, channel_labels)
             else:
                 self.base_classifier.fit(channel_data)
@@ -73,11 +76,11 @@ class RollingWindowClassifier(AnomalyClassifier):
                 channel_data = self.feature_extractor.transform(channel_data)
 
         with self._callback_context("prediction", results):
-            residuals = self.base_classifier.predict(channel_data)
+            y_pred = self.base_classifier.predict(channel_data)
 
         if self.detector is not None:
             with self._callback_context("detection", results):
-                y_pred = self.detector.detect(residuals)
+                y_pred = self.detector.detect(y_pred)
 
         return y_pred, results
 
@@ -117,15 +120,15 @@ class RollingWindowClassifier(AnomalyClassifier):
 
     def save(self, path: str) -> None:
         """Save the classifier to disk."""
-        torch.save(self, path)
+        #torch.save(self, path)
 
     @staticmethod
     def load(path: str) -> "AnomalyClassifier":
         """Load a classifier from disk."""
         return torch.load(path, weights_only=False)
 
-    @staticmethod
     def _prepare_input(
+        self,
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
         channel_labels: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:  # pylint: disable=invalid-name
@@ -135,11 +138,12 @@ class RollingWindowClassifier(AnomalyClassifier):
         if isinstance(channel_data, AnomalyDataset):
             splitted_channel = self.ts_splitter.segment_dataset(channel_data)
             channel_data = splitted_channel.segments
-            if channel_labels is not None:
+            if channel_labels is None:
                 channel_labels = splitted_channel.labels
         
-        if isinstance(channel_data, np.ndarray):
-            if channel_labels is not None and len(channel_labels) >= len(channel_data):
+        elif isinstance(channel_data, np.ndarray):
+            print(channel_data.shape)
+            if channel_labels is None and len(channel_labels) >= len(channel_data):
                 channel_labels = self.ts_splitter.split_labels(channel_labels)
             channel_data = self.ts_splitter.split(channel_data)
 
