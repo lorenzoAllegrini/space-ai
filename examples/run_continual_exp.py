@@ -16,10 +16,14 @@ from utils.model_creators import (
     create_classifier,
 )
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.anomaly_classifier.adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
+from spaceai.models.drift_detectors.adwin_detector import ADWINDetector
+from spaceai.models.drift_detectors.utils.replay_buffers import TimeDecayReplayBuffer
+from spaceai.models.drift_detectors.utils.filters import SafeRampUpFilter
 from spaceai.benchmark import ESABenchmark
 
 warnings.simplefilter("ignore", FutureWarning)
+warnings.simplefilter("ignore", RuntimeWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]
 MODEL_LIST = [
@@ -55,12 +59,13 @@ def parse_exp_args(str_args=None):
     parser.add_argument(
         "--feature-extractor", choices=FEATURE_EXTRACTOR_LIST, default="none"
     )
+    parser.add_argument("--drift-detector", type=bool, default=False)
     parser.add_argument("--channels", type=str, nargs="+")
     parser.add_argument("--n-kernel", type=int)
     parser.add_argument("--dpmm-type", choices=DPMM_MODEL_TYPE)
     parser.add_argument("--dpmm-mode", choices=DPMM_MODE)
-    parser.add_argument("--window-size", type=int, default=50)
-    parser.add_argument("--step-size", type=int, default=50)
+    parser.add_argument("--window-size", type=int, default=100)
+    parser.add_argument("--step-size", type=int, default=100)
     parser.add_argument("--experience-size", type=str, default="30D", help="Size of each experience (int or time duration like '30D')")
     parser.add_argument("--ndpm_config", type=str, default=None, help="Path to NDPM config")
     return parser.parse_known_args(str_args)
@@ -89,7 +94,17 @@ def run_exp(args, other_args=None):
     if args.model == "dpmm":
         run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
     
-    rolling_window_classifier = RollingWindowClassifier(
+    drift_detector = None
+    if args.drift_detector:
+        print("initialization")
+        drift_detector = ADWINDetector(
+            delta=0.7,  
+        )
+    replay_buffer = TimeDecayReplayBuffer(max_size=100000, half_life_segments="180D", min_prob=1e-6)
+
+    rolling_window_classifier = AdaptiveRollingWindowClassifier(
+        drift_detector=drift_detector,
+        replay_buffer=replay_buffer,
         base_classifier=classifier,
         supervised_classifier=is_supervised,
         ts_splitter=ts_splitter,
@@ -122,6 +137,7 @@ def run_exp(args, other_args=None):
             classifier=fitted_classifier,
             experience_size=args.experience_size,
         )
+    
 
 
 def main():

@@ -39,7 +39,13 @@ class TimeSeriesSplitter:
         """Helper to convert timed durations to sample counts given a sampling_period."""
         if isinstance(size, int):
             return size
-        
+
+        if isinstance(size, str):
+            try:
+                return int(size)
+            except ValueError:
+                pass
+
         duration = pd.Timedelta(size)
         
         if sampling_period is None:

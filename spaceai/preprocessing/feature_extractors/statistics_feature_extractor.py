@@ -72,9 +72,17 @@ class StatisticsFeatureExtractor(FeatureExtractor):
 
         different_lengths = False
         try:
-            data = np.array(data.tolist(), dtype=float)
+            if hasattr(data, "tolist"):
+                data_list = data.tolist()
+            else:
+                data_list = data
+            data = np.array(data_list, dtype=float)
         except (ValueError, TypeError):
             different_lengths = True
+
+        if not different_lengths and data.ndim > 2:
+            # Flatten if extra dimensions (e.g. (B, 1, W))
+            data = data.reshape(data.shape[0], -1)
 
         if not different_lengths and data.ndim == 1:
             raise ValueError(

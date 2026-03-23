@@ -127,6 +127,15 @@ class RollingWindowClassifier(AnomalyClassifier):
         """Load a classifier from disk."""
         return torch.load(path, weights_only=False)
 
+    def _get_timesteps(self, channel_data: Any) -> Optional[np.ndarray]:
+        """Extract timestamps for the current segments if data is an AnomalyDataset."""
+        if isinstance(channel_data, AnomalyDataset):
+            splitted_channel = self.ts_splitter.segment_dataset(channel_data)
+            end_indices = [end for _, end in splitted_channel.intervals]
+            tt = channel_data.timestamps[end_indices]
+            return getattr(tt, "values", tt)
+        return None
+
     def _prepare_input(
         self,
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],

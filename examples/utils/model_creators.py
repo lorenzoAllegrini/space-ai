@@ -26,7 +26,7 @@ from pyod.models.hbos import HBOS  # type: ignore
 
 # from spaceai.models.anomaly_classifier import RockadClassifier
 from spaceai.models.anomaly_classifier.dpmm_detector import (
-    DPMMDetector,
+    DPMM,
     get_dpmm_argparser,
 )
 from spaceai.models.anomaly_classifier import NDPMDetector
@@ -67,7 +67,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args):
     pipeline = Pipeline(
         [
             ("scaler", RobustScaler(with_centering=False)),
-            ("dpmm", DPMMDetector(mode=mode, model_type=model_type, **config_dict)),
+            ("dpmm", DPMM(mode=mode, model_type=model_type, **config_dict)),
         ]
     )
     return pipeline, mode != "likelihood_threshold"

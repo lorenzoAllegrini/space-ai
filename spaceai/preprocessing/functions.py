@@ -60,6 +60,94 @@ def count_peaks_vectorized(windows: np.ndarray) -> np.ndarray:
     return np.sum(valid_peaks, axis=1)
 
 
+def dominant_frequency_energy(windows: np.ndarray) -> np.ndarray:
+    """
+    Calcola l'energia (potenza FFT normalizzata) della frequenza dominante 
+    in ogni segmento di dati, escludendo la componente DC (frequenza 0).
+    
+    Args:
+        windows: Array 2D (batch_size, window_len)
+        
+    Returns:
+        Array 1D (batch_size,) con la potenza del picco principale di frequenza
+    """
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+        
+    # Calcola la FFT reale: abs(FFT)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    
+    # Calcola la POTENZA: (abs(FFT)^2) / N
+    # Ciò normalizza per la finestra di tempo (window size)
+    power_spectrum = (fft_vals ** 2) / windows.shape[1]
+    
+    # Ignora la componente DC (indice 0)
+    if power_spectrum.shape[1] > 1:
+        # Prende il valore massimo dello spettro per ogni segmento
+        return np.max(power_spectrum[:, 1:], axis=1)
+    return np.zeros(windows.shape[0], dtype=float)
+
+
+def dominant_frequency_index(windows: np.ndarray) -> np.ndarray:
+    """Ritorna l'indice (bin) della frequenza con massima potenza."""
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    if fft_vals.shape[1] > 1:
+        return np.argmax(fft_vals[:, 1:], axis=1) + 1
+    return np.zeros(windows.shape[0], dtype=float)
+
+
+def spectral_entropy(windows: np.ndarray) -> np.ndarray:
+    """Calcola l'entropia dello spettro di potenza (normalizzata 0-1)."""
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    psd = (fft_vals ** 2) / windows.shape[1]
+    psd_norm = psd / (np.sum(psd, axis=1, keepdims=True) + 1e-12)
+    entropy = -np.sum(psd_norm * np.log2(psd_norm + 1e-12), axis=1)
+    # Normalizza per log2(numero di bin)
+    return entropy / np.log2(psd.shape[1])
+
+
+def spectral_centroid(windows: np.ndarray) -> np.ndarray:
+    """Calcola il baricentro delle frequenze pesato sulla potenza."""
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    psd = (fft_vals ** 2) / windows.shape[1]
+    freqs = np.arange(psd.shape[1])
+    centroid = np.sum(psd * freqs, axis=1) / (np.sum(psd, axis=1) + 1e-12)
+    return centroid
+
+
+def spectral_spread(windows: np.ndarray) -> np.ndarray:
+    """Calcola lo spread (varianza) dello spettro attorno al centroide."""
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    psd = (fft_vals ** 2) / windows.shape[1]
+    freqs = np.arange(psd.shape[1])
+    
+    centroid = np.sum(psd * freqs, axis=1, keepdims=True) / (np.sum(psd, axis=1, keepdims=True) + 1e-12)
+    spread = np.sqrt(np.sum(psd * (freqs - centroid)**2, axis=1) / (np.sum(psd, axis=1) + 1e-12))
+    return spread
+
+
+def spectral_rolloff(windows: np.ndarray, roll_percent: float = 0.85) -> np.ndarray:
+    """Calcola la frequenza sotto la quale risiede l'85% dell'energia spettrale."""
+    if windows.shape[1] < 2:
+        return np.zeros(windows.shape[0], dtype=float)
+    fft_vals = np.abs(np.fft.rfft(windows, axis=1))
+    psd = (fft_vals ** 2) / windows.shape[1]
+    
+    total_energy = np.sum(psd, axis=1, keepdims=True)
+    cumulative_energy = np.cumsum(psd, axis=1)
+    threshold = roll_percent * total_energy
+    
+    rolloff = np.argmax(cumulative_energy >= threshold, axis=1)
+    return rolloff.astype(float)
+
 def _safe_savgol(x, target_window, polyorder=2):
     """
     Helper function to apply Savitzky-Golay safely.
@@ -113,18 +201,24 @@ def _make_stat(func, preprocess=None, **kwargs):
 
 
 FEATURE_MAP = {
-    "mean": _make_stat(np.mean, axis=1),
+    #"mean": _make_stat(np.mean, axis=1),
     "var": _make_stat(np.var, axis=1),
     "std": _make_stat(np.std, axis=1),
-    "n_peaks": _make_stat(count_peaks_vectorized),
-    "smooth10_n_peaks": _make_stat(count_peaks_vectorized, preprocess=smooth_10),
-    "smooth20_n_peaks": _make_stat(count_peaks_vectorized, preprocess=smooth_20),
-    "diff_peaks": _make_stat(count_peaks_vectorized, preprocess=diff1),
-    "diff2_peaks": _make_stat(count_peaks_vectorized, preprocess=diff2),
-    "diff_var": _make_stat(np.var, preprocess=diff1, axis=1),
+    #"n_peaks": _make_stat(count_peaks_vectorized),
+    #"smooth10_n_peaks": _make_stat(count_peaks_vectorized, preprocess=smooth_10),
+    #"smooth20_n_peaks": _make_stat(count_peaks_vectorized, preprocess=smooth_20),
+    #"diff_peaks": _make_stat(count_peaks_vectorized, preprocess=diff1),
+    #"diff2_peaks": _make_stat(count_peaks_vectorized, preprocess=diff2),
+    #"diff_var": _make_stat(np.var, preprocess=diff1, axis=1),
     "diff2_var": _make_stat(np.var, preprocess=diff2, axis=1),
     "kurtosis": _make_stat(kurtosis, axis=1, fisher=True, bias=False),
     "skew": _make_stat(skew, axis=1, bias=False),
+    "dom_freq_energy": _make_stat(dominant_frequency_energy),
+    "dom_freq_index": _make_stat(dominant_frequency_index),
+    "spectral_entropy": _make_stat(spectral_entropy),
+    "spectral_centroid": _make_stat(spectral_centroid),
+    "spectral_spread": _make_stat(spectral_spread),
+    "spectral_rolloff": _make_stat(spectral_rolloff),
 }
 
 

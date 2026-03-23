@@ -34,8 +34,8 @@ def get_dpmm_argparser():
     return parser
 
 
-class DPMMDetector(AnomalyClassifier):
-    """DPMM Detector class."""
+class DPMM(AnomalyClassifier):
+    """DPMM model that returns continuous anomaly scores."""
 
     # pylint: disable=too-many-instance-attributes
     def __init__(
@@ -49,7 +49,7 @@ class DPMMDetector(AnomalyClassifier):
         var_prior: float = 1.0,
         var_prior_strength: float = 1.0,
         mu_prior_strength: float = 0.001,
-        quantile: float = 0.05,
+        quantile: float = 0.005,
         device: Optional[str] = None,  # "cpu" / "cuda" o None -> auto
     ):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
@@ -146,7 +146,15 @@ class DPMMDetector(AnomalyClassifier):
             self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
 
     def predict(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:  # pylint: disable=invalid-name, unused-argument
-        """Predice etichetta anomalia per ciascun punto (bool) usando il modello fit-tato."""
+        """Return continuous anomaly scores in [0, 1] for each sample.
+
+        Higher values indicate higher anomaly likelihood.
+
+        - ``likelihood_threshold`` mode → sigmoid-normalized log-likelihoods
+          centered on the fitted threshold (0.5 ≈ threshold boundary).
+        - ``cluster_labels`` mode → per-sample anomaly probability from
+          cluster membership.
+        """
         if self.dpmm_model is None:
             raise RuntimeError("Model not fitted. Call fit() first.")
 
@@ -158,21 +166,20 @@ class DPMMDetector(AnomalyClassifier):
         if self.mode == "likelihood_threshold":
             if self.likelihood_threshold is None:
                 raise RuntimeError(
-                    "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
+                    "likelihood_threshold not set. Fit the DPMM first."
                 )
-            y_pred = loglike_te < self.likelihood_threshold
 
+            scores = th.sigmoid(-(loglike_te - self.likelihood_threshold))
         else:  # cluster_labels
             if self.anomaly_cluster_labels is None:
                 raise RuntimeError(
                     "Cluster labels not set. Fit with 'cluster_labels' first."
                 )
             cl = pi_te.argmax(dim=1)
-            is_anom = self.anomaly_cluster_labels.to(self.device)
-            y_pred = is_anom[cl]
+            anom_probs = self.anomaly_cluster_labels.float().to(self.device)
+            scores = anom_probs[cl]
 
-        # Ritorna ndarray booleano
-        return y_pred.detach().to("cpu").numpy().astype(bool)
+        return scores.detach().to("cpu").numpy()
 
     # ---- helpers ----
     def _init_model(self, d_dim: int):
@@ -219,3 +226,31 @@ class DPMMDetector(AnomalyClassifier):
     def detect_anomalies(self, X, y_true=None, **kwargs):  # pylint: disable=invalid-name, unused-argument
         """Detect anomalies in the input data."""
         return self.predict(X)
+
+
+class DPMMDetector:
+    """Converts continuous DPMM scores to binary anomaly predictions.
+
+    Wraps a fitted :class:`DPMM` instance and applies the appropriate
+    thresholding logic depending on its mode.
+
+    Args:
+        dpmm (DPMM): A fitted DPMM model.
+    """
+
+    def __init__(self, dpmm: DPMM):
+        self.dpmm = dpmm
+
+    def detect(self, scores: np.ndarray) -> np.ndarray:
+        """Apply threshold to continuous scores and return binary labels.
+
+        Since ``DPMM.predict()`` now returns normalized scores in [0, 1]
+        for both modes, we simply threshold at 0.5.
+
+        Args:
+            scores (np.ndarray): Continuous anomaly scores from ``DPMM.predict()``.
+
+        Returns:
+            np.ndarray: Binary anomaly labels (1 = anomaly, 0 = normal).
+        """
+        return (scores > 0.5).astype(int)

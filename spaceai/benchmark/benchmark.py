@@ -203,6 +203,65 @@ class Benchmark:
 
         return classifier, metrics
 
+    def _finalize_channel_results(
+        self,
+        channel_id: str,
+        classifier: AnomalyClassifier,
+        test_dataset: Any,
+        y_pred: np.ndarray,
+        extra_metrics: Optional[Dict[str, Any]] = None,
+        pred_buffer: int = 0,
+    ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
+        """Shared logic for computing metrics, saving results, and updating global state.
+
+        Used by both ``test_channel`` and ``test_continual``.
+        """
+        results: Dict[str, Any] = {"channel_id": channel_id}
+        if extra_metrics:
+            results.update(extra_metrics)
+
+        pred_anomalies = Benchmark.process_pred_anomalies(y_pred, pred_buffer)
+        test_anomalies = classifier.prepare_labels(test_dataset)
+
+        true_anomaly_intervals_ts = classifier.map_to_timestamps(test_dataset, test_anomalies)
+        pred_intervals_ts = classifier.map_to_timestamps(test_dataset, pred_anomalies)
+
+        all_metrics = Benchmark.compute_metrics(
+            test_anomalies, pred_anomalies, total_length=len(y_pred),
+            true_anomalies_ts=true_anomaly_intervals_ts, pred_anomalies_ts=pred_intervals_ts
+        )
+        results.update(all_metrics)
+
+        logging.info("Results for channel %s: %s", channel_id, results)
+
+        self.channel_predictions[channel_id] = {
+            "y_pred": y_pred.tolist(),
+            "pred_anomalies": pred_anomalies,
+            "true_anomalies": test_anomalies,
+        }
+
+        self.all_results.append(results)
+        os.makedirs(self.run_dir, exist_ok=True)
+        pd.DataFrame.from_records(self.all_results).to_csv(
+            os.path.join(self.run_dir, "results.csv"), index=False
+        )
+
+        try:
+            y_true_pointwise = np.zeros(len(y_pred), dtype=int)
+            for start, end in test_anomalies:
+                y_true_pointwise[max(0, int(start)):min(len(y_pred), int(end) + 1)] = 1
+            
+            plot_path = os.path.join(self.run_dir, f"{channel_id}_degradation.png")
+            window_size = max(min(len(y_pred) // 10, 2000), 100)
+            Benchmark.save_degradation_plot(channel_id, y_true_pointwise, y_pred, plot_path, window_size)
+        except Exception as e:
+            logging.warning("Could not save degradation plot for %s: %s", channel_id, e)
+
+        if true_anomaly_intervals_ts or pred_intervals_ts:
+            self._update_global_state(channel_id, results, true_anomaly_intervals_ts, pred_intervals_ts)
+
+        return results, true_anomaly_intervals_ts, pred_intervals_ts
+
     def test_channel(
         self,
         channel_id: str,
@@ -213,64 +272,37 @@ class Benchmark:
 
         if classifier is None:
             if channel_id not in self.trained_classifiers:
-                logging.warning("Classifier for channel %s not found in state. Call train_channel_rolling_stats first.", channel_id)
+                logging.warning("Classifier for channel %s not found in state.", channel_id)
                 return {"channel_id": channel_id}, [], []
             classifier = self.trained_classifiers[channel_id]
         
         test_channel = self.load_channel(channel_id, mode="test")
-        results: Dict[str, Any] = {"channel_id": channel_id}
-        original_test_channel = test_channel
 
         logging.info("Predicting the test data for channel %s...", channel_id)
         y_pred, metrics = classifier.predict(test_channel)
-        results.update(metrics)
-        pred_anomalies = Benchmark.process_pred_anomalies(y_pred, pred_buffer)
 
-        test_anomalies = classifier.prepare_labels(test_channel)
-        
-        true_preds_intervals = classifier.map_to_timestamps(original_test_channel, pred_anomalies)
-        true_anomaly_intervals = classifier.map_to_timestamps(original_test_channel, test_anomalies)
-
-        all_metrics = Benchmark.compute_metrics(
-            test_anomalies, pred_anomalies, total_length=len(y_pred),
-            true_anomalies_ts=true_anomaly_intervals, pred_anomalies_ts=true_preds_intervals
+        return self._finalize_channel_results(
+            channel_id, classifier, test_channel, y_pred,
+            extra_metrics=metrics, pred_buffer=pred_buffer,
         )
-        results.update(all_metrics)
-        
-        logging.info("Results for channel %s: %s", channel_id, results)
-
-        self.channel_predictions[channel_id] = {
-            "y_pred": y_pred.tolist(),
-            "pred_anomalies": pred_anomalies,
-            "true_anomalies": test_anomalies
-        }
-        
-        self.all_results.append(results)
-        pd.DataFrame.from_records(self.all_results).to_csv(
-            os.path.join(self.run_dir, "results.csv"), index=False
-        )
-
-        if not true_preds_intervals and not true_anomaly_intervals:
-            return results, [], []
-
-        self._update_global_state(channel_id, results, true_anomaly_intervals, true_preds_intervals)
-
-        return results, true_anomaly_intervals, true_preds_intervals
-
 
     def test_continual(
         self,
         channel_id: str,
         classifier: Optional[AnomalyClassifier] = None,
         experience_size: Union[int, str, pd.Timedelta] = 500,
-    ) -> None:
-        """Simulate continual real-time streaming telemetry,
-        the AnomalyClassifier needs to be fitted on the training set before executing"""
+    ) -> Dict[str, Any]:
+        """Simulate continual real-time streaming telemetry and compute
+        the same metrics as ``test_channel`` for comparability.
+
+        The AnomalyClassifier needs to be fitted on the training set before
+        executing this method.
+        """
 
         if classifier is None:
             if channel_id not in self.trained_classifiers:
-                logging.warning("Classifier for channel %s not found in state. Call train_channel_rolling_stats first.", channel_id)
-                return {"channel_id": channel_id}, [], []
+                logging.warning("Classifier for channel %s not found in state.", channel_id)
+                return {"channel_id": channel_id}
             classifier = self.trained_classifiers[channel_id]
             
         test_dataset = self.load_channel(channel_id, mode="test", overlapping_train=False)
@@ -281,53 +313,52 @@ class Benchmark:
         logging.info("Streaming dataset for channel %s experience by experience...", channel_id)
 
         experience_log = {}
-        past_labels = np.array([], dtype=int)
-        all_forward_predictions = []
-        all_backward_predictions = []
+        all_predictions = []
+        all_point_labels = []
         
         for i, (data, point_labels, (start_idx, end_idx)) in enumerate(zip(splitted.segments, splitted.labels, splitted.segment_indices)):
             logging.info("experience %d/%d", i+1, len(splitted.segments))
             
-            experience_predictions, test_metrics = classifier.predict(data)
-            train_metrics = classifier.fit(data)
+            if hasattr(classifier, "step"):
+                experience_predictions, metrics = classifier.step(data, point_labels)
+            else:
+                experience_predictions, test_metrics = classifier.predict(data)
+                train_metrics = classifier.fit(data)
+                metrics = {**test_metrics, **train_metrics}
+
+            all_predictions.extend(experience_predictions)
+            all_point_labels.extend(point_labels)
             
+            # Per-experience metrics
             true_forward_intervals = classifier.prepare_labels(data)
-            backward_predictions = test_metrics.get("backward_predictions", [])
-            
-            all_forward_predictions.extend(experience_predictions)
-            all_backward_predictions.extend(backward_predictions)
-            
             exp_metrics = self._evaluate_predictions(classifier, data, true_forward_intervals, experience_predictions)
-            
-            if len(backward_predictions) > 0 and len(past_labels) > 0:
-                backward_metrics = self._evaluate_predictions(classifier, data, true_backward_intervals, backward_predictions)
-                exp_metrics.update({f"backward_{k}": v for k, v in backward_metrics.items()})
-                
+            exp_metrics.update({k: v for k, v in metrics.items() if k not in exp_metrics})
             experience_log[f"experience_{i}"] = exp_metrics
-            past_labels = np.concatenate((past_labels, point_labels), axis=0)
             
-            os.makedirs(os.path.join(self.run_dir), exist_ok=True)
+            # Incremental save
+            os.makedirs(self.run_dir, exist_ok=True)
             with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
-                json.dump(experience_log, f, indent=2)
+                json.dump(experience_log, f, indent=2, default=str)
             
             np.savez_compressed(
                 os.path.join(self.run_dir, f"{channel_id}_streaming_results.npz"),
-                forward_predictions=np.array(all_forward_predictions),
-                backward_predictions=np.array(all_backward_predictions),
-                labels=past_labels
+                predictions=np.array(all_predictions),
+                labels=np.array(all_point_labels),
             )
 
         logging.info("Streaming for channel %s completed.", channel_id)
-        results_path = os.path.join(self.run_dir, f"{channel_id}_streaming_results.npz")
-        np.savez_compressed(
-            results_path,
-            forward_predictions=np.array(all_forward_predictions),
-            backward_predictions=np.array(all_backward_predictions),
-            labels=past_labels
-        )
-        logging.info("Saved streaming results for channel %s to %s", channel_id, results_path)
 
-        return experience_log
+        # Global metrics (reuses the same logic as test_channel)
+        y_pred_all = np.array(all_predictions)
+        results, _, _ = self._finalize_channel_results(
+            channel_id, classifier, test_dataset, y_pred_all,
+        )
+
+        # Save experience log
+        with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
+            json.dump(experience_log, f, indent=2, default=str)
+
+        return results
 
 
     def _update_global_state(self, channel_id, metrics, true_intervals=None, pred_intervals=None):
@@ -345,7 +376,42 @@ class Benchmark:
                     "pred_intervals": [[str(s), str(e)] for s, e in pred_intervals],
                     "true_intervals": [[str(s), str(e)] for s, e in true_intervals],
                 }, f, indent=2)
- 
+
+    @staticmethod
+    def save_degradation_plot(
+        channel_id: str,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        save_path: str,
+        window_size: int = 2000,
+    ):
+        """Generates and saves a degradation plot (cumulative errors and rolling FPR)."""
+        import matplotlib.pyplot as plt
+        
+        false_positives = (y_pred == 1) & (y_true == 0)
+        false_negatives = (y_pred == 0) & (y_true == 1)
+        
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+        
+        ax1.plot(np.cumsum(false_positives), label='Cumulative False Positives', color='red', linewidth=2)
+        ax1.plot(np.cumsum(false_negatives), label='Cumulative False Negatives', color='orange', linewidth=2)
+        ax1.set_title(f"[{channel_id}] Cumulative Errors over Time (Degradation Indicator)")
+        ax1.set_ylabel("Total Error Count")
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        fp_rolling_rate = pd.Series(false_positives).rolling(window=window_size).mean() * 100
+        
+        ax2.plot(fp_rolling_rate, label=f'Rolling FPR (window {window_size})', color='purple')
+        ax2.set_title(f"[{channel_id}] Rolling False Positive Rate")
+        ax2.set_xlabel("Time step")
+        ax2.set_ylabel("FPR (%)")
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close(fig)
 
     @staticmethod
     def process_pred_anomalies(
