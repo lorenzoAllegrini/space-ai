@@ -51,6 +51,8 @@ class DPMMDetector(AnomalyClassifier):
         mu_prior_strength: float = 0.001,
         quantile: float = 0.05,
         device: Optional[str] = None,  # "cpu" / "cuda" o None -> auto
+        early_stopping_patience: int = 5,
+        early_stopping_tolerance: float = 1e-4
     ):
         # pylint: disable=too-many-arguments, too-many-positional-arguments
         assert mode in ["likelihood_threshold", "cluster_labels"]
@@ -65,6 +67,8 @@ class DPMMDetector(AnomalyClassifier):
         self.var_prior_strength = float(var_prior_strength)
         self.mu_prior_strength = float(mu_prior_strength)
         self.quantile = float(quantile)
+        self.early_stopping_patience = int(early_stopping_patience)
+        self.early_stopping_tolerance = float(early_stopping_tolerance)
 
         self.dpmm_model = None
         self.likelihood_threshold: Optional[th.Tensor] = None
@@ -112,17 +116,31 @@ class DPMMDetector(AnomalyClassifier):
         self.dpmm_model.init_var_params(x_t)
 
         optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
+        best_loss = float("inf")
+        patience = 0
 
-        for _ in tqdm(
+        pbar = tqdm(
             range(self.num_iterations),
             desc=f"Fitting {self.model_type} DPMM",
-            unit="epoch",
-        ):
+            unit="epoch")
+
+        for _ in pbar:
             optimizer.zero_grad()
             # Assumo che il forward ritorni (pi, elbo_loss, extra)
             _, elbo_loss, _ = self.dpmm_model(x_t)
             elbo_loss.backward()
             optimizer.step()
+
+            new_loss = elbo_loss.detach().cpu().item()
+            pbar.set_description(f"Loss: {new_loss:.4f}")
+            if best_loss-new_loss > self.early_stopping_tolerance:
+                best_loss = new_loss
+                patience = 0
+            else:
+                patience += 1
+
+            if patience >= self.early_stopping_patience:
+                break
 
         self.dpmm_model.eval()
         with th.no_grad():
