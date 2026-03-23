@@ -54,7 +54,7 @@ def get_rockad_classifier(_num_kernels):
 def get_xgboost_classifier():
     """Get XGBoost classifier."""
     return (
-        lambda: XGBClassifier(eval_metric="logloss", base_score=0.5),
+        lambda: XGBClassifier(eval_metric="logloss", base_score=0.5, n_jobs=1),
         True,
     )
 
