@@ -2,7 +2,9 @@ from __future__ import annotations
 """DPMM Detector module."""
 import argparse
 import copy
+import logging
 from typing import Optional, Dict, Any, Union, List, TYPE_CHECKING
+import pandas as pd
 
 import numpy as np
 import torch as th
@@ -24,9 +26,6 @@ if TYPE_CHECKING:
 def get_dpmm_argparser():
     """Get DPMM argument parser."""
     parser = argparse.ArgumentParser()
-    # TODO: uniform with command line args
-    # parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"])
-    # parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
     parser.add_argument("--n-clusters", type=int, default=100)
     parser.add_argument("--num-iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.1)
@@ -39,14 +38,15 @@ def get_dpmm_argparser():
 
 
 class DPMM(BaseClassifier):
-    """DPMM model that returns continuous anomaly scores."""
+    """DPMM model that returns continuous anomaly scores.
+    Inherits prepare_data from BaseClassifier.
+    """
 
-    # pylint: disable=too-many-instance-attributes
     def __init__(
         self,
         mode: str = "likelihood_threshold",  # "likelihood_threshold" | "cluster_labels"
-        model_type: str = "full",  # "full" | "diagonal" | "single" | "unit"
-        n_clusters: int = 100,
+        model_type: str = "unit",  # "full" | "diagonal" | "single" | "unit"
+        n_clusters: int = 10,
         num_iterations: int = 100,
         lr: float = 0.8,
         alpha_dp: float = 0.05,
@@ -59,7 +59,6 @@ class DPMM(BaseClassifier):
         callback_handler: Optional[Any] = None,
         **kwargs
     ):
-        # pylint: disable=too-many-arguments, too-many-positional-arguments
         assert mode in ["likelihood_threshold", "cluster_labels"]
         super().__init__(callback_handler=callback_handler, **kwargs)
         self.mode = mode
@@ -79,7 +78,7 @@ class DPMM(BaseClassifier):
         self.restore_best = kwargs.get("restore_best", True)
 
         self.dpmm_model = None
-        self.likelihood_threshold: Optional[th.Tensor] = None
+        self.likelihood_threshold: Optional[float] = None
         self.anomaly_cluster_labels: Optional[th.Tensor] = None
         self.return_likelihood = return_likelihood
 
@@ -88,48 +87,38 @@ class DPMM(BaseClassifier):
             if device
             else th.device("cuda" if th.cuda.is_available() else "cpu")
         )
-        print(self.return_likelihood)
 
     def __call__(
         self, input_data: np.ndarray, y_true: Optional[np.ndarray] = None, **kwargs
     ) -> np.ndarray:
         return self.predict(input_data)
 
-    def fit(self, *args, **kwargs) -> None:  # pylint: disable=invalid-name
-        """Polymorphic fit: handles messages (native) or raw data."""
-        if len(args) > 0 and hasattr(args[0], "data"):
-             return self.fit_messages(*args)
-        
-        # Standard fit logic for raw arrays
-        X = args[0]
-        y = kwargs.get("y", args[1] if len(args) > 1 else None)
-        results = kwargs.get("results", args[2] if len(args) > 2 else None)
-        return self._fit(X, y=y, results=results)
-
-    def fit_messages(self, *msgs: PipelineMessage) -> None:
-        """Native message-based fit with calibration support."""
-        if not msgs:
-            return
-            
+    def fit(self, *args, **kwargs) -> "DPMM":
+        """Polymorphic fit: handles messages (via prepare_data) or raw data."""
+        msgs = self.prepare_data(*args, **kwargs)
         msg_train = msgs[0]
-        X = msg_train.data
-        y = msg_train.labels
-        results = msg_train.results
+        msg_val = msgs[1] if len(msgs) > 1 else None
 
-        with self._callback_context("model_fit", results):
-            if self.mode == "cluster_labels" and y is None:
+        X_train = msg_train.data
+        y_train = msg_train.labels
+        X_test = msg_val.data if msg_val is not None else None
+        
+        with self._callback_context("model_fit", msg_train.results):
+            if self.mode == "cluster_labels" and y_train is None:
                 raise ValueError(
                     "In 'cluster_labels' mode, 'y' (0/1) is required to label clusters."
                 )
 
-            # Filter normal data for fitting if labels provided
-            X_fit = X
-            if self.mode == "likelihood_threshold" and (y is not None):
-                X_fit = X[y == 0]
+            if self.mode == "likelihood_threshold" and (y_train is not None):
+                X_train = X_train[y_train == 0]
 
-            x_t = th.as_tensor(X_fit, dtype=th.float32, device=self.device)
+            if len(X_train) == 0:
+                logging.warning("No data for DPMM fit. Skipping.")
+                return self
+
+            x_t = th.as_tensor(X_train, dtype=th.float32, device=self.device)
             y_t = (
-                None if y is None else th.as_tensor(y, dtype=th.float32, device=self.device)
+                None if y_train is None else th.as_tensor(y_train, dtype=th.float32, device=self.device)
             )
 
             d_dim = x_t.shape[1]
@@ -143,8 +132,8 @@ class DPMM(BaseClassifier):
             optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
             
             x_val_t = None
-            if 'msgs' in locals() and len(msgs) > 1:
-                x_val_t = th.as_tensor(msgs[1].data, dtype=th.float32, device=self.device)
+            if X_test is not None:
+                x_val_t = th.as_tensor(X_test, dtype=th.float32, device=self.device)
             
             best_val_loss = float("inf")
             best_state = None
@@ -187,47 +176,46 @@ class DPMM(BaseClassifier):
             
             self.dpmm_model.eval()
             
+            # Calibration phase inside fit
             if self.mode == "likelihood_threshold":
-                if len(msgs) > 1:
-                    msg_val = msgs[1]
-                    X_calib = msg_val.data
-                else:
-                    X_calib = X_fit
-                
+                # Use validation for calibration if available, else training data
+                X_calib = X_test if X_test is not None else X_train
                 x_calib_t = th.as_tensor(X_calib, dtype=th.float32, device=self.device)
                 with th.no_grad():
                     _, _, loglike_tr = self.dpmm_model(x_calib_t)
-                self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
-
+                self.likelihood_threshold = float(th.quantile(loglike_tr, self.quantile).item())
+                print(f"[DEBUG] DPMM calibrated likelihood_threshold: {self.likelihood_threshold}")
+                
+                # Store it for downstream use
+                if msg_val is not None:
+                    msg_val.metadata["likelihood_threshold"] = self.likelihood_threshold
+                else:
+                    msg_train.metadata["likelihood_threshold"] = self.likelihood_threshold
             else:  
                 with th.no_grad():
                     pi_tr, _, _ = self.dpmm_model(x_t)
                 clust_assignment = pi_tr.argmax(dim=1)
-
                 tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
-                anom = th.bincount(
-                    clust_assignment, weights=y_t, minlength=self.n_clusters
-                )
-
+                anom = th.bincount(clust_assignment, weights=y_t, minlength=self.n_clusters)
                 perc = anom / (tot + 1e-6)
                 self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
-
-    def predict(self, X_or_msg: Union[np.ndarray, PipelineMessage]) -> np.ndarray:  # pylint: disable=invalid-name
-        """Return continuous anomaly scores in [0, 1] for each sample."""
-        if hasattr(X_or_msg, "data"):
-            return self.transform(X_or_msg).data
         
-        # Legacy support for direct array input
-        return self._predict_array(X_or_msg)
+        return self
 
-    def transform(self, msg: PipelineMessage) -> PipelineMessage:
-        """Pipeline transformation: populates msg.data with anomaly scores."""
-        scores = self._predict(msg.data, results=msg.results)
-        msg.data = scores
-        return msg
+    def predict(self, *args, **kwargs) -> Union[np.ndarray, PipelineMessage]:
+        """Return continuous anomaly scores in [0, 1] for each sample."""
+        input_data = args[0] if len(args) > 0 else kwargs.get("X")
+        
+        from spaceai.models.anomaly_classifier.anomaly_classifier import PipelineMessage
+        is_pipeline_mode = isinstance(input_data, PipelineMessage) or \
+                           (isinstance(input_data, list) and len(input_data) > 0 and isinstance(input_data[0], PipelineMessage))
+        
+        msgs = self.prepare_data(*args, **kwargs)
+        msg_test = msgs[0]
 
-    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
-        """Internal prediction logic for raw arrays."""
+        X = msg_test.data 
+        results = msg_test.results
+
         with self._callback_context("model_predict", results):
             if self.dpmm_model is None:
                 raise RuntimeError("Model not fitted. Call fit() first.")
@@ -237,97 +225,53 @@ class DPMM(BaseClassifier):
             with th.no_grad():
                 pi_te, _, loglike_te = self.dpmm_model(x_t)
 
+            print(f"loglike_te range: [{loglike_te.min():.4f}, {loglike_te.max():.4f}], mean: {loglike_te.mean():.4f}")
             if self.mode == "likelihood_threshold":
                 if self.likelihood_threshold is None:
-                    raise RuntimeError(
-                        "likelihood_threshold not set. Fit the DPMM first."
-                    )
-
+                    raise RuntimeError("likelihood_threshold not set. Fit the DPMM first.")
+                
+                print(f"[DEBUG] Using likelihood_threshold: {self.likelihood_threshold:.4f}")
+                
                 if self.return_likelihood:
-                    return -loglike_te.detach().to("cpu").numpy()
+                    scores = -loglike_te.detach().cpu().numpy()
                 else:
-                    return th.sigmoid((self.likelihood_threshold - loglike_te)).detach().to("cpu").numpy()
+                    diff = th.tensor(self.likelihood_threshold, device=self.device) - loglike_te
+                    print(f"diff range: [{diff.min():.4f}, {diff.max():.4f}]")
+                    scores = th.sigmoid(diff).detach().cpu().numpy()
+                    print(f"scores sample: {scores[:5]}")
             else:  
                 if self.anomaly_cluster_labels is None:
-                    raise RuntimeError(
-                        "Cluster labels not set. Fit with 'cluster_labels' first."
-                    )
+                    raise RuntimeError("Cluster labels not set. Fit with 'cluster_labels' first.")
                 cl = pi_te.argmax(dim=1)
                 anom_probs = self.anomaly_cluster_labels.float().to(self.device)
-                scores = anom_probs[cl]
+                scores = anom_probs[cl].detach().cpu().numpy()
 
-            return scores.detach().to("cpu").numpy()
+        if is_pipeline_mode:
+            msg_test.data = scores
+            return msg_test
+        return scores
 
     # ---- helpers ----
     def _init_model(self, d_dim: int):
         if self.model_type == "full":
-            return FullGaussianDPMM(
-                self.n_clusters,
-                d_dim,
-                self.alpha_dp,
-                mu_prior=0,
-                mu_prior_strength=self.mu_prior_strength,
-                var_prior=self.var_prior,
-                var_prior_strength=self.var_prior_strength,
-            )
+            return FullGaussianDPMM(self.n_clusters, d_dim, self.alpha_dp, mu_prior=0, mu_prior_strength=self.mu_prior_strength, var_prior=self.var_prior, var_prior_strength=self.var_prior_strength)
         if self.model_type == "diagonal":
-            return DiagonalGaussianDPMM(
-                self.n_clusters,
-                d_dim,
-                self.alpha_dp,
-                mu_prior=0,
-                mu_prior_strength=self.mu_prior_strength,
-                var_prior=self.var_prior,
-                var_prior_strength=self.var_prior_strength,
-            )
+            return DiagonalGaussianDPMM(self.n_clusters, d_dim, self.alpha_dp, mu_prior=0, mu_prior_strength=self.mu_prior_strength, var_prior=self.var_prior, var_prior_strength=self.var_prior_strength)
         if self.model_type == "single":
-            return IsotropicGaussianDPMM(
-                self.n_clusters,
-                d_dim,
-                self.alpha_dp,
-                mu_prior=0,
-                mu_prior_strength=self.mu_prior_strength,
-                var_prior=self.var_prior,
-                var_prior_strength=self.var_prior_strength,
-            )
+            return IsotropicGaussianDPMM(self.n_clusters, d_dim, self.alpha_dp, mu_prior=0, mu_prior_strength=self.mu_prior_strength, var_prior=self.var_prior, var_prior_strength=self.var_prior_strength)
         if self.model_type == "unit":
-            return UnitGaussianDPMM(
-                self.n_clusters,
-                d_dim,
-                self.alpha_dp,
-                mu_prior=0,
-                mu_prior_strength=self.mu_prior_strength,
-            )
+            return UnitGaussianDPMM(self.n_clusters, d_dim, self.alpha_dp, mu_prior=0, mu_prior_strength=self.mu_prior_strength)
         raise ValueError(f"Invalid model_type: {self.model_type}")
 
-    def detect_anomalies(self, X, y_true=None, **kwargs):  # pylint: disable=invalid-name, unused-argument
-        """Detect anomalies in the input data."""
+    def detect_anomalies(self, X, y_true=None, **kwargs):
+        """Legacy support for direct detection."""
         return self.predict(X)
 
 
 class DPMMDetector:
-    """Converts continuous DPMM scores to binary anomaly predictions.
-
-    Wraps a fitted :class:`DPMM` instance and applies the appropriate
-    thresholding logic depending on its mode.
-
-    Args:
-        dpmm (DPMM): A fitted DPMM model.
-    """
-
+    """Wrapper to convert DPMM scores to binary labels."""
     def __init__(self, dpmm: DPMM):
         self.dpmm = dpmm
 
     def detect(self, scores: np.ndarray) -> np.ndarray:
-        """Apply threshold to continuous scores and return binary labels.
-
-        Since ``DPMM.predict()`` now returns normalized scores in [0, 1]
-        for both modes, we simply threshold at 0.5.
-
-        Args:
-            scores (np.ndarray): Continuous anomaly scores from ``DPMM.predict()``.
-
-        Returns:
-            np.ndarray: Binary anomaly labels (1 = anomaly, 0 = normal).
-        """
         return (scores > 0.5).astype(int)

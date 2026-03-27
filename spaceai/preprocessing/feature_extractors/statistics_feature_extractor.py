@@ -56,7 +56,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         Fit the feature extractor.
         
         If two messages are provided (train, val), feature selection is done
-        on the validation set for a more honest evaluation.
+        on the validation set.
         """
         if not messages:
             return self
@@ -72,10 +72,11 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                 
                 if labels is None:
                     raise ValueError("Labels must be provided for feature selection")
-                
-                # Extract features on the selection set (val or train)
-                X_features = self.transform(selection_msg).data
-                self.select_features(X_features, labels, results=results)
+                with self._callback_context("feature_selection", results):
+                    X_features = self.transform(selection_msg).data
+                    self.select_features(X_features, labels, results=results)
+        for msg in messages:
+            msg.metadata["selected_features"] = list(self.transformations.keys())
         return self
 
 
@@ -135,6 +136,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         message.data = df
         return message
     
+    
     def select_features(
         self, 
         X_features: pd.DataFrame, 
@@ -152,7 +154,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         precision_selector.fit(X_clean.values, y)
 
         feature_scores = sorted(zip(X_features.columns, precision_selector.scores_), key=lambda x: x[1], reverse=True)
-        print(f"[DEBUG] Feature scores: {feature_scores}")
         
         correlation_threshold = 0.8
         corr_matrix = X_clean.corr().abs()
@@ -160,6 +161,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         filtered_feature_scores = []
         dropped_by_corr = set()
         
+    
         for f_name, f_score in feature_scores:
             if f_name in dropped_by_corr:
                 continue

@@ -86,7 +86,8 @@ class PipelineMessage:
     true_intervals: Optional[List[Tuple[int, int]]] = None
     results: Dict[str, Any] = field(default_factory=dict)
     save_dir: Optional[str] = None
-    split_label: str = "train"  # "train", "val", or "test"
+    split_label: str = "train"  
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 class AnomalyDetectionPipeline(AnomalyClassifier):
     """Modular anomaly detection pipeline with role-aware fit logic.
@@ -105,33 +106,10 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
                 eval_perc: Optional[float] = None,
                 ):
         super().__init__(callback_handler=callback_handler)
-        # Filter out None processors to allow clean initialization with optional steps
         self.steps = [(name, proc) for name, proc in steps if proc is not None]
         self.named_steps = dict(self.steps)
         self.eval_perc = eval_perc
-    
-    def save(self, path: str) -> None:
-        """Save pipeline, temporarily stripping unpicklable callback handlers."""
-        import pickle
-        # Collect and strip handlers
-        saved_handlers = []
-        for name, proc in self.steps:
-            saved_handlers.append(getattr(proc, 'callback_handler', None))
-            if hasattr(proc, 'callback_handler'):
-                proc.callback_handler = None
-        own_handler = self.callback_handler
-        self.callback_handler = None
-        
-        try:
-            with open(path, 'wb') as f:
-                pickle.dump(self, f)
-        finally:
-            # Restore handlers
-            self.callback_handler = own_handler
-            for (name, proc), handler in zip(self.steps, saved_handlers):
-                if hasattr(proc, 'callback_handler'):
-                    proc.callback_handler = handler
-    
+   
     def fit( 
         self,
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
@@ -143,15 +121,19 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         Each processor is fitted sequentially and then transforms the message for the next stage.
         """
         msg = self._prepare_message(channel_data, channel_labels, save_dir=results_dir)
+        print(f"initial message: {msg}")
         msgs = self._split_data(msg)
+        print(f"messages afer splir: {msgs}")
         
         for name, processor in self.steps:
             if hasattr(processor, "fit"):
                 processor.fit(*msgs)
-            
+
             if hasattr(processor, "transform"):
                 msgs = [processor.transform(m) for m in msgs]
             
+            print(f"messages at {name}: {msgs}")
+
             if processor.kill_switch_active:
                 print(f"[DEBUG] Pipeline fitting short-circuit at {name} ({processor.__class__.__name__}).")
                 break
@@ -178,7 +160,7 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
                 print(f"[DEBUG] Pipeline prediction short-circuit at {name} ({processor.__class__.__name__}).")
                 n_samples = len(msg.data) if hasattr(msg.data, "__len__") else 0
                 return np.zeros(n_samples), msg.results
-        
+        print(np.max(msg.data))
         return msg.data, msg.results
 
     def _prepare_message(
@@ -250,6 +232,29 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
                 
         return []
 
+     
+    def save(self, path: str) -> None:
+        """Save pipeline, temporarily stripping unpicklable callback handlers."""
+        import pickle
+        # Collect and strip handlers
+        saved_handlers = []
+        for name, proc in self.steps:
+            saved_handlers.append(getattr(proc, 'callback_handler', None))
+            if hasattr(proc, 'callback_handler'):
+                proc.callback_handler = None
+        own_handler = self.callback_handler
+        self.callback_handler = None
+        
+        try:
+            with open(path, 'wb') as f:
+                pickle.dump(self, f)
+        finally:
+            # Restore handlers
+            self.callback_handler = own_handler
+            for (name, proc), handler in zip(self.steps, saved_handlers):
+                if hasattr(proc, 'callback_handler'):
+                    proc.callback_handler = handler
+    
     def map_to_timestamps(
         self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any], 

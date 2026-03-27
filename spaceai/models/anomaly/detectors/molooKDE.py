@@ -63,7 +63,7 @@ class MoLooKDEDetector(AnomalyDetector):
             return X_arr.reshape(-1, 1)
         return X_arr
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> MoLooKDEDetector:
+    def _fit(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> MoLooKDEDetector:
         """Trains the spatial KDE and calculates GPD parameters for adaptive thresholding."""
         print(f"[DEBUG] MoLooKDE.fit received X of length: {len(X)}")
         with self._callback_context("detector_fit", results):
