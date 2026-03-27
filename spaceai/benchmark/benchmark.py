@@ -1,49 +1,34 @@
 """Base benchmark class for anomaly detection benchmarks."""
-
 from __future__ import annotations
 
 import bisect
 import json
 import logging
 import os
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-)
+import threading
+import time
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import more_itertools as mit
 import numpy as np
 import pandas as pd  # type: ignore
-import zmq
 import torch
-from torch.utils.data import (
-    DataLoader,
-    Subset,
-)
+import zmq
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm  # type: ignore
 
 from spaceai.data.utils import seq_collate_fn
-
+from spaceai.models.anomaly_classifier import AnomalyClassifier
+from spaceai.preprocessing import TimeSeriesSplitter
 from .callbacks import CallbackHandler
-from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
+
+import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
-    from spaceai.models.predictors import SequenceModel
     from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.predictors import SequenceModel
     from .callbacks import Callback
-import zmq
-import json
-import time
 
-import threading
-import json
-import torch
-from spaceai.preprocessing import TimeSeriesSplitter
-from spaceai.models.anomaly_classifier import AnomalyClassifier
 
 class Benchmark:
     """Base class for benchmark runners."""
@@ -66,9 +51,9 @@ class Benchmark:
         self.exp_dir = exp_dir
         self.data_root: str = data_root
         self.all_results: List[Dict[str, Any]] = []
+        self.processed_channels: set[str] = set()
         
         self.trained_classifiers: Dict[str, Any] = {}
-        self.channel_predictions: Dict[str, Any] = {}
         self.global_results: Dict[str, Any] = {"channel_id": "GLOBAL_EVENT_LEVEL"}
         self.event_labels_global: List[Any] = []
         self.predicted_events_global: List[Any] = []
@@ -81,6 +66,23 @@ class Benchmark:
             classifier (Any): The pre-trained model/classifier instance.
         """
         self.trained_classifiers[channel_id] = classifier
+
+    def recover_global_state(self):
+        """Recover global state from experiment directory."""
+        if os.path.exists(self.run_dir):
+            for channel_id in self.get_default_channels():
+                json_path = os.path.join(self.run_dir, f"{channel_id}_intervals.json")
+                if not os.path.exists(json_path):
+                    continue
+                with open(json_path) as f:
+                    intervals = json.load(f)
+                
+                self.event_labels_global.extend([(pd.Timestamp(s), pd.Timestamp(e)) for s, e in intervals["true_intervals"]])
+                self.predicted_events_global.extend([(pd.Timestamp(s), pd.Timestamp(e)) for s, e in intervals["pred_intervals"]])
+                self.processed_channels.add(channel_id)
+        else:
+            raise ValueError(f"No global state found in {self.run_dir}. Please train all channels first.")
+        
 
     @staticmethod
     def merge_intervals(
@@ -114,6 +116,7 @@ class Benchmark:
         self,
         channels: Optional[List[str]] = None,
         time_aware: bool = True,
+        recover_state: bool = True,
     ) -> Dict[str, Any]:
         """Compute aggregated event-level metrics from internally accumulated state.
         
@@ -131,6 +134,9 @@ class Benchmark:
         if channels is None:
             channels = self.get_default_channels()
 
+        if len(self.processed_channels) < len(channels):
+            self.recover_global_state()
+            
         for metric in [m for m in self.global_results.keys() if m.endswith("cpu")]:
             self.global_results[metric] /= max(len(channels), 1)
 
@@ -170,9 +176,9 @@ class Benchmark:
         return self.global_results
 
     @staticmethod
-    def _evaluate_predictions(classifier: AnomalyClassifier, data: Any, true_intervals: List[Any], y_pred: np.ndarray) -> Dict[str, float]:
+    def _evaluate_predictions(classifier: AnomalyClassifier, data: Any, true_intervals: List[Any], y_pred: np.ndarray, pred_buffer:int=1) -> Dict[str, float]:
         """Process predictions into intervals and compute metrics vs ground truth."""
-        pred_intervals = Benchmark.process_pred_anomalies(y_pred, 0)
+        pred_intervals = Benchmark.process_pred_anomalies(y_pred, pred_buffer)
         
         true_intervals_ts = classifier.map_to_timestamps(data, true_intervals)
         pred_intervals_ts = classifier.map_to_timestamps(data, pred_intervals)
@@ -191,7 +197,10 @@ class Benchmark:
         
         train_channel = self.load_channel(channel_id, mode="train")
         logging.info("Fitting the anomaly classifier for channel %s...", channel_id)
-        metrics = classifier.fit(train_channel)
+        
+        chan_results_dir = os.path.join(self.run_dir, channel_id)
+        os.makedirs(chan_results_dir, exist_ok=True)
+        metrics = classifier.fit(train_channel, results_dir=chan_results_dir)
 
         self.trained_classifiers[channel_id] = classifier
 
@@ -210,7 +219,7 @@ class Benchmark:
         test_dataset: Any,
         y_pred: np.ndarray,
         extra_metrics: Optional[Dict[str, Any]] = None,
-        pred_buffer: int = 0,
+        pred_buffer: int = 1,
     ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Shared logic for computing metrics, saving results, and updating global state.
 
@@ -231,14 +240,9 @@ class Benchmark:
             true_anomalies_ts=true_anomaly_intervals_ts, pred_anomalies_ts=pred_intervals_ts
         )
         results.update(all_metrics)
+        self.processed_channels.add(channel_id)
 
         logging.info("Results for channel %s: %s", channel_id, results)
-
-        self.channel_predictions[channel_id] = {
-            "y_pred": y_pred.tolist(),
-            "pred_anomalies": pred_anomalies,
-            "true_anomalies": test_anomalies,
-        }
 
         self.all_results.append(results)
         os.makedirs(self.run_dir, exist_ok=True)
@@ -265,7 +269,7 @@ class Benchmark:
     def test_channel(
         self,
         channel_id: str,
-        pred_buffer: int = 0,
+        pred_buffer: int = 2,
         classifier: Optional[AnomalyClassifier] = None,
     ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Tests the fitted anomaly classifier for a given channel using internal state."""
@@ -279,7 +283,10 @@ class Benchmark:
         test_channel = self.load_channel(channel_id, mode="test")
 
         logging.info("Predicting the test data for channel %s...", channel_id)
-        y_pred, metrics = classifier.predict(test_channel)
+        
+        chan_results_dir = os.path.join(self.run_dir, channel_id)
+        os.makedirs(chan_results_dir, exist_ok=True)
+        y_pred, metrics = classifier.predict(test_channel, results_dir=chan_results_dir)
 
         return self._finalize_channel_results(
             channel_id, classifier, test_channel, y_pred,
@@ -329,13 +336,11 @@ class Benchmark:
             all_predictions.extend(experience_predictions)
             all_point_labels.extend(point_labels)
             
-            # Per-experience metrics
             true_forward_intervals = classifier.prepare_labels(data)
             exp_metrics = self._evaluate_predictions(classifier, data, true_forward_intervals, experience_predictions)
             exp_metrics.update({k: v for k, v in metrics.items() if k not in exp_metrics})
             experience_log[f"experience_{i}"] = exp_metrics
             
-            # Incremental save
             os.makedirs(self.run_dir, exist_ok=True)
             with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
                 json.dump(experience_log, f, indent=2, default=str)
@@ -348,13 +353,11 @@ class Benchmark:
 
         logging.info("Streaming for channel %s completed.", channel_id)
 
-        # Global metrics (reuses the same logic as test_channel)
         y_pred_all = np.array(all_predictions)
         results, _, _ = self._finalize_channel_results(
             channel_id, classifier, test_dataset, y_pred_all,
         )
 
-        # Save experience log
         with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
             json.dump(experience_log, f, indent=2, default=str)
 
@@ -386,23 +389,33 @@ class Benchmark:
         window_size: int = 2000,
     ):
         """Generates and saves a degradation plot (cumulative errors and rolling FPR)."""
-        import matplotlib.pyplot as plt
+        
+        # Take the first 50,000 points as requested to keep the plot manageable but high resolution
+        max_plot_len = 50000
+        y_true = y_true[:max_plot_len]
+        y_pred = y_pred[:max_plot_len]
         
         false_positives = (y_pred == 1) & (y_true == 0)
         false_negatives = (y_pred == 0) & (y_true == 1)
         
+        # Calculate full series
+        cum_fp = np.cumsum(false_positives)
+        cum_fn = np.cumsum(false_negatives)
+        fp_rolling_rate = pd.Series(false_positives).rolling(window=window_size).mean() * 100
+        
+        n_points = len(y_pred)
+        x_axis = np.arange(n_points)
+
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
         
-        ax1.plot(np.cumsum(false_positives), label='Cumulative False Positives', color='red', linewidth=2)
-        ax1.plot(np.cumsum(false_negatives), label='Cumulative False Negatives', color='orange', linewidth=2)
-        ax1.set_title(f"[{channel_id}] Cumulative Errors over Time (Degradation Indicator)")
+        ax1.plot(x_axis, cum_fp, label='Cumulative False Positives', color='red', linewidth=2)
+        ax1.plot(x_axis, cum_fn, label='Cumulative False Negatives', color='orange', linewidth=2)
+        ax1.set_title(f"[{channel_id}] Cumulative Errors over Time (First {max_plot_len} points)")
         ax1.set_ylabel("Total Error Count")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        fp_rolling_rate = pd.Series(false_positives).rolling(window=window_size).mean() * 100
-        
-        ax2.plot(fp_rolling_rate, label=f'Rolling FPR (window {window_size})', color='purple')
+        ax2.plot(x_axis, fp_rolling_rate, label=f'Rolling FPR (window {window_size})', color='purple')
         ax2.set_title(f"[{channel_id}] Rolling False Positive Rate")
         ax2.set_xlabel("Time step")
         ax2.set_ylabel("FPR (%)")
@@ -473,33 +486,24 @@ class Benchmark:
 
         # --- Base classification metrics ---
         matched_true_seqs = []
-        true_indices_grouped = [list(range(e[0], e[1] + 1)) for e in true_anomalies]
+        true_indices_grouped = [list(range(int(e[0]), int(e[1]) + 1)) for e in true_anomalies]
         true_indices_flat = set(i for group in true_indices_grouped for i in group)
+        
+        correct_predictions = 0
         for e_seq in pred_anomalies:
-            i_anom_predicted = set(range(e_seq[0], e_seq[1] + 1))
+            i_anom_predicted = set(range(int(e_seq[0]), int(e_seq[1]) + 1))
 
             matched_indices = list(i_anom_predicted & true_indices_flat)
-            valid = len(matched_indices) > 0
+            if len(matched_indices) > 0:
+                correct_predictions += 1
+                for i, gt_indices in enumerate(true_indices_grouped):
+                    if any(idx in i_anom_predicted for idx in gt_indices):
+                        if i not in matched_true_seqs:
+                            matched_true_seqs.append(i)
 
-            if valid:
-                true_seq_index = [
-                    i
-                    for i in range(len(true_indices_grouped))
-                    if len(
-                        np.intersect1d(list(i_anom_predicted), true_indices_grouped[i])
-                    )
-                    > 0
-                ]
-
-                if true_seq_index[0] not in matched_true_seqs:
-                    matched_true_seqs.append(true_seq_index[0])
-                    results["true_positives"] += 1
-            else:
-                results["false_positives"] += 1
-
-        results["false_negatives"] = len(
-            np.delete(true_anomalies, matched_true_seqs, axis=0)
-        )
+        results["true_positives"] = len(matched_true_seqs)
+        results["false_positives"] = len(pred_anomalies) - correct_predictions
+        results["false_negatives"] = len(true_anomalies) - results["true_positives"]
 
         tpfp = results["true_positives"] + results["false_positives"]
         results["precision"] = results["true_positives"] / tpfp if tpfp > 0 else 1

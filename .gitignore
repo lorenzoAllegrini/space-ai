@@ -182,3 +182,4 @@ remote_models/
 sml_server_inference_leopard
 sml_server_leopard
 sml_venv.zip
+**/ndpm_internal

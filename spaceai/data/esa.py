@@ -276,7 +276,6 @@ class ESA(
 
         # Ensure index is unique before processing
         channel_df = channel_df[~channel_df.index.duplicated(keep='first')]
-        channel_df.to_csv(f"{self.channel_id}.csv")
         timestamps = channel_df.index.values
         # Detect gaps
         if len(timestamps) > 1:

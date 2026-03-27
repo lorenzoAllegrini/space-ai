@@ -1,0 +1,30 @@
+# ocsvm_esa_no_detector_config.yaml
+# Configurazione per esperimenti OCSVM su ESA senza detector esterno
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "ocsvm"
+detector: "none"
+segmentator: false
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  max_features: 10
+  selected_features: null
+
+window_size: 50
+step_size: 50
+max_window: 500
+min_window: 150
+perc_step_size: 1.0
+
+eval_perc: null
+channels: null
+
+base_classifier_params:
+  kernel: "rbf"
+  nu: 0.1
+  gamma: "scale"

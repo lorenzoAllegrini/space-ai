@@ -12,33 +12,40 @@ from typing import (
 
 import numpy as np
 import torch
+from spaceai.benchmark.callbacks.mixin import CallbackMixin
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
 
 
-class AnomalyDetector:
+class AnomalyDetector(CallbackMixin):
     """Base class for anomaly detectors."""
 
-    def __init__(self):
+    def __init__(self, callback_handler: Optional[Any] = None):
+        super().__init__(callback_handler=callback_handler)
         self._predictor: Optional[SequenceModel] = None
         self.ignore_first_n_factor: float = 0
 
     def __call__(
-        self, input_data: np.ndarray, y_true: np.ndarray, **kwargs
+        self, input_data: np.ndarray, y_true: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs
     ) -> np.ndarray:
         """Detect anomalies in the input data.
 
         Args:
             input_data (np.ndarray): Input data
             y_true (np.ndarray): True values
+            results (Optional[Dict[str, Any]]): Results dictionary for metrics
             **kwargs: Additional keyword arguments
 
         Returns:
             np.ndarray: Detected anomalies
         """
         y_hat = self.predict_values(input_data)
-        return self.detect_anomalies(y_hat, y_true, **kwargs)
+        return self.detect(y_hat, results=results, **kwargs)
+
+    def detect(self, y_pred: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:
+        """Standard method for detection from scores."""
+        raise NotImplementedError
 
     def bind_predictor(
         self,
@@ -72,10 +79,10 @@ class AnomalyDetector:
         return self._predictor(input_data).detach().cpu().numpy()
 
     def detect_anomalies(
-        self, y_pred: np.ndarray, y_true: np.ndarray, **kwargs
+        self, y_pred: np.ndarray, y_true: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs
     ) -> np.ndarray:
         """Detect anomalies in the prediction data."""
-        raise NotImplementedError
+        return self.detect(y_pred, results=results, **kwargs)
 
     def flush_detector(self) -> Optional[np.ndarray]:
         """Flush the detector state."""
@@ -87,7 +94,7 @@ class AnomalyDetector:
         """Evaluate anomaly detection performance."""
         raise NotImplementedError
 
-    def fit(self, *args, **kwargs):
+    def fit(self, *args, results: Optional[Dict[str, Any]] = None, **kwargs):
         """Fit the detector."""
 
 

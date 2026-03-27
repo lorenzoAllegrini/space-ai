@@ -14,7 +14,7 @@ import torch
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
 
-from .detector import AnomalyDetector
+from .base import AnomalyDetector
 
 
 class ErrorBasedDetector(AnomalyDetector):

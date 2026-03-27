@@ -1,32 +1,36 @@
+from __future__ import annotations
 """Abstract base class for concept drift detectors."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Iterable, Optional, Union
+from typing import Callable, Iterable, Optional, Union, Dict, Any, TYPE_CHECKING
 
 import numpy as np
+from spaceai.benchmark.callbacks.mixin import CallbackMixin
+
+if TYPE_CHECKING:
+    from spaceai.benchmark.callbacks.handler import CallbackHandler
 
 
-class DriftDetector(ABC):
+class DriftDetector(CallbackMixin, ABC):
     """Abstract interface for concept drift detectors.
-
-    Implementations must monitor an incoming stream of scalar values and
-    signal whenever a distribution shift (drift) is detected.
-
-    Args:
-        filters (Optional[Iterable[Callable]]): A sequence of callables to
-            pre-filter values before they reach the detector logic. Each
-            callable must take a scalar as input and return either a
-            filtered scalar or ``None`` to reject the value.
+    ... [omitted docstring for brevity] ...
     """
 
-    def __init__(self, filters: Optional[Iterable[Callable]] = None) -> None:
+    def __init__(
+        self, 
+        filters: Optional[Iterable[Callable]] = None,
+        callback_handler: Optional[CallbackHandler] = None,
+        **kwargs
+    ) -> None:
         self.filters = list(filters) if filters is not None else []
+        super().__init__(callback_handler=callback_handler, **kwargs)
 
-    def process(self, value: float) -> bool:
+    def process(self, value: float, results: Optional[Dict[str, Any]] = None) -> bool:
         """Run standard pre-filters and, if passed, update the detector.
 
         Args:
             value (float): A raw scalar metric from the stream.
+            results (Optional[Dict[str, Any]]): Dictionary to update with metrics.
 
         Returns:
             bool: ``True`` if the value was accepted by all filters AND 
@@ -38,22 +42,23 @@ class DriftDetector(ABC):
             if processed_val is None:
                 return False
 
-        return self.update(processed_val)
+        return self.update(processed_val, results=results)
 
     @abstractmethod
-    def update(self, value: float) -> bool:
+    def update(self, value: float, results: Optional[Dict[str, Any]] = None) -> bool:
         """Process the next value in the stream and detect drift.
 
         Args:
             value (float): A scalar metric from the current data segment
                 (e.g. the mean or variance of a window).
+            results (Optional[Dict[str, Any]]): Dictionary to update with metrics.
 
         Returns:
             bool: ``True`` if drift is detected after this update,
                   ``False`` otherwise.
         """
 
-    def batch_update(self, values: Union[np.ndarray, list]) -> bool:
+    def batch_update(self, values: Union[np.ndarray, list], results: Optional[Dict[str, Any]] = None) -> bool:
         """Feed a batch of scalar values one-by-one through the process logic.
 
         Returns ``True`` as soon as drift is detected within the batch
@@ -61,14 +66,16 @@ class DriftDetector(ABC):
 
         Args:
             values: 1-D array-like of scalar metrics.
+            results (Optional[Dict[str, Any]]): Dictionary to update with metrics.
 
         Returns:
             bool: ``True`` if drift was detected during this batch.
         """
-        for v in np.asarray(values).ravel():
-            if self.process(float(v)):
-                return True
-        return False
+        with self._callback_context("drift_detection", results):
+            for v in np.asarray(values).ravel():
+                if self.process(float(v), results=results):
+                    return True
+            return False
 
     def reset_filters(self) -> None:
         """Attempt to clear the state of all attached filters."""

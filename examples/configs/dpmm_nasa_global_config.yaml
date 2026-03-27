@@ -1,0 +1,42 @@
+# dpmm_nasa_global_config.yaml
+# Configurazione per testare il FeatureUnion (Statistics + Global Matrix Profile)
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "nasa"               
+mission_id: 1
+model: "dpmm"
+dpmm_type: "unit"            
+dpmm_mode: "likelihood_threshold"
+segmentator: false
+
+# Utilizzo di feature composite (Locali + Globali)
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  selected_features:
+    - "var"
+    - "peak_to_peak_amplitude"
+    - "internal_matrix_profile_max"
+    #- "spectral_centroid"
+
+window_size: null
+step_size: null
+min_window: 10
+max_window: 30
+perc_step_size: 0.5
+eval_perc: null
+
+
+base_classifier_params:
+  dynamic_scaling: true
+  scaler_window: 20
+  n_clusters: 50
+  num_iterations: 50
+  lr: 0.1
+  alpha_dp: 0.1
+  var_prior: 5.0
+  var_prior_strength: 1.0
+  mu_prior_strength: 0.001
+  quantile: 0.0001

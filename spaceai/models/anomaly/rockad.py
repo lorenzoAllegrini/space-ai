@@ -3,6 +3,7 @@
 from typing import (
     Any,
     Optional,
+    Dict
 )
 
 import numpy as np
@@ -16,7 +17,7 @@ from sklearn.preprocessing import (  # type: ignore
 from sklearn.utils import resample  # type: ignore
 from sktime.transformations.panel.rocket import Rocket  # type: ignore
 
-from .anomaly_classifier import AnomalyClassifier
+from .base import BaseClassifier
 
 
 class NearestNeighborOCC:
@@ -322,7 +323,7 @@ class ROCKAD:
         return False
 
 
-class RockadClassifier(AnomalyClassifier):
+class RockadClassifier(BaseClassifier):
     """
     A fully unsupervised wrapper: costruisce un ensemble ROCKAD su X,
     poi allena un OCC sui punteggi di anomalia.
@@ -333,40 +334,44 @@ class RockadClassifier(AnomalyClassifier):
         base_model: Any = NearestNeighborOCC,
         num_kernels: int = 10000,
         n_estimators: int = 100,
+        callback_handler: Optional[Any] = None,
+        **kwargs
     ):
+        super().__init__(callback_handler=callback_handler, **kwargs)
         self.base_model = base_model
         self.num_kernels = num_kernels
         self.n_estimators = n_estimators
         self.rockad: Optional[ROCKAD] = None
         self.oc_model: Optional[Any] = None
 
-    def fit(self, X: np.ndarray, y=None) -> None:  # pylint: disable=invalid-name
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:  # pylint: disable=invalid-name
         """
         1) Applica ROCKAD su X a scapito di y.
         2) Prende i punteggi di anomalia e allena il one‐class model.
         """
         x_proc = self._prepare_input(X)
 
-        # 1) Fit del solo ensemble ROCKAD (unsupervised)
-        self.rockad = ROCKAD(
-            n_estimators=self.n_estimators,
-            n_kernels=self.num_kernels,
-            n_jobs=1,
-            power_transform=False,
-        )
-        # rockad.fit si aspetta solo X
-        self.rockad.fit(x_proc)
+        with self._callback_context("model_fit", results):
+            # 1) Fit del solo ensemble ROCKAD (unsupervised)
+            self.rockad = ROCKAD(
+                n_estimators=self.n_estimators,
+                n_kernels=self.num_kernels,
+                n_jobs=1,
+                power_transform=False,
+            )
+            # rockad.fit si aspetta solo X
+            self.rockad.fit(X)
 
-    def predict(self, X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
+    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:  # pylint: disable=invalid-name
         """
         Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
         """
-        if self.rockad is None:
-            raise RuntimeError("Model not fitted. Call fit() first.")
+        with self._callback_context("model_predict", results):
+            if self.rockad is None:
+                raise RuntimeError("Model not fitted. Call fit() first.")
 
-        x_proc = self._prepare_input(X)
-        raw_scores = self.rockad.predict_proba(x_proc)
+            raw_scores = self.rockad.predict_proba(X)
 
-        base_model = self.base_model().fit(raw_scores)
-        pred = base_model.predict(raw_scores)
-        return pred
+            base_model = self.base_model().fit(raw_scores)
+            pred = base_model.predict(raw_scores)
+            return pred

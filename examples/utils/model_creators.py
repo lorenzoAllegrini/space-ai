@@ -12,6 +12,10 @@ from sklearn.pipeline import Pipeline  # type: ignore
 from sklearn.preprocessing import RobustScaler  # type: ignore
 from sklearn.svm import OneClassSVM  # type: ignore
 from xgboost import XGBClassifier  # type: ignore
+import numpy as np
+import pandas as pd
+from scipy.stats import iqr as scipy_iqr
+from sklearn.base import BaseEstimator, TransformerMixin
 
 # PyOD models
 from pyod.models.iforest import IForest  # type: ignore
@@ -25,12 +29,12 @@ from pyod.models.cblof import CBLOF  # type: ignore
 from pyod.models.hbos import HBOS  # type: ignore
 
 # from spaceai.models.anomaly_classifier import RockadClassifier
-from spaceai.models.anomaly_classifier.dpmm_detector import (
+from spaceai.models.anomaly.dpmm_detector import (
     DPMM,
     get_dpmm_argparser,
 )
-from spaceai.models.anomaly_classifier import NDPMDetector
-from spaceai.models.anomaly_classifier.ndpm_internal import Config as NdpmConfig
+from spaceai.models.anomaly.ndpm_detector import NDPMDetector
+from spaceai.models.anomaly.ndpm_internal import Config as NdpmConfig
 import os
 import logging
 import torch
@@ -38,9 +42,55 @@ import torch
 from .config import Config
 
 
-def get_ocsvm_classifier():
-    """Get OneClassSVM classifier."""
-    return OneClassSVM, False
+class RollingRobustScalerWithPrior(BaseEstimator, TransformerMixin):
+    """
+    Rolling robust scaler that uses a historical IQR prior to stabilize 
+    scaling in flat/low-noise regions.
+    """
+
+    def __init__(self, window: int = 10):
+        self.window = window
+        self.prior_iqr_ = None
+
+    def fit(self, X, y=None):
+        """Calculate global IQR on training data as a prior."""
+        import time
+
+        t0 = time.time()
+        # Aggiungiamo 1e-12 per stabilità numerica.
+        self.prior_iqr_ = scipy_iqr(X, axis=0) + 1e-12
+        print(f"[DEBUG] RollingRobustScalerWithPrior.fit took {time.time() - t0:.2f}s")
+        return self
+
+    def transform(self, X):
+        """Scale X using rolling median/IQR with a historical prior constraint."""
+        if self.prior_iqr_ is None:
+            raise ValueError("Scaler must be fitted before transform.")
+
+        import time
+
+        t0 = time.time()
+        df = pd.DataFrame(X)
+        roll = df.rolling(window=self.window, min_periods=1)
+
+        # La mediana mobile segue la nuova baseline (cancella il concept drift)
+        rolling_median = roll.median()
+
+        # L'IQR mobile stima la variazione locale
+        rolling_q75 = roll.quantile(0.75)
+        rolling_q25 = roll.quantile(0.25)
+        rolling_iqr = rolling_q75 - rolling_q25
+
+        # Se il segnale è "piatto", usiamo l'IQR storico per schiacciare i valori
+        denominator = np.maximum(rolling_iqr.values, self.prior_iqr_)
+
+        X_scaled = (df - rolling_median) / denominator
+        res = X_scaled.values
+        print(
+            f"[DEBUG] RollingRobustScalerWithPrior.transform took {time.time() - t0:.2f}s for {len(X)} samples"
+        )
+        return res
+    
 
 
 def get_rockad_classifier(_num_kernels):
@@ -51,22 +101,49 @@ def get_rockad_classifier(_num_kernels):
     )  # RockadClassifier(num_kernels=num_kernels), False
 
 
-def get_xgboost_classifier():
+def get_xgboost_classifier(base_params=None):
     """Get XGBoost classifier."""
-    return (
-        XGBClassifier(eval_metric="logloss", base_score=0.5),
-        True,
+    base_params = base_params.copy() if base_params else {}
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 10)
+    scaler = (
+        RollingRobustScalerWithPrior(window=scaler_window)
+        if dynamic_scaling
+        else RobustScaler(with_centering=False)
     )
 
-
-def get_dpmm_classifier(model_type, mode, other_dpmm_args):
-    """Get DPMM classifier."""
-    parser = get_dpmm_argparser()
-    config = parser.parse_args(other_dpmm_args)
-    config_dict = vars(config)
+    params = base_params if base_params else {"eval_metric": "logloss", "base_score": 0.5}
     pipeline = Pipeline(
         [
-            ("scaler", RobustScaler(with_centering=False)),
+            ("scaler", scaler),
+            ("xgb", XGBClassifier(**params)),
+        ]
+    )
+    return pipeline, True
+
+
+def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
+    """Get DPMM classifier."""
+    parser = get_dpmm_argparser()
+    config, _ = parser.parse_known_args(other_dpmm_args)
+    config_dict = vars(config)
+
+    # Merge with YAML params if provided
+    base_params = base_params.copy() if base_params else {}
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 10)
+    scaler = (
+        RollingRobustScalerWithPrior(window=scaler_window)
+        if dynamic_scaling
+        else RobustScaler(with_centering=False)
+    )
+
+    if base_params:
+        config_dict.update(base_params)
+
+    pipeline = Pipeline(
+        [
+            ("scaler", scaler),
             ("dpmm", DPMM(mode=mode, model_type=model_type, **config_dict)),
         ]
     )
@@ -174,17 +251,27 @@ def format_str(s):
     return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
+def get_ocsvm_classifier():
+    """Get One-Class SVM (OCSVM) classifier from sklearn."""
+    return OneClassSVM, False
+
+
 def create_classifier(args, other_args):
     """Create the classifier factory based on arguments."""
     model_id = format_str(args.model)
+    # Extract extra parameters from YAML config if available
+    base_params = getattr(args, "base_classifier_params", {})
+
     if model_id == "dpmm":
-        return get_dpmm_classifier(args.dpmm_type, args.dpmm_mode, other_args)
+        return get_dpmm_classifier(
+            args.dpmm_type, args.dpmm_mode, other_args, base_params=base_params
+        )
     elif model_id == "ocsvm":
         return get_ocsvm_classifier()
     elif model_id == "rockad":
         return get_rockad_classifier(args.n_kernel)
     elif model_id == "xgboost":
-        return get_xgboost_classifier()
+        return get_xgboost_classifier(base_params=base_params)
     elif model_id == "ridge_regression":
         return get_ridge_regression_classifier()
     elif model_id == "iforest":

@@ -28,7 +28,6 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         "true_positives",
         "false_positives",
         "false_negatives",
-        "train_time",
         "detected_negatives",
         "test_negatives",
         "test_length",
@@ -41,7 +40,8 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
     if df["channel"].isnull().any():
         raise ValueError("Serve 'channel' o 'channel_id' non null.")
     df["channel"] = df["channel"].astype(str)
-    df["predict_time"] = df.get("predict_time", df.get("detect_time", 0.0))
+    df["predict_time"] = df.get("predict_time", df.get("detection_time", 0.0))
+    df["train_time"] = df.get("train_time", df.get("fitting_time", 0.0))
 
     tp, fp, fn = (
         df["true_positives"].sum(),

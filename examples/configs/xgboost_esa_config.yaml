@@ -1,0 +1,36 @@
+# xgboost_esa_config.yaml
+# Configurazione per esperimenti con XGBoost su ESA
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "xgboost"
+detector: "molookde"
+segmentator: false
+feature_extractor: "base_statistics"
+window_size: 100
+step_size: 50
+max_window: 500
+min_window: 50
+perc_step_size: 0.5
+
+channels: 
+  - "channel_41"
+
+base_classifier_params:
+  n_estimators: 100
+  max_depth: 6
+  learning_rate: 0.1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  eval_metric: "logloss"
+  use_label_encoder: false
+
+detector_params:
+  alpha: 0.001
+  p: 3.0
+  unitize: true
+  pot_percentile: 99.0
+  smoothing_alpha: 0.2
+  min_allowed_ll: -200.0

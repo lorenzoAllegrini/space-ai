@@ -8,16 +8,16 @@ import numpy as np
 from typing import Optional, Dict, Any
 
 from .ndpm_internal import Ndpm, Config
-
 from tensorboardX import SummaryWriter
-from .anomaly_classifier import AnomalyClassifier
+from .base import BaseClassifier
 
 
-class NDPMDetector(AnomalyClassifier):
+class NDPMDetector(BaseClassifier):
     def __init__(self, config_dict: Dict[str, Any], device: str = "cpu", 
                  log_dir: Optional[str] = None, writer: Optional[SummaryWriter] = None,
-                 threshold: Optional[float] = None):
-        super().__init__()
+                 threshold: Optional[float] = None, callback_handler: Optional[Any] = None,
+                 **kwargs):
+        super().__init__(callback_handler=callback_handler, **kwargs)
         
         config_dict['disable_d'] = True  
         if 'stm_size' not in config_dict:
@@ -55,33 +55,34 @@ class NDPMDetector(AnomalyClassifier):
             # Update the underlying model's writer too
             self.model.writer = self.writer
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:
-        if hasattr(X, "values"):
-            X = X.values  # Handle pd.DataFrame
-        if y is not None:
-            normal_X = X[y == 0]
-        else:
-            is_anomaly = self.predict(X) 
-            normal_X = X[~is_anomaly] 
-        
-        if len(normal_X) == 0:
-            return
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:
+        with self._callback_context("model_fit", results):
+            if hasattr(X, "values"):
+                X = X.values  # Handle pd.DataFrame
+            if y is not None:
+                normal_X = X[y == 0]
+            else:
+                is_anomaly = self.predict(X) 
+                normal_X = X[~is_anomaly] 
+            
+            if len(normal_X) == 0:
+                return
 
-        x_tensor = torch.from_numpy(normal_X).float().to(self.device)
-        dummy_y = torch.zeros(len(x_tensor), dtype=torch.long).to(self.device)
+            x_tensor = torch.from_numpy(normal_X).float().to(self.device)
+            dummy_y = torch.zeros(len(x_tensor), dtype=torch.long).to(self.device)
 
-        self._ensure_writer()
-        self.model.train()
-        self.model.learn(x_tensor, dummy_y, self.global_step)
-        self.global_step += 1
+            self._ensure_writer()
+            self.model.train()
+            self.model.learn(x_tensor, dummy_y, self.global_step)
+            self.global_step += 1
 
-        # Update adaptive threshold using training data (nominal by assumption)
-        with torch.no_grad():
-            self.model.eval()
-            ll_nominal = self.model(x_tensor).cpu().numpy()
-            self._update_ll_buffer(ll_nominal)
+            # Update adaptive threshold using training data (nominal by assumption)
+            with torch.no_grad():
+                self.model.eval()
+                ll_nominal = self.model(x_tensor).cpu().numpy()
+                self._update_ll_buffer(ll_nominal)
 
-        self.sleep()
+            self.sleep()
 
     def _update_ll_buffer(self, new_lls: np.ndarray) -> None:
         """Update the log-likelihood buffer and recalculate the threshold."""
@@ -97,17 +98,18 @@ class NDPMDetector(AnomalyClassifier):
             logging.info("Updated adaptive threshold for NDPM: %.4f (buffer size: %d, percentile: %.2f)", 
                          self.threshold, len(self.ll_buffer), self.percentile)
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        if hasattr(X, "values"):
-            X = X.values  # Handle pd.DataFrame
+    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
+        with self._callback_context("model_predict", results):
+            if hasattr(X, "values"):
+                X = X.values  # Handle pd.DataFrame
 
-        self.model.eval()
-        x_tensor = torch.from_numpy(X).float().to(self.device)
-        
-        with torch.no_grad():
-            log_likelihood = self.model(x_tensor)
+            self.model.eval()
+            x_tensor = torch.from_numpy(X).float().to(self.device)
+            
+            with torch.no_grad():
+                log_likelihood = self.model(x_tensor)
 
-        return (log_likelihood < self.threshold).cpu().numpy()
+            return (log_likelihood < self.threshold).cpu().numpy()
 
     def sleep(self) -> None:
         print("sleeping")

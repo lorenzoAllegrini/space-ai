@@ -1,0 +1,38 @@
+# dpmm_esa_likelihood_config.yaml
+# Configurazione per esperimenti DPMM su ESA utilizzando solo la likelihood interna (senza detector)
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "dpmm"
+dpmm_type: "single"            
+dpmm_mode: "likelihood_threshold"
+detector: "none"
+segmentator: false
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  max_features: 5
+  selected_features: null
+
+window_size: null
+step_size: null
+max_window: 500
+min_window: 150
+perc_step_size: 0.5
+
+eval_perc: null
+
+channels: null
+
+base_classifier_params:
+  n_clusters: 100
+  num_iterations: 100
+  lr: 0.3
+  alpha_dp: 3.0
+  var_prior: 3.0
+  var_prior_strength: 1.0
+  mu_prior_strength: 0.001
+  quantile: 0.003
