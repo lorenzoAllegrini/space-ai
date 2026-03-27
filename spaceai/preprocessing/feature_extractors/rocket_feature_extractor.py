@@ -25,28 +25,29 @@ class RocketFeatureExtractor(FeatureExtractor):
         return 2 * self.num_kernels
 
     def fit(
-        self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None
+        self, *messages: "PipelineMessage"
     ) -> "RocketFeatureExtractor":
-        """Fit the Rocket transformer."""
+        """Fit the Rocket transformer using the first message."""
+        if not messages:
+            return self
+        message = messages[0]
+        results = message.results
+        X = message.data
         with self._callback_context("feature_extraction_fit", results):
             X_prep = self._prepare_input(X)
             self.rocket.fit(X_prep)
         return self
 
-    def fit_transform(
-        self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None
-    ) -> pd.DataFrame:
-        """Fit and transform the data."""
-        return self.fit(X, y, results=results).transform(X, results=results)
-
     def transform(
         self, 
-        X_segments: np.ndarray,
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> pd.DataFrame:
-        """Transform the data."""
+        message: "PipelineMessage"
+    ) -> "PipelineMessage":
+        """Transform the data in the message."""
+        results = message.results
+        save_dir = message.save_dir
+        suffix = message.split_label
+        X_segments = message.data
+
         with self._callback_context("feature_extraction", results):
             X_prep = self._prepare_input(X_segments)
             X_transformed = self.rocket.transform(X_prep)
@@ -65,7 +66,8 @@ class RocketFeatureExtractor(FeatureExtractor):
                 df.to_csv(save_path, index=False)
                 print(f"[DEBUG] Rocket features saved to {save_path}")
 
-        return df
+        message.data = df
+        return message
 
     def _prepare_input(  # pylint: disable=invalid-name
         self, X: np.ndarray

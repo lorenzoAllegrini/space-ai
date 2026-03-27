@@ -83,34 +83,34 @@ class GlobalDiscordExtractor(FeatureExtractor):
         else:
             self._cached_mp = None
 
-    def fit(self, X, y=None, results=None):
+    def fit(self, *messages: "PipelineMessage") -> "GlobalDiscordExtractor":
+        """Discord extractor is stateless or context-based, no fitting needed."""
         return self
 
     def transform(
         self, 
-        X: Union[np.ndarray, Any],
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> Union[pd.DataFrame, Any]:
+        message: "PipelineMessage"
+    ) -> "PipelineMessage":
         """
-        Extract multiple Matrix Profile statistics for each window.
-        Supports PipelineMessage.
+        Extract multiple Matrix Profile statistics for each window in the message.
         """
-        if hasattr(X, "data") and not isinstance(X, (np.ndarray, pd.DataFrame)):
-            msg = X
-            msg.data = self.transform(msg.data, results=results, save_dir=save_dir, suffix=suffix)
-            return msg
+        results = message.results
+        save_dir = message.save_dir
+        suffix = message.split_label
+        X = message.data
+        
+        # We prefer using indices from the message if available
+        indices = message.original_indices if message.original_indices is not None else self._current_indices
 
         with self._callback_context("global_feature_extraction", results):
-            if self._cached_mp is None or self._current_indices is None:
+            if self._cached_mp is None or indices is None:
                 discord_features = np.zeros((len(X), len(self.mp_features)), dtype=np.float32)
             else:
                 m = getattr(self, "_resolved_m", self.m) or self.window_size
                 stats_map = {"max": np.max, "min": np.min, "mean": np.mean, "std": np.std, "median": np.median}
                 
                 rows = []
-                for s, e in self._current_indices:
+                for s, e in indices:
                     mp_start = int(s - self._context_offset)
                     mp_end = int(e - m + 2 - self._context_offset)
                     
@@ -129,4 +129,5 @@ class GlobalDiscordExtractor(FeatureExtractor):
                 filename = f"global_mp_features{'_'+suffix if suffix else ''}.csv"
                 df.to_csv(os.path.join(save_dir, filename), index=False)
                 
-            return df
+            message.data = df
+            return message

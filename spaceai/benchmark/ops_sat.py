@@ -52,4 +52,13 @@ class OPSSATBenchmark(Benchmark):
                 **kwargs
             )
         else:
-            raise ValueError(f"Invalid mode {mode}. Expected 'train' or 'test'.")
+            # Flexible mode for other operational states
+            return OPSSAT(
+                root=self.data_root,
+                channel_id=channel_id,
+                mode=mode,
+                overlapping=overlapping_train,
+                train=True,
+                split_percentage=self.split_percentage,
+                **kwargs
+            )

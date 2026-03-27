@@ -10,6 +10,7 @@ from abc import abstractmethod
 if TYPE_CHECKING:
     from spaceai.benchmark.callbacks.handler import CallbackHandler
     from spaceai.data.anomaly_dataset import AnomalyDataset
+    from spaceai.models.anomaly_classifier.anomaly_classifier import PipelineMessage
 
 class FeatureExtractor(CallbackMixin):
     """
@@ -67,39 +68,31 @@ class FeatureExtractor(CallbackMixin):
     @abstractmethod
     def fit(
         self, 
-        X: np.ndarray, 
-        y: Optional[np.ndarray] = None,
-        results: Optional[Dict[str, Any]] = None
+        *messages: PipelineMessage
     ) -> "FeatureExtractor":
         """
-        Fit the feature extractor on data X.
+        Fit the feature extractor on data contained in the PipelineMessage(s).
+        Usually uses the first message for training.
         """
 
     @abstractmethod
     def transform(
         self, 
-        X: Union[np.ndarray, Any],
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> Union[np.ndarray, Any]:
+        message: PipelineMessage
+    ) -> PipelineMessage:
         """
-        Transform data X (segments) into extracted features.
-        Supports PipelineMessage.
+        Transform the data in PipelineMessage into extracted features.
         """
 
     def fit_transform(
         self, 
-        X: np.ndarray, 
-        y: Optional[np.ndarray] = None,
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> np.ndarray:
+        *messages: PipelineMessage
+    ) -> PipelineMessage:
         """
-        Fit to data, then transform it.
+        Fit to data (using all messages), then transform the first message.
         """
-        return self.fit(X, y, results=results).transform(X, results=results, save_dir=save_dir, suffix=suffix)
+        self.fit(*messages)
+        return self.transform(messages[0])
 
     def save(self, path: str) -> None:
         """Save the feature extractor to disk."""

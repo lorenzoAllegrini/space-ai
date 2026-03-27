@@ -85,12 +85,22 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
 
         self._is_fitted = True
         results: Dict[str, Any] = {}
-
-        prepared_data, prepared_labels = self._prepare_input(
-            channel_data, channel_labels, results=results, save_dir=results_dir, suffix="train"
-        )
-        timestamps = self._get_timesteps(channel_data, results=results)
         
+        # Prepare initial message
+        message = self._prepare_input(
+            channel_data, channel_labels, results=results, save_dir=results_dir, split_label="train"
+        )
+        # Segmentation: ensure the message is segmented
+        message = self.ts_splitter.fit_transform(message)
+        
+        prepared_data = message.data
+        prepared_labels = message.labels
+        indices = message.original_indices
+        dataset = getattr(message, "original_dataset", None)
+        
+        from .anomaly_classifier import PipelineMessage
+
+        timestamps = self._get_timesteps(channel_data, results=results)
         if timestamps is not None:
             timestamps = np.asarray(timestamps).ravel()
 
@@ -98,12 +108,30 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             split_idx = int(len(prepared_data) * (1 - self.eval_perc))
             X_train_raw = prepared_data[:split_idx]
             X_val_raw = prepared_data[split_idx:]
+            idx_train = indices[:split_idx] if indices is not None else None
+            idx_val = indices[split_idx:] if indices is not None else None
             y_train = prepared_labels[:split_idx] if prepared_labels is not None else None
+            
+            # Create messages for feature extraction
+            train_msg = PipelineMessage(
+                data=X_train_raw, labels=y_train, original_indices=idx_train, results=results, save_dir=results_dir, split_label="train"
+            )
+            val_msg = PipelineMessage(
+                data=X_val_raw, labels=prepared_labels[split_idx:] if prepared_labels is not None else None, 
+                original_indices=idx_val, results=results, save_dir=results_dir, split_label="val"
+            )
 
             if self.feature_extractor is not None:
-                X_train = self.feature_extractor.fit_transform(X_train_raw, results=results, save_dir=results_dir, suffix="train")
-                X_val = self.feature_extractor.transform(X_val_raw, results=results, save_dir=results_dir, suffix="val")
+                self.feature_extractor.set_context(dataset=dataset, indices=idx_train)
+                train_msg = self.feature_extractor.fit_transform(train_msg, val_msg)
+                X_train = train_msg.data
+                
+                self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
+                val_msg = self.feature_extractor.transform(val_msg)
+                X_val = val_msg.data
+                
                 buffer_data = np.vstack((X_train, X_val))
+                self.feature_extractor.clear_context()
             else:
                 X_train, X_val = X_train_raw, X_val_raw
                 buffer_data = prepared_data
@@ -117,11 +145,15 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             )
         else:
             results = super().fit(channel_data, channel_labels, results_dir=results_dir)
+            # Re-fetch the message to get segmented data for the buffer
+            message = self._prepare_input(channel_data, channel_labels, results=results, save_dir=results_dir, split_label="train")
+            message = self.ts_splitter.transform(message)
+            
             if self.feature_extractor is not None:
-                # results is already updated by super().fit
-                buffer_data = self.feature_extractor.transform(prepared_data, results=results, save_dir=results_dir, suffix="train")
+                message = self.feature_extractor.transform(message)
+                buffer_data = message.data
             else:
-                buffer_data = prepared_data
+                buffer_data = message.data
             
             if self.detector is not None and hasattr(self.detector, 'fit'):
                 logging.warning("Nessun eval_perc definito! Il detector verrà fittato sui dati di training (rischio overfitting).")
@@ -138,33 +170,32 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         channel_labels: Optional[np.ndarray] = None,
         results_dir: Optional[str] = None
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Predict on new data and update the model in a single pass.
-
-        Args:
-            channel_data: Raw channel data (array, list, or AnomalyDataset).
-            channel_labels: Optional pointwise labels.
-            results_dir: Optional directory for saving plots.
-
-        Returns:
-            Tuple of (predictions array, metrics dict).
-        """
+        """Predict on new data and update the model in a single pass."""
 
         if not self._is_fitted:
             raise ValueError("Model is not fitted. Please fit the model before using it.")
 
-
         results: Dict[str, Any] = {}
-
-        prepared_data, prepared_labels = self._prepare_input(
-            channel_data, channel_labels, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
+        
+        # 1. Prepare Message
+        message = self._prepare_input(
+            channel_data, channel_labels, results=results, save_dir=results_dir, split_label="test"
         )
-            
+        # 2. Segmentation
+        message = self.ts_splitter.transform(message)
+        
+        prepared_data = message.data
+        prepared_labels = message.labels
+        indices = message.original_indices
+        dataset = getattr(message, "original_dataset", None)
+
         timestamps = np.asarray(self._get_timesteps(channel_data, results=results)).ravel()
 
         if self.feature_extractor is not None:
-            prepared_data = self.feature_extractor.transform(
-                prepared_data, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
-            )
+            self.feature_extractor.set_context(dataset=dataset, indices=indices)
+            message = self.feature_extractor.transform(message)
+            prepared_data = message.data
+            self.feature_extractor.clear_context()
 
         with self._callback_context("prediction", results):
             y_pred = self.base_classifier.predict(prepared_data)

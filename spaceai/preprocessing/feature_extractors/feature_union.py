@@ -84,39 +84,38 @@ class FeatureUnion(FeatureExtractor):
 
     def fit(
         self, 
-        X: np.ndarray, 
-        y: Optional[np.ndarray] = None,
-        results: Optional[Dict[str, Any]] = None
+        *messages: "PipelineMessage"
     ) -> FeatureUnion:
-        """Fit all sub-extractors."""
+        """Fit all sub-extractors using the message(s)."""
         for e in self.extractors:
-            e.fit(X, y, results=results)
+            e.fit(*messages)
         return self
 
     def transform(
         self, 
-        X: Union[np.ndarray, Any],
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> Union[pd.DataFrame, Any]:
+        message: "PipelineMessage" 
+    ) -> "PipelineMessage":
         """
         Transform via all sub-extractors and concatenate column-wise.
-        Supports PipelineMessage.
         """
-        if hasattr(X, "data") and not isinstance(X, (np.ndarray, pd.DataFrame)):
-            msg = X
-            msg.data = self.transform(msg.data, results=results, save_dir=save_dir, suffix=suffix)
-            return msg
-
         dfs = []
+        # We need a copy of the message for each extractor to avoid overwriting data
+        # during the process, OR we just extract data.
+        # But our extractors now MODIFY message.data.
+        # So we must handle this carefully.
+        
+        original_data = message.data
         for e in self.extractors:
-            df = e.transform(X, results=results, save_dir=save_dir, suffix=suffix)
+            # We restore the original data before each transformation
+            message.data = original_data
+            transformed_msg = e.transform(message)
+            df = transformed_msg.data
             if not isinstance(df, pd.DataFrame):
                 df = pd.DataFrame(df)
             dfs.append(df)
             
-        return pd.concat(dfs, axis=1).astype(np.float32)
+        message.data = pd.concat(dfs, axis=1).astype(np.float32)
+        return message
 
     def save(self, path: str) -> None:
         """Handle saving of composite extractors."""

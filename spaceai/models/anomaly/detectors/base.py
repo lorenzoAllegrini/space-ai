@@ -17,7 +17,7 @@ from spaceai.benchmark.callbacks.mixin import CallbackMixin
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
 
-
+from abc import abstractmethod
 class AnomalyDetector(CallbackMixin):
     """Base class for anomaly detectors."""
 
@@ -25,6 +25,7 @@ class AnomalyDetector(CallbackMixin):
         super().__init__(callback_handler=callback_handler)
         self._predictor: Optional[SequenceModel] = None
         self.ignore_first_n_factor: float = 0
+        self.role = "detector"
 
     def __call__(
         self, input_data: np.ndarray, y_true: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs
@@ -88,14 +89,28 @@ class AnomalyDetector(CallbackMixin):
         """Flush the detector state."""
         raise NotImplementedError
 
-    def evaluate_anomalies(
-        self, y_pred: np.ndarray, y_true: np.ndarray, **kwargs
-    ) -> Dict[str, Union[int, float]]:
-        """Evaluate anomaly detection performance."""
-        raise NotImplementedError
+    def transform(self, message: "PipelineMessage") -> "PipelineMessage":
+        """
+        Process the scores in the message and return binary detections.
+        """
+        y_hat = message.data
+        message.data = self.detect(y_hat, results=message.results)
+        return message
 
-    def fit(self, *args, results: Optional[Dict[str, Any]] = None, **kwargs):
-        """Fit the detector."""
+    def fit(self, *messages: "PipelineMessage", **kwargs):
+        """Fit the detector using data in the message(s).
+        
+        Prefer validation message for calibration if multiple messages are provided.
+        """
+        if not messages:
+            return
+        target = next((m for m in messages if m.split_label == "val"), messages[0])
+        return self._fit(np.asarray(target.data), results=target.results)
+
+    @abstractmethod
+    def _fit(self, scores: np.ndarray, results: Optional[Dict[str, Any]] = None) -> None:
+        """Internal fit implementation for calibration data."""
+        pass
 
 
 __all__ = ["AnomalyDetector"]

@@ -50,41 +50,49 @@ class StatisticsFeatureExtractor(FeatureExtractor):
 
     def fit(  # pylint: disable=invalid-name
         self, 
-        X: np.ndarray, 
-        y=None,
-        results: Optional[Dict[str, Any]] = None
+        *messages: "PipelineMessage"
     ):
         """
         Fit the feature extractor.
+        
+        If two messages are provided (train, val), feature selection is done
+        on the validation set for a more honest evaluation.
         """
+        if not messages:
+            return self
+        
+        train_msg = messages[0]
+        val_msg = messages[1] if len(messages) > 1 else None
+        results = train_msg.results
+
         with self._callback_context("feature_selection", results):
             if self.max_features is not None and self.max_features < len(self.transformations):
-                if y is None:
-                    raise ValueError("y must be provided for feature selection")
-                X_features = self.transform(X, results=results)
-                self.select_features(X_features, y, results=results)
+                selection_msg = val_msg if val_msg is not None else train_msg
+                labels = selection_msg.labels
+                
+                if labels is None:
+                    raise ValueError("Labels must be provided for feature selection")
+                
+                # Extract features on the selection set (val or train)
+                X_features = self.transform(selection_msg).data
+                self.select_features(X_features, labels, results=results)
         return self
 
 
     def transform(  # pylint: disable=invalid-name
         self, 
-        X: Union[np.ndarray, Any],
-        results: Optional[Dict[str, Any]] = None,
-        save_dir: Optional[str] = None,
-        suffix: str = ""
-    ) -> Union[pd.DataFrame, Any]:
+        message: "PipelineMessage"
+    ) -> "PipelineMessage":
         """
-        Extract statistical features from batches of segments.
-        Supports PipelineMessage.
+        Extract statistical features from segments in the message.
         """
-        if hasattr(X, "data") and not isinstance(X, (np.ndarray, pd.DataFrame)):
-            msg = X
-            msg.data = self.transform(msg.data, results=results, save_dir=save_dir, suffix=suffix)
-            return msg
-
-        data = X
-        if isinstance(X, pd.DataFrame) or isinstance(X, pd.Series):
-            data = X.values
+        results = message.results
+        save_dir = message.save_dir
+        suffix = message.split_label  # "train", "val", or "test"
+        
+        data = message.data
+        if isinstance(data, pd.DataFrame) or isinstance(data, pd.Series):
+            data = data.values
 
         different_lengths = False
 
@@ -96,7 +104,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             if data.ndim > 2:
                 data = data.reshape(data.shape[0], -1)
             elif data.ndim == 1:
-                raise ValueError("Input X must be 2D array of segments (n_samples, window_size) or ragged array of segments")
+                data = data.reshape(1, -1)
 
         with self._callback_context("feature_extraction", results):
             if not self.transformations:
@@ -124,7 +132,8 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                 df.to_csv(save_path, index=False)
                 print(f"[DEBUG] Features saved to {save_path}")
 
-        return df
+        message.data = df
+        return message
     
     def select_features(
         self, 

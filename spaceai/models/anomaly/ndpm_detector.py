@@ -55,15 +55,18 @@ class NDPMDetector(BaseClassifier):
             # Update the underlying model's writer too
             self.model.writer = self.writer
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:
+    def _fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:
+        """Internal fit implementation for raw data."""
+        """Fit implementation for raw data."""
         with self._callback_context("model_fit", results):
             if hasattr(X, "values"):
                 X = X.values  # Handle pd.DataFrame
             if y is not None:
                 normal_X = X[y == 0]
             else:
+                # Use predict (semi-supervised fallback)
                 is_anomaly = self.predict(X) 
-                normal_X = X[~is_anomaly] 
+                normal_X = X[~is_anomaly.astype(bool)] 
             
             if len(normal_X) == 0:
                 return
@@ -76,7 +79,7 @@ class NDPMDetector(BaseClassifier):
             self.model.learn(x_tensor, dummy_y, self.global_step)
             self.global_step += 1
 
-            # Update adaptive threshold using training data (nominal by assumption)
+            # Update adaptive threshold using training data
             with torch.no_grad():
                 self.model.eval()
                 ll_nominal = self.model(x_tensor).cpu().numpy()
@@ -98,7 +101,9 @@ class NDPMDetector(BaseClassifier):
             logging.info("Updated adaptive threshold for NDPM: %.4f (buffer size: %d, percentile: %.2f)", 
                          self.threshold, len(self.ll_buffer), self.percentile)
 
-    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
+    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
+        """Internal predict implementation for raw data."""
+        """Predict implementation for raw data."""
         with self._callback_context("model_predict", results):
             if hasattr(X, "values"):
                 X = X.values  # Handle pd.DataFrame
@@ -109,6 +114,7 @@ class NDPMDetector(BaseClassifier):
             with torch.no_grad():
                 log_likelihood = self.model(x_tensor)
 
+            # Return binary predictions based on threshold
             return (log_likelihood < self.threshold).cpu().numpy()
 
     def sleep(self) -> None:

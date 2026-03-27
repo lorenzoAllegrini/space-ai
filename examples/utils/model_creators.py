@@ -35,6 +35,13 @@ from spaceai.models.anomaly.dpmm_detector import (
 )
 from spaceai.models.anomaly.ndpm_detector import NDPMDetector
 from spaceai.models.anomaly.ndpm_internal import Config as NdpmConfig
+from spaceai.models.anomaly import (
+    BaseClassifier, 
+    SklearnClassifier,
+    ThresholdDetector, 
+    MoLooKDEDetector, 
+    QuantileThresholdDetector
+)
 import os
 import logging
 import torch
@@ -197,49 +204,157 @@ def get_ridge_regression_classifier():
     return RidgeClassifier, True
 
 
-def get_iforest_classifier():
+def get_iforest_classifier(base_params=None):
     """Get Isolation Forest (IForest) classifier."""
-    return IForest, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("iforest", IForest(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_pca_classifier():
+def get_pca_classifier(base_params=None):
     """Get PCA anomaly detector classifier."""
-    return PyOD_PCA, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("pca", PyOD_PCA(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_knn_classifier():
+def get_knn_classifier(base_params=None):
     """Get K-Nearest Neighbors (KNN) classifier."""
-    return KNN, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("knn", KNN(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_lof_classifier():
+def get_lof_classifier(base_params=None):
     """Get Local Outlier Factor (LOF) classifier."""
-    return LOF, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("lof", LOF(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_pyod_ocsvm_classifier():
+def get_pyod_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from PyOD."""
-    return OCSVM, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("ocsvm", OCSVM(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_ecod_classifier():
+def get_ecod_classifier(base_params=None):
     """Get Empirical Cumulative Distribution (ECOD) classifier."""
-    return ECOD, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("ecod", ECOD(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_copod_classifier():
+def get_copod_classifier(base_params=None):
     """Get Copula-Based Outlier Detection (COPOD) classifier."""
-    return COPOD, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("copod", COPOD(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_cblof_classifier():
+def get_cblof_classifier(base_params=None):
     """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
-    return CBLOF, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("cblof", CBLOF(**base_params))
+    ])
+    return pipeline, False
 
 
-def get_hbos_classifier():
+def get_hbos_classifier(base_params=None):
     """Get Histogram-based Outlier Score (HBOS) classifier."""
-    return HBOS, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("hbos", HBOS(**base_params))
+    ])
+    return pipeline, False
 
 
 def format_str(s):
@@ -251,9 +366,21 @@ def format_str(s):
     return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
-def get_ocsvm_classifier():
+def get_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from sklearn."""
-    return OneClassSVM, False
+    base_params = base_params if base_params else {}
+    
+    # Extract meta-params for scaling
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 100)
+    
+    scaler = RollingRobustScalerWithPrior(window=scaler_window) if dynamic_scaling else RobustScaler(with_centering=False)
+    
+    pipeline = Pipeline([
+        ("scaler", scaler),
+        ("ocsvm", OneClassSVM(**base_params))
+    ])
+    return pipeline, False
 
 
 def create_classifier(args, other_args):
@@ -263,40 +390,65 @@ def create_classifier(args, other_args):
     base_params = getattr(args, "base_classifier_params", {})
 
     if model_id == "dpmm":
-        return get_dpmm_classifier(
+        classifier, supervised = get_dpmm_classifier(
             args.dpmm_type, args.dpmm_mode, other_args, base_params=base_params
         )
     elif model_id == "ocsvm":
-        return get_ocsvm_classifier()
+        classifier, supervised = get_ocsvm_classifier(base_params=base_params)
     elif model_id == "rockad":
-        return get_rockad_classifier(args.n_kernel)
+        classifier, supervised = get_rockad_classifier(args.n_kernel)
     elif model_id == "xgboost":
-        return get_xgboost_classifier(base_params=base_params)
+        classifier, supervised = get_xgboost_classifier(base_params=base_params)
     elif model_id == "ridge_regression":
-        return get_ridge_regression_classifier()
+        classifier, supervised = get_ridge_regression_classifier()
     elif model_id == "iforest":
-        return get_iforest_classifier()
+        classifier, supervised = get_iforest_classifier(base_params=base_params)
     elif model_id == "pca":
-        return get_pca_classifier()
+        classifier, supervised = get_pca_classifier(base_params=base_params)
     elif model_id == "knn":
-        return get_knn_classifier()
+        classifier, supervised = get_knn_classifier(base_params=base_params)
     elif model_id == "lof":
-        return get_lof_classifier()
+        classifier, supervised = get_lof_classifier(base_params=base_params)
     elif model_id == "pyod_ocsvm":
-        return get_pyod_ocsvm_classifier()
+        classifier, supervised = get_pyod_ocsvm_classifier(base_params=base_params)
     elif model_id == "ecod":
-        return get_ecod_classifier()
+        classifier, supervised = get_ecod_classifier(base_params=base_params)
     elif model_id == "copod":
-        return get_copod_classifier()
+        classifier, supervised = get_copod_classifier(base_params=base_params)
     elif model_id == "cblof":
-        return get_cblof_classifier()
+        classifier, supervised = get_cblof_classifier(base_params=base_params)
     elif model_id == "hbos":
-        return get_hbos_classifier()
+        classifier, supervised = get_hbos_classifier(base_params=base_params)
     elif model_id == "ndpm":
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        return get_ndpm_classifier(args, device, input_dim=input_dim)
+        classifier, supervised = get_ndpm_classifier(args, device)
     else:
         raise ValueError(f"Modello {args.model} non supportato!")
+
+    # Wrap in SklearnClassifier if it's a raw model (missing legacy role or message compatibility)
+    if not hasattr(classifier, "role"):
+        classifier = SklearnClassifier(
+            model=classifier,
+            supervised=supervised
+        )
+    
+    return classifier, supervised
+
+
+def create_detector(args):
+    """Create the anomaly detector based on arguments."""
+    detector_params = getattr(args, 'detector_params', {})
+    
+    if args.detector == "threshold":
+        return ThresholdDetector(**{**dict(threshold=0.9), **detector_params})
+    elif args.detector == "quantile":
+        return QuantileThresholdDetector(**{**dict(quantile=0.95), **detector_params})
+    elif args.detector == "molookde":
+        return MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
+    elif args.detector == "none":
+        return None
+    else:
+        raise ValueError(f"Detector {args.detector} non supportato!")
 
 
 def get_esn_predictor(config: Config):

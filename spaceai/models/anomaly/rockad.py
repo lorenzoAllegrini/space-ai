@@ -344,7 +344,7 @@ class RockadClassifier(BaseClassifier):
         self.rockad: Optional[ROCKAD] = None
         self.oc_model: Optional[Any] = None
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:  # pylint: disable=invalid-name
+    def _fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:  # pylint: disable=invalid-name
         """
         1) Applica ROCKAD su X a scapito di y.
         2) Prende i punteggi di anomalia e allena il one‐class model.
@@ -362,13 +362,13 @@ class RockadClassifier(BaseClassifier):
             # rockad.fit si aspetta solo X
             self.rockad.fit(X)
 
-    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:  # pylint: disable=invalid-name
+    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:  # pylint: disable=invalid-name
         """
         Restituisce 1=normale, 0=anomalia, basandosi sul modello one‐class.
         """
         with self._callback_context("model_predict", results):
             if self.rockad is None:
-                raise RuntimeError("Model not fitted. Call fit() first.")
+                raise RuntimeError("Model not fitted. Call _fit() first.")
 
             raw_scores = self.rockad.predict_proba(X)
 

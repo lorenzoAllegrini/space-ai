@@ -19,6 +19,12 @@ from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
 if TYPE_CHECKING:
     from spaceai.benchmark.callbacks.handler import CallbackHandler
 
+
+def default_apply_func(x: np.ndarray) -> np.ndarray:
+    """Default application function for segmentation (detrending)."""
+    return detrend(x, type='linear', axis=-1)
+
+
 @dataclass
 class SegmentationResult:
     """Packaging for segmentation results."""
@@ -40,7 +46,7 @@ class TimeSeriesSplitter(CallbackMixin):
         min_window: int = 50,
         max_window: int = 500,
         callback_handler: Optional[CallbackHandler] = None,
-        apply_func: Optional[Callable[[np.ndarray], np.ndarray]] = lambda x: detrend(x, type='linear', axis=-1),
+        apply_func: Optional[Callable[[np.ndarray], np.ndarray]] = default_apply_func,
         **kwargs
     ) -> None:
         self.window_size_raw = window_size
@@ -51,56 +57,52 @@ class TimeSeriesSplitter(CallbackMixin):
         self.apply_func = apply_func
         super().__init__(callback_handler=callback_handler, **kwargs)
 
-    def fit(self, X: Union[np.ndarray, AnomalyDataset], y: Optional[np.ndarray] = None, sampling_period: Optional[float] = None, **kwargs) -> TimeSeriesSplitter:
+    def fit(self, *messages: "PipelineMessage", sampling_period: Optional[float] = None, **kwargs) -> TimeSeriesSplitter:
         """
-        Fit the splitter to the data, resolving window and step sizes.
+        Fit the splitter to the data contained in the first message.
         """
+        if not messages:
+            return self
+        message = messages[0]
+        X = message.data
         data = X.data[:, 0] if isinstance(X, AnomalyDataset) else X
         self._ensure_sizes(data, sampling_period)
         return self
 
     def transform(
         self, 
-        X: Union[np.ndarray, AnomalyDataset, Any], 
-        y: Optional[np.ndarray] = None, 
+        message: "PipelineMessage", 
         sampling_period: Optional[float] = None, 
-        results: Optional[Dict[str, Any]] = None,
         mode: str = "anomaly",
-        save_dir: Optional[str] = None,
-        suffix: str = "",
         **kwargs
-    ) -> Union[np.ndarray, Any, Tuple[np.ndarray, np.ndarray]]:
+    ) -> "PipelineMessage":
         """
-        Transform the input into segments/windows. Supports PipelineMessage.
+        Transform the input in the message into segments/windows.
         """
-        if hasattr(X, "data") and not isinstance(X, (np.ndarray, AnomalyDataset)):
-            msg = X
-            if isinstance(msg.data, AnomalyDataset):
-                res = self.segment_dataset(msg.data, mode=mode, results=results, save_dir=save_dir, suffix=suffix)
-                msg.data, msg.labels = res.segments, res.labels
-                msg.original_indices, msg.true_intervals = res.segment_indices, res.intervals
-            else:
-                msg.data = self.split(msg.data, sampling_period=sampling_period, results=results)
-                if msg.labels is not None:
-                    msg.labels = self.split_labels(msg.labels, sampling_period=sampling_period, results=results)
-                idxs = np.arange(len(msg.data)) * self.step_size
-                msg.original_indices = np.column_stack((idxs, idxs + self.window_size - 1))
-            return msg
+        X = message.data
+        results = message.results
+        save_dir = message.save_dir
+        suffix = "test" if "test" in getattr(message, "mode", "") else "train"
 
         if isinstance(X, AnomalyDataset):
-            return self.segment_dataset(X, mode=mode, results=results, save_dir=save_dir, suffix=suffix)
-        
-        segments = self.split(X, sampling_period=sampling_period, results=results)
-        if y is not None:
-            labels = self.split_labels(y, sampling_period=sampling_period, results=results)
-            return segments, labels
-        return segments, None
+            res = self.segment_dataset(X, mode=mode, results=results, save_dir=save_dir, suffix=suffix)
+            message.data, message.labels = res.segments, res.labels
+            message.original_indices, message.true_intervals = res.segment_indices, res.intervals
+        else:
+            message.data = self.split(X, sampling_period=sampling_period, results=results)
+            if message.labels is not None:
+                message.labels = self.split_labels(message.labels, sampling_period=sampling_period, results=results)
 
-    def fit_transform(self, X: Union[np.ndarray, AnomalyDataset], y: Optional[np.ndarray] = None, **kwargs) -> Any:
+            idxs = np.arange(len(message.data)) * self.step_size
+            message.original_indices = np.column_stack((idxs, idxs + self.window_size - 1))
+        
+        return message
+
+    def fit_transform(self, message: "PipelineMessage", **kwargs) -> "PipelineMessage":
         """
         Fit to data, then transform it.
         """
-        return self.fit(X, y, **kwargs).transform(X, y, **kwargs)
+        return self.fit(message, **kwargs).transform(message, **kwargs)
 
     def _resolve_samples(self, size: Union[int, str, pd.Timedelta, None], sampling_period: Optional[float] = None) -> Optional[int]:
         """Convert durations or strings to sample counts."""

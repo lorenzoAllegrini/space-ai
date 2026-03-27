@@ -80,26 +80,57 @@ class AnomalyClassifier(CallbackMixin):
 @dataclass
 class PipelineMessage:
     data: Union[np.ndarray, List[Any]]
-    original_indices: Optional[np.ndarray]
-    labels: Optional[np.ndarray]
-    pred_intervals: Optional[List[Tuple[int, int]]]
-    true_intervals: Optional[List[Tuple[int, int]]]
+    original_indices: Optional[np.ndarray] = None
+    labels: Optional[np.ndarray] = None
+    pred_intervals: Optional[List[Tuple[int, int]]] = None
+    true_intervals: Optional[List[Tuple[int, int]]] = None
     results: Dict[str, Any] = field(default_factory=dict)
     save_dir: Optional[str] = None
+    split_label: str = "train"  # "train", "val", or "test"
 
 class AnomalyDetectionPipeline(AnomalyClassifier):
-    """
-    Abstract base for time-series wrappers: defines common interface and input preparation.
+    """Modular anomaly detection pipeline with role-aware fit logic.
+    
+    Steps are native components (splitters, extractors, classifiers, detectors)
+    that implement the PipelineMessage contract.
+    
+    Args:
+        steps: List of (name, processor) tuples.
+        callback_handler: Optional callback handler.
+        eval_perc: Fraction of data to hold out for validation/calibration.
     """
     def __init__(self,
-                steps: List[Tuple[str, Union[CallbackMixin, Any]]],
+                steps: List[Tuple[str, Union[CallbackMixin, Any, None]]],
                 callback_handler: Optional[CallbackHandler] = None,
                 eval_perc: Optional[float] = None,
                 ):
         super().__init__(callback_handler=callback_handler)
-        self.steps = steps
-        self.named_steps = dict(steps)
+        # Filter out None processors to allow clean initialization with optional steps
+        self.steps = [(name, proc) for name, proc in steps if proc is not None]
+        self.named_steps = dict(self.steps)
         self.eval_perc = eval_perc
+    
+    def save(self, path: str) -> None:
+        """Save pipeline, temporarily stripping unpicklable callback handlers."""
+        import pickle
+        # Collect and strip handlers
+        saved_handlers = []
+        for name, proc in self.steps:
+            saved_handlers.append(getattr(proc, 'callback_handler', None))
+            if hasattr(proc, 'callback_handler'):
+                proc.callback_handler = None
+        own_handler = self.callback_handler
+        self.callback_handler = None
+        
+        try:
+            with open(path, 'wb') as f:
+                pickle.dump(self, f)
+        finally:
+            # Restore handlers
+            self.callback_handler = own_handler
+            for (name, proc), handler in zip(self.steps, saved_handlers):
+                if hasattr(proc, 'callback_handler'):
+                    proc.callback_handler = handler
     
     def fit( 
         self,
@@ -116,7 +147,6 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         
         for name, processor in self.steps:
             if hasattr(processor, "fit"):
-                # Unpacks all messages (e.g. Train, Val) into the component's fit method
                 processor.fit(*msgs)
             
             if hasattr(processor, "transform"):
@@ -136,7 +166,7 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         """
         Predict via the modular pipeline.
         """
-        msg = self._prepare_message(channel_data, save_dir=results_dir)
+        msg = self._prepare_message(channel_data, save_dir=results_dir, split_label="test")
 
         for name, processor in self.steps:
             if hasattr(processor, "transform"):
@@ -144,7 +174,7 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
             if hasattr(processor, "predict"):
                 msg = processor.predict(msg)
             
-            if processor.kill_switch_active:
+            if getattr(processor, "kill_switch_active", False):
                 print(f"[DEBUG] Pipeline prediction short-circuit at {name} ({processor.__class__.__name__}).")
                 n_samples = len(msg.data) if hasattr(msg.data, "__len__") else 0
                 return np.zeros(n_samples), msg.results
@@ -155,33 +185,24 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
         channel_labels: Optional[np.ndarray] = None,
-        save_dir: Optional[str] = None
+        save_dir: Optional[str] = None,
+        split_label: str = "train"
     ) -> PipelineMessage:
-        """
-        Initialize the PipelineMessage with data and initial original_indices.
-        """
-        if isinstance(channel_data, AnomalyDataset):
-            return PipelineMessage(
-                data=channel_data,
-                original_indices=np.arange(len(channel_data)),
-                labels=channel_labels,
-                pred_intervals=None,
-                true_intervals=None,
-                save_dir=save_dir
-            )
-        
-        return PipelineMessage(
+        """Initialize the PipelineMessage with data and initial original_indices."""
+        msg = PipelineMessage(
             data=channel_data,
-            original_indices=np.arange(len(channel_data)),
+            original_indices=np.arange(len(channel_data)) if hasattr(channel_data, "__len__") else None,
             labels=channel_labels,
-            pred_intervals=None,
-            true_intervals=None,
-            save_dir=save_dir
+            save_dir=save_dir,
+            split_label=split_label
         )
+        if isinstance(channel_data, AnomalyDataset):
+            setattr(msg, "original_dataset", channel_data)
+        return msg
 
     def _split_data(self, msg: PipelineMessage) -> List[PipelineMessage]:
         """Splits the message data for internal evaluation (e.g. calibration)."""
-        if self.eval_perc <= 0.0 or msg.data is None:
+        if self.eval_perc is None or self.eval_perc <= 0.0 or msg.data is None:
             return [msg]
             
         n_samples = len(msg.data)
@@ -203,11 +224,11 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
 
         msg_train = PipelineMessage(
             data=data_train, labels=train_labels, original_indices=train_indices,
-            results=msg.results.copy(), save_dir=msg.save_dir
+            results=msg.results.copy(), save_dir=msg.save_dir, split_label="train"
         )
         msg_val = PipelineMessage(
             data=data_val, labels=val_labels, original_indices=val_indices,
-            results=msg.results.copy(), save_dir=msg.save_dir
+            results=msg.results.copy(), save_dir=msg.save_dir, split_label="val"
         )
         
         return [msg_train, msg_val]
@@ -217,15 +238,14 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
         results: Optional[Dict[str, Any]] = None
     ) -> List[Tuple[int, int]]:
-        """
-        Prepare labels by running them through the splitters in the pipeline.
-        """
+        """Prepare labels by running them through the splitters in the pipeline."""
         msg = self._prepare_message(channel_data)
         
         from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
         for _, processor in self.steps:
-            if isinstance(processor, TimeSeriesSplitter):
-                msg = processor.transform(msg, mode="anomaly", results=results)
+            wrapped = getattr(processor, "model", processor)
+            if isinstance(wrapped, TimeSeriesSplitter):
+                msg = wrapped.transform(msg, mode="anomaly", results=results)
                 return msg.true_intervals if msg.true_intervals is not None else []
                 
         return []
@@ -236,22 +256,19 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         anomalies: List[Tuple[int, int]],
         results: Optional[Dict[str, Any]] = None
     ) -> List[Tuple[Any, Any]]:
-        """
-        Map window-level anomalies back to timestamps using message metadata.
-        """
-        # We need a message that has original_indices populated
+        """Map window-level anomalies back to timestamps using message metadata."""
         msg = self._prepare_message(channel_data)
         
+        from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
         for _, processor in self.steps:
-            from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-            if isinstance(processor, TimeSeriesSplitter):
-                msg = processor.transform(msg, results=results)
+            wrapped = getattr(processor, "model", processor)
+            if isinstance(wrapped, TimeSeriesSplitter):
+                msg = wrapped.transform(msg, results=results)
                 break
         
         if msg.original_indices is None:
             return []
 
-        # Map using timestamps if available
         timestamps = getattr(channel_data, "timestamps", None)
         offset = getattr(channel_data, "start_idx", 0)
         
@@ -268,4 +285,3 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
                 time_intervals.append((s_idx + offset, e_idx + offset))
                 
         return time_intervals
-    

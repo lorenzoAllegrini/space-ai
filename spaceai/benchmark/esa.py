@@ -89,4 +89,13 @@ class ESABenchmark(Benchmark):
                 **kwargs
             )
         else:
-            raise ValueError(f"Invalid mode {mode}. Expected 'train' or 'test'.")
+            # Flexible mode for challenge, continual, etc.
+            return ESA(
+                root=self.data_root,
+                mission=self.mission,
+                channel_id=channel_id,
+                mode=mode,
+                overlapping=overlapping_train if mode != "challenge" else False,
+                train=False if mode == "challenge" else True,
+                **kwargs
+            )
