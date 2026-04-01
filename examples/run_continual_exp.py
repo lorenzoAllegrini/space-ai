@@ -123,12 +123,15 @@ def run_exp(args, other_args=None):
     """Run experiment."""
     set_seed(getattr(args, 'seed', 42))
 
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+
     ts_splitter = TimeSeriesSplitter(
         window_size=args.window_size,
         step_size=args.step_size,
         min_window=getattr(args, 'min_window', None) or 10,
         max_window=getattr(args, 'max_window', None) or 300,
         perc_step_size=getattr(args, 'perc_step_size', None) or 1.0,
+        callback_handler=handler,
     )
     print(f"[DEBUG] TimeSeriesSplitter: window_size={ts_splitter.window_size_raw}, min_window={ts_splitter.min_window}, max_window={ts_splitter.max_window}, perc_step_size={ts_splitter.perc_step_size}")
         
@@ -136,13 +139,12 @@ def run_exp(args, other_args=None):
         args.feature_extractor, 
         window_size=args.window_size, 
         stride=args.step_size, 
+        callback_handler=handler,
         n_kernel=args.n_kernel,
         **getattr(args, 'fe_params', {})  # Inietta automaticamente 'selected_features'!
     )
 
-    classifier, is_supervised = create_classifier(args, other_args)
-    
-    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+    classifier, is_supervised = create_classifier(args, other_args, callback_handler=handler)
 
     run_id = f"continual_{args.dataset}_{args.model}"
     if args.model == "dpmm":
@@ -164,9 +166,9 @@ def run_exp(args, other_args=None):
     detector_params = getattr(args, 'detector_params', {})
     detector = None
     if args.detector == "threshold":
-        detector = ThresholdDetector(**{**dict(threshold=0.9), **detector_params})
+        detector = ThresholdDetector(**{**dict(threshold=0.9, callback_handler=handler), **detector_params})
     elif args.detector == "molookde":
-        detector = MoLooKDEDetector(**{**dict(alpha=0.05), **detector_params})
+        detector = MoLooKDEDetector(**{**dict(alpha=0.05, callback_handler=handler), **detector_params})
     else:  # "none"
         detector = None
 

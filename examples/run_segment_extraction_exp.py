@@ -116,20 +116,20 @@ def run_exp(args, other_args=None, _suppress_output=False):
     """Run experiment."""
     set_seed(getattr(args, 'seed', 40))
 
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+
     from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector, QuantileThresholdDetector
     detector_params = getattr(args, 'detector_params', {})
     detector = None
     if args.detector == "threshold":
-        detector = ThresholdDetector(**{**dict(threshold=0.9), **detector_params})
+        detector = ThresholdDetector(**{**dict(threshold=0.9, callback_handler=handler), **detector_params})
     elif args.detector == "quantile":
-        detector = QuantileThresholdDetector(**{**dict(quantile=0.95), **detector_params})
+        detector = QuantileThresholdDetector(**{**dict(quantile=0.95, callback_handler=handler), **detector_params})
     elif args.detector == "molookde":
-        detector = MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
+        detector = MoLooKDEDetector(**{**dict(alpha=0.001, callback_handler=handler), **detector_params})
     else:  # "none"
         detector = None
-        args.detector = "no_detector"
-    
-    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+        args.detector = "none"
 
     run_id = f"{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}"
     if args.model == "dpmm":
@@ -154,17 +154,19 @@ def run_exp(args, other_args=None, _suppress_output=False):
             min_window=getattr(args, 'min_window', None) or 10,
             max_window=getattr(args, 'max_window', None) or 300,
             perc_step_size=getattr(args, 'perc_step_size', None) or 1.0,
+            callback_handler=handler,
         )
         
         feature_extractor = get_feature_extractor(
             args.feature_extractor,
             window_size=args.window_size,
             stride=args.step_size,
+            callback_handler=handler,
             n_kernel=args.n_kernel,
             **getattr(args, 'feature_extraction_params', getattr(args, 'fe_params', {}))
         )
 
-        classifier, is_supervised = create_classifier(args, other_args)
+        classifier, is_supervised = create_classifier(args, other_args, callback_handler=handler)
 
         rolling_window_classifier = RollingWindowClassifier(
             base_classifier=classifier,

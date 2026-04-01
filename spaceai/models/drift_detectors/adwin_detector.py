@@ -1,6 +1,9 @@
 """ADWIN-based concept drift detector using the river library."""
 
-from river import drift  # type: ignore
+try:
+    from river import drift  # type: ignore
+except ImportError:
+    drift = None
 
 from .drift_detector import DriftDetector
 

@@ -122,7 +122,7 @@ class ESA(
         root: str,
         mission: ESAMission,
         channel_id: str,
-        mode: Literal["prediction", "anomaly", "challenge", "continual"],
+        mode: Literal["prediction", "anomaly", "challenge"],
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
@@ -131,7 +131,6 @@ class ESA(
         uniform_start_end_date: bool = True,
         drop_last: bool = True,
         use_telecommands: bool = True,
-        max_gap_sigma: float = 3.0,
     ):
         """ESABenchmark class that preprocesses and loads ESA dataset for training and
         testing.
@@ -167,7 +166,6 @@ class ESA(
         self.drop_last: bool = drop_last
         self.n_predictions: int = n_predictions
         self.use_telecommands: bool = use_telecommands
-        self.max_gap_sigma: float = max_gap_sigma
 
         if not channel_id in self.mission.all_channels:
             raise ValueError(f"Channel ID {channel_id} is not valid")
@@ -335,8 +333,7 @@ class ESA(
             
         if len(resampled_blocks) > 0:
             final_param_df = pd.concat(resampled_blocks)
-            
-            # Reconstruct valid block intervals
+
             block_intervals = []
             curr_idx = 0
             for block in resampled_blocks:
@@ -362,15 +359,13 @@ class ESA(
         """
         source_folder = os.path.join(self.root, self.mission.inner_dirpath)
         if not self.train and self._mode == "challenge":
-
             return self.load_challenge_channel(channel_id)
-        # Load and format parameter (channel)
+
         if channel_id in self.mission.parameters:
             channel_df = pd.read_pickle(
                 os.path.join(source_folder, "channels", f"{channel_id}.zip")
             )
 
-        # Load and format telecommand
         elif channel_id in self.mission.telecommands:
             channel_df = pd.read_pickle(
                 os.path.join(source_folder, "telecommands", f"{channel_id}.zip"),
@@ -418,7 +413,7 @@ class ESA(
                 telecommands_df = telecommand_dfs[0]
                 for df in telecommand_dfs[1:]:
                     telecommands_df = telecommands_df.join(df, how="outer")
-                # Assicura che tutti i valori mancanti siano riempiti con 0
+                
                 telecommands_df = telecommands_df.fillna(0)
                 channel_df = channel_df.join(telecommands_df, how="left")
 
@@ -487,7 +482,7 @@ class ESA(
 
         import pyarrow.parquet as pq  # type: ignore
 
-        source_folder = os.path.join(self.root, "ESA-Mission1-challenge")
+        source_folder = os.path.join(self.root, self.mission.dirname, "ESA-Mission1-challenge")
         table = pq.read_table(os.path.join(source_folder, "test.parquet"))
         df = table.to_pandas()
 
@@ -499,6 +494,12 @@ class ESA(
 
         selected_cols = [channel_id] + telecommand_cols
         channel = df[selected_cols]
+
+        for id_col in ["UT", "id"]:
+            if id_col in df.columns:
+                self.timestamps = df[id_col].values
+                self.id_column_name = id_col
+                break
 
         return channel.values.astype(np.float32), [], [], [(0, len(channel))]
 

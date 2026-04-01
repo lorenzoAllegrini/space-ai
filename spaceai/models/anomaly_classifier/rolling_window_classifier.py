@@ -58,8 +58,10 @@ class RollingWindowClassifier(AnomalyClassifier):
         # Segmentation: ensure the message is segmented
         message = self.ts_splitter.fit_transform(message)
         
-        print(f"[DEBUG] _prepare_input (train) took {time.time() - t0:.2f}s. Segments: {len(message.data)}")
-        results['window_size'] = getattr(self.ts_splitter, "window_size", None)
+        # Capture resolved window size in results
+        self.window_size = getattr(self.ts_splitter, "window_size", None)
+        results['window_size'] = self.window_size
+        logging.info("Resolved window_size for channel %s: %s", getattr(message, "channel_id", "unknown"), self.window_size)
 
         X = message.data
         y = message.labels
@@ -100,14 +102,11 @@ class RollingWindowClassifier(AnomalyClassifier):
             else:
                 train_msg = self.feature_extractor.fit_transform(train_msg)
             X_train = train_msg.data
-            print(f"[DEBUG] feature_extractor.fit_transform took {time.time() - t0:.2f}s")
             
             if val_msg is not None:
                 self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
-                t0 = time.time()
                 val_msg = self.feature_extractor.transform(val_msg)
                 X_val = val_msg.data
-                print(f"[DEBUG] feature_extractor.transform (val) took {time.time() - t0:.2f}s")
                 
         # Clear context after use
         if self.feature_extractor is not None:
@@ -115,8 +114,16 @@ class RollingWindowClassifier(AnomalyClassifier):
 
         # Short-circuit if no features were selected
         if self.feature_extractor is not None and self.feature_extractor.kill_switch_active:
-            print(f"[DEBUG] RollingWindowClassifier short-circuit in fit (0 features).")
-            return results
+            logging.warning("Kill-switch active: No features selected for channel.")
+            if X_val is not None:
+                self.val_results_ = {
+                    "y_true": y[split_idx:] if y is not None else None,
+                    "y_pred": np.zeros(len(X_val)),
+                    "true_intervals": val_msg.true_intervals if val_msg is not None else None,
+                    "original_indices": idx_val,
+                }
+            results["kill_switch_active"] = True
+            return {**results, **message.metadata}
 
         with self._callback_context("fitting", results):
             t0 = time.time()
@@ -130,26 +137,29 @@ class RollingWindowClassifier(AnomalyClassifier):
                     self.base_classifier.fit(X_train, results=results)
                 except (TypeError, ValueError):
                     self.base_classifier.fit(X_train)
-            print(f"[DEBUG] base_classifier.fit took {time.time() - t0:.2f}s")
         
         if self.detector is not None and hasattr(self.detector, 'fit'):
             with self._callback_context("detector_calibration", results):
                 if X_val is not None:
-                    print(f"[DEBUG] Fitting detector on X_val (length: {len(X_val)})")
-                    t0 = time.time()
                     val_scores = self.base_classifier.predict(X_val)
+                    if y_val is not None:
+                        idx_nominal = np.where(y_val == 0)[0]
+                        if len(idx_nominal) > 0:
+                            logging.info("Detector Calibration: Using %d/%d nominal validation samples.", len(idx_nominal), len(val_scores))
+                            val_scores = val_scores[idx_nominal]
+                        else:
+                            logging.warning("No nominal data in validation split for detector calibration. Using all data.")
                     self.detector.fit(val_scores)
-                    print(f"[DEBUG] detector calibration (val) took {time.time() - t0:.2f}s")
                 else:
                     # Fallback sui dati di train (attenzione all'overfitting delle soglie)
-                    print(f"[DEBUG] X_val is None. Falling back to X_train (length: {len(X_train)})")
-                    t0 = time.time()
                     train_scores = self.base_classifier.predict(X_train)
-                    print(f"[DEBUG] base_classifier.predict (train scores) took {time.time() - t0:.2f}s")
+                    if y_train is not None:
+                        idx_nominal = np.where(y_train == 0)[0]
+                        if len(idx_nominal) > 0:
+                            train_scores = train_scores[idx_nominal]
                     self.detector.fit(train_scores)
-                    print(f"[DEBUG] detector calibration (train) took {time.time() - t0:.2f}s")
 
-        return results
+        return {**results, **message.metadata}
 
     def predict(
         self, 
@@ -167,18 +177,14 @@ class RollingWindowClassifier(AnomalyClassifier):
         
         # 2. Segmentation
         message = self.ts_splitter.transform(message)
-        print(f"[DEBUG] _prepare_input (test) took {time.time() - t0:.2f}s. Segments: {len(message.data)}")
 
         # 3. Feature Extraction
         if self.feature_extractor is not None:
             self.feature_extractor.set_context(dataset=getattr(message, "original_dataset", None), indices=message.original_indices)
-            t0 = time.time()
             message = self.feature_extractor.transform(message)
-            print(f"[DEBUG] feature_extractor.transform (test) took {time.time() - t0:.2f}s")
             self.feature_extractor.clear_context()
             
             if getattr(self.feature_extractor, "kill_switch_active", False):
-                print("[DEBUG] Feature selection kill-switch is ACTIVE. Forcing zero anomalies.")
                 return np.zeros(len(message.data)), results
         
         channel_data_proc = message.data
@@ -199,16 +205,10 @@ class RollingWindowClassifier(AnomalyClassifier):
                         y_pred = y_pred[:, 1]
                 else:
                     y_pred = self.base_classifier.predict(channel_data_proc)
-            
-            print(f"[DEBUG] base_classifier.predict took {time.time() - t0:.2f}s")
-            print(f"[DEBUG] y_pred stats - min: {y_pred.min():.4f}, max: {y_pred.max():.4f}, mean: {y_pred.mean():.4f}")
-            print(f"[DEBUG] y_pred counts - >0: {np.sum(y_pred > 0)}, >0.5: {np.sum(y_pred > 0.5)}, ==1: {np.sum(y_pred == 1)}")
 
         if self.detector is not None:
             with self._callback_context("detection", results):
-                t0 = time.time()
                 y_pred = self.detector.detect(y_pred)
-                print(f"[DEBUG] detector.detect took {time.time() - t0:.2f}s")
 
         return y_pred, results
 

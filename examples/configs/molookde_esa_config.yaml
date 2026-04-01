@@ -1,5 +1,5 @@
-# dpmm_esa_likelihood_config.yaml
-# Configurazione per esperimenti DPMM su ESA utilizzando solo la likelihood interna (senza detector)
+# molookde_esa_config.yaml
+# Esperimenti su ESA con MoLooKDE
 
 base_dir: "./datasets"           
 exp_dir: "experiments"
@@ -8,31 +8,46 @@ mission_id: 1
 model: "dpmm"
 dpmm_type: "unit"            
 dpmm_mode: "likelihood_threshold"
-detector: "none"
+detector: ["molookde", "dpmm_native"]
 segmentator: false
+perc_eval: 0.3
+challenge: false
+
 feature_extractor: 
   - "base_statistics"
 
 feature_extraction_params:
   max_features: 5
   selected_features: null
-
+  
 window_size: null
 step_size: null
 max_window: 500
 min_window: 150
 perc_step_size: 0.5
 
-eval_perc: 0.2
-
 channels: null
 
+
 base_classifier_params:
+  dynamic_scaling: [true, false]
+  scaler_window: 1000
   n_clusters: 100
-  num_iterations: 100
-  lr: 0.3
+  num_iterations: 1000
+  patience: 100
+  min_delta: 0.001
+  restore_best: true
+  lr: 0.5
   alpha_dp: 3.0
   var_prior: 3.0
   var_prior_strength: 1.0
   mu_prior_strength: 0.001
-  quantile: 0.003
+  quantile: 0.001
+  return_likelihood: true
+
+detector_params:
+  alpha: 0.01
+  p: 3.0
+  pot_percentile: 98.0
+  smoothing_alpha: 0.2
+  min_allowed_ll: -200.0

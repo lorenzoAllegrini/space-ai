@@ -34,37 +34,56 @@ class BaseClassifier(CallbackMixin, ABC):
 
         from spaceai.models.anomaly_classifier.anomaly_classifier import PipelineMessage
 
+        # If already a list of messages (or multiple message arguments), return as is
+        # Using class name check for robustness against dynamic import issues
+        def is_msg(obj):
+            return obj is not None and (obj.__class__.__name__ == "PipelineMessage" or hasattr(obj, "results"))
+
+        if len(args) > 0 and is_msg(args[0]):
+            msg_train = args[0]
+            msg_val = args[1] if len(args) > 1 and is_msg(args[1]) else None
+            return [msg_train, msg_val]
+
         # If already a list of messages, return as is
-        if isinstance(X, list) and len(X) > 0 and isinstance(X[0], PipelineMessage):
+        if isinstance(X, list) and len(X) > 0 and is_msg(X[0]):
             msg_train = X[0]
             msg_val = X[1] if len(X) > 1 else None
             return [msg_train, msg_val]
 
         # If a single message, wrap it
-        if isinstance(X, PipelineMessage):
+        if is_msg(X):
             return [X, None]
 
         # Handle Pandas DataFrame
         import pandas as pd
         if isinstance(X, pd.DataFrame):
-            msg_train = PipelineMessage(data=X.values, labels=y, results=results, metadata=metadata)
+            msg_train = PipelineMessage(data=X.values, labels=y, 
+                                       results=results if results is not None else {}, 
+                                       metadata=metadata if metadata is not None else {})
             return [msg_train, None]
+
+        msg_val = kwargs.get("msg_val")
 
         # Handle list of numpy arrays (train/val split)
         if isinstance(X, list) and len(X) > 0 and isinstance(X[0], np.ndarray):
             X_train = X[0]
             y_train = y[0] if isinstance(y, list) and len(y) > 0 else y
-            msg_train = PipelineMessage(data=X_train, labels=y_train, results=results, metadata=metadata)
-            msg_val = None
-            if len(X) > 1:
+            msg_train = PipelineMessage(data=X_train, labels=y_train, 
+                                       results=results if results is not None else {}, 
+                                       metadata=metadata if metadata is not None else {})
+            if msg_val is None and len(X) > 1:
                 X_val = X[1]
                 y_val = y[1] if isinstance(y, list) and len(y) > 1 else None
-                msg_val = PipelineMessage(data=X_val, labels=y_val, results=results, metadata=metadata)
+                msg_val = PipelineMessage(data=X_val, labels=y_val, 
+                                         results=results if results is not None else {}, 
+                                         metadata=metadata if metadata is not None else {})
             return [msg_train, msg_val]
 
         # Default case: single raw array
-        msg_train = PipelineMessage(data=X, labels=y, results=results, metadata=metadata)
-        return [msg_train, None]
+        msg_train = PipelineMessage(data=X, labels=y, 
+                                   results=results if results is not None else {}, 
+                                   metadata=metadata if metadata is not None else {})
+        return [msg_train, msg_val]
 
     def fit(self, *args, **kwargs) -> "BaseClassifier":
         """
@@ -103,7 +122,6 @@ class BaseClassifier(CallbackMixin, ABC):
         msgs = self.prepare_data(*args, **kwargs)
         msg_test = msgs[0]
         
-        # Execute internal hook
         scores = self._predict(msg_test.data, results=msg_test.results)
         
         if is_pipeline_mode:
@@ -111,11 +129,11 @@ class BaseClassifier(CallbackMixin, ABC):
             return msg_test
         return scores
 
-    def _predict(
-        self, 
-        X: np.ndarray, 
-        results: Optional[Dict[str, Any]] = None
-    ) -> np.ndarray:
+    def transform(self, X: Union[np.ndarray, "PipelineMessage"]) -> Union[np.ndarray, "PipelineMessage"]:
+        """Alias for predict to support modular pipelines."""
+        return self.predict(X)
+
+    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:
         """Internal prediction implementation for raw data."""
         pass
 
@@ -133,24 +151,70 @@ class BaseClassifier(CallbackMixin, ABC):
 class SklearnClassifier(BaseClassifier):
     """Generic wrapper for sklearn/PyOD models to fit the BaseClassifier interface."""
     
-    def __init__(self, model: Any, supervised: bool = False, callback_handler: Optional[CallbackHandler] = None):
+    def __init__(self, model: Any, supervised: bool = False, return_labels: bool = False, callback_handler: Optional[CallbackHandler] = None):
         super().__init__(callback_handler=callback_handler)
         self.model = model
         self.supervised = supervised
+        self.return_labels = return_labels
 
     def _fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None, **kwargs) -> None:
-        if self.supervised:
-            self.model.fit(X, y)
+        import inspect
+        call_kwargs = {}
+        
+        # Propagation to Pipeline steps if needed using <step>__<param> syntax
+        msg_val = kwargs.get("msg_val")
+        if hasattr(self.model, "steps"): # It's a Pipeline
+            for name, step in self.model.steps:
+                try:
+                    sig = inspect.signature(step.fit)
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if "results" in sig.parameters or has_kwargs:
+                        call_kwargs[f"{name}__results"] = results
+                    if "msg_val" in sig.parameters or has_kwargs:
+                        call_kwargs[f"{name}__msg_val"] = msg_val
+                except (ValueError, TypeError):
+                    continue
         else:
-            self.model.fit(X)
+            try:
+                sig = inspect.signature(self.model.fit)
+                has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                if "results" in sig.parameters or has_kwargs:
+                    call_kwargs["results"] = results
+                if "msg_val" in sig.parameters or has_kwargs:
+                    call_kwargs["msg_val"] = msg_val
+            except (ValueError, TypeError):
+                pass
 
-    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
+        if self.supervised:
+            self.model.fit(X, y, **call_kwargs)
+        else:
+            self.model.fit(X, **call_kwargs)
+
+    def _predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:
+        import inspect
+        # Try to find the prediction method
+        pred_method = None
+        if self.return_labels:
+            pred_method = self.model.predict
+        elif hasattr(self.model, "decision_function"):
+            pred_method = self.model.decision_function
+        elif hasattr(self.model, "predict_proba"):
+            pred_method = self.model.predict_proba
+        
+        call_kwargs = {}
+        if pred_method and "results" in inspect.signature(pred_method).parameters:
+            call_kwargs["results"] = results
+
+        # If return_labels is True, use direct predict (binary labels)
+        if self.return_labels:
+            return self.model.predict(X, **call_kwargs)
+
         # Prefer decision_function for raw anomaly scores
         if hasattr(self.model, "decision_function"):
-            return self.model.decision_function(X)
+            return self.model.decision_function(X, **call_kwargs)
             
         if hasattr(self.model, "predict_proba"):
-            probs = self.model.predict_proba(X)
+            probs = self.model.predict_proba(X, **call_kwargs)
             if probs.ndim > 1 and probs.shape[1] == 2:
                 return probs[:, 1]
             return probs

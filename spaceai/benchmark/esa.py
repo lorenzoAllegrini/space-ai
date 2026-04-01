@@ -31,6 +31,7 @@ class ESABenchmark(Benchmark):
         exp_dir: str,
         mission: Optional[ESAMission] = None,
         data_root: str = "datasets",
+        challenge: bool = False,
     ):
         """Initializes a new benchmark run.
 
@@ -38,8 +39,10 @@ class ESABenchmark(Benchmark):
             run_id (str): A unique identifier for this run.
             exp_dir (str): The directory where the results of this run are stored.
             mission (Optional[ESAMission]): the ESA mission to use.
+            data_root (str): The root directory of the data.
+            challenge (bool): Whether to run in challenge mode (blind inference).
         """
-        super().__init__(run_id, exp_dir, data_root)
+        super().__init__(run_id, exp_dir, data_root, challenge=challenge)
         self.mission = mission
 
     @property
@@ -60,7 +63,7 @@ class ESABenchmark(Benchmark):
 
 
     def load_channel(
-        self, channel_id: str, mode: str = "train", overlapping_train: bool = True, **kwargs
+        self, channel_id: str, train: bool = True, overlapping_train: bool = True, **kwargs
     ) -> ESA:
         """Load the training or testing dataset for a given channel."""
         if self.mission is None:
@@ -68,34 +71,23 @@ class ESABenchmark(Benchmark):
             
         continual = kwargs.pop("continual", False)
             
-        if mode == "train":
+        if train:
             return ESA(
                 root=self.data_root,
                 mission=self.mission,
                 channel_id=channel_id,
-                mode="prediction" if not continual else "continual",
+                mode="prediction" if not self.challenge else "challenge",
                 overlapping=overlapping_train,
                 **kwargs
             )
-        elif mode == "test":
+        else:
             return ESA(
                 root=self.data_root,
                 mission=self.mission,
                 channel_id=channel_id,
-                mode="anomaly",
+                mode="anomaly" if not self.challenge else "challenge",
                 overlapping=False,
                 train=False,
                 drop_last=False,
-                **kwargs
-            )
-        else:
-            # Flexible mode for challenge, continual, etc.
-            return ESA(
-                root=self.data_root,
-                mission=self.mission,
-                channel_id=channel_id,
-                mode=mode,
-                overlapping=overlapping_train if mode != "challenge" else False,
-                train=False if mode == "challenge" else True,
                 **kwargs
             )

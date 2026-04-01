@@ -29,6 +29,7 @@ def get_dataset_benchmark(
     run_id: str = "exp",
     exp_dir: str = "experiments",
     mission_id: int = 1,
+    challenge: bool = False,
 ):
     """Get the benchmark object for the dataset."""
     if dataset_name == "esa":
@@ -39,6 +40,7 @@ def get_dataset_benchmark(
             run_id=run_id,
             exp_dir=exp_dir,
             mission=mission,
+            challenge=challenge,
         )
     elif dataset_name == "nasa":
         return NASABenchmark(

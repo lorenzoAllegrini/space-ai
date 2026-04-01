@@ -13,6 +13,13 @@ class CallbackMixin:
         self._kill_switch_active = False
         super().__init__(**kwargs)
 
+    def __getstate__(self):
+        """Prepare state for serialization, excluding the unpicklable callback_handler."""
+        state = self.__dict__.copy()
+        # Ensure the handler is removed from the pickled state
+        state['callback_handler'] = None
+        return state
+
     @property
     def kill_switch_active(self) -> bool:
         """

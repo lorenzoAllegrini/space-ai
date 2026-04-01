@@ -14,7 +14,7 @@ from .feature_union import FeatureUnion
 
 
 def get_feature_extractor(
-    name: str, window_size: int, stride: int, **kwargs
+    name: str, window_size: int, stride: int, callback_handler=None, **kwargs
 ) -> Optional[Any]:
     """
     Factory function to get a feature extractor by name.
@@ -31,7 +31,7 @@ def get_feature_extractor(
     if isinstance(name, list):
         extractors = []
         for n in name:
-            ext = get_feature_extractor(n, window_size, stride, **kwargs)
+            ext = get_feature_extractor(n, window_size, stride, callback_handler=callback_handler, **kwargs)
             if ext:
                 extractors.append(ext)
         return FeatureUnion(extractors) if extractors else None
@@ -40,6 +40,13 @@ def get_feature_extractor(
         selected_features = kwargs.pop("selected_features", None)
         transformations = FEATURE_MAP
         if selected_features:
+            if any(isinstance(x, list) for x in selected_features):
+                raise ValueError(
+                    "Error: 'selected_features' contains a list of lists. "
+                    "You are trying to run a grid search (sweep) using `run_pipeline.py` instead of `run_all_pipelines.py`.\n"
+                    "Please run: `poetry run python examples/run_all_pipelines.py --config YOUR_CONFIG.yaml`\n"
+                    "Or modify the config to only contain a single, flat list of features."
+                )
             transformations = {
                 k: v for k, v in FEATURE_MAP.items() if k in selected_features
             }
@@ -49,6 +56,7 @@ def get_feature_extractor(
             transformations=transformations,
             window_size=window_size,
             stride=stride,
+            callback_handler=callback_handler,
             **kwargs,
         )
     elif name == "rocket":
@@ -60,7 +68,7 @@ def get_feature_extractor(
             del kwargs["num_kernels"]
 
         return RocketFeatureExtractor(
-            window_size=window_size, stride=stride, num_kernels=num_kernels, **kwargs
+            window_size=window_size, stride=stride, num_kernels=num_kernels, callback_handler=callback_handler, **kwargs
         )
     elif name == "global_discord":
         m = kwargs.pop("m", 15)

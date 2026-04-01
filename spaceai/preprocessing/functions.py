@@ -192,13 +192,13 @@ def internal_matrix_profile_max(windows: np.ndarray, m: Optional[int] = None) ->
 
     def _compute_single_mp_max(w, m_val):
         mp = stumpy.stump(w.astype(np.float64), m_val)
-        return np.max(mp[:, 0])
+        return float(np.max(mp[:, 0]))
 
     discord_scores = Parallel(n_jobs=-1)(
         delayed(_compute_single_mp_max)(windows[i], m) 
         for i in range(windows.shape[0])
     )
-    return np.array(discord_scores)
+    return np.array(discord_scores, dtype=np.float64)
 
 
 def diff2(x):

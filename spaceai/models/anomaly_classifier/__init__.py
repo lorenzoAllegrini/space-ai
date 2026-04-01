@@ -7,8 +7,14 @@ from .anomaly_classifier import (
 )
 from spaceai.models.anomaly.dpmm_detector import DPMM, DPMMDetector
 from spaceai.models.anomaly.rockad import RockadClassifier, NearestNeighborOCC
-from spaceai.models.anomaly.ndpm_detector import NDPMDetector
+try:
+    from spaceai.models.anomaly.ndpm_detector import NDPMDetector
+except ImportError:
+    NDPMDetector = None
+    import logging
+    logging.warning("NDPMDetector not available (missing tensorboardX or other dependencies).")
 from .adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
+from .sml_client_pipeline import SMLClientPipeline
 
 __all__ = [
     "AnomalyClassifier",
@@ -20,5 +26,6 @@ __all__ = [
     "NearestNeighborOCC",
     "NDPMDetector",
     "AdaptiveRollingWindowClassifier",
+    "SMLClientPipeline",
 ]
 

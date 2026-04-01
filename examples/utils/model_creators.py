@@ -40,7 +40,8 @@ from spaceai.models.anomaly import (
     SklearnClassifier,
     ThresholdDetector, 
     MoLooKDEDetector, 
-    QuantileThresholdDetector
+    QuantileThresholdDetector,
+    DPMMNativeDetector
 )
 import os
 import logging
@@ -61,12 +62,7 @@ class RollingRobustScalerWithPrior(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         """Calculate global IQR on training data as a prior."""
-        import time
-
-        t0 = time.time()
-        # Aggiungiamo 1e-12 per stabilità numerica.
         self.prior_iqr_ = scipy_iqr(X, axis=0) + 1e-12
-        print(f"[DEBUG] RollingRobustScalerWithPrior.fit took {time.time() - t0:.2f}s")
         return self
 
     def transform(self, X):
@@ -74,30 +70,20 @@ class RollingRobustScalerWithPrior(BaseEstimator, TransformerMixin):
         if self.prior_iqr_ is None:
             raise ValueError("Scaler must be fitted before transform.")
 
-        import time
-
-        t0 = time.time()
         df = pd.DataFrame(X)
         roll = df.rolling(window=self.window, min_periods=1)
 
-        # La mediana mobile segue la nuova baseline (cancella il concept drift)
         rolling_median = roll.median()
 
-        # L'IQR mobile stima la variazione locale
         rolling_q75 = roll.quantile(0.75)
         rolling_q25 = roll.quantile(0.25)
         rolling_iqr = rolling_q75 - rolling_q25
 
-        # Se il segnale è "piatto", usiamo l'IQR storico per schiacciare i valori
         denominator = np.maximum(rolling_iqr.values, self.prior_iqr_)
 
         X_scaled = (df - rolling_median) / denominator
         res = X_scaled.values
-        print(
-            f"[DEBUG] RollingRobustScalerWithPrior.transform took {time.time() - t0:.2f}s for {len(X)} samples"
-        )
         return res
-    
 
 
 def get_rockad_classifier(_num_kernels):
@@ -129,7 +115,7 @@ def get_xgboost_classifier(base_params=None):
     return pipeline, True
 
 
-def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
+def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None, callback_handler=None):
     """Get DPMM classifier."""
     parser = get_dpmm_argparser()
     config, _ = parser.parse_known_args(other_dpmm_args)
@@ -142,7 +128,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     scaler = (
         RollingRobustScalerWithPrior(window=scaler_window)
         if dynamic_scaling
-        else RobustScaler(with_centering=False)
+        else RobustScaler(with_centering=True)
     )
 
     if base_params:
@@ -151,7 +137,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("dpmm", DPMM(mode=mode, model_type=model_type, **config_dict)),
+            ("dpmm", DPMM(mode=mode, model_type=model_type, callback_handler=callback_handler, **config_dict)),
         ]
     )
     return pipeline, mode != "likelihood_threshold"
@@ -383,15 +369,18 @@ def get_ocsvm_classifier(base_params=None):
     return pipeline, False
 
 
-def create_classifier(args, other_args):
+def create_classifier(args, other_args, callback_handler=None):
     """Create the classifier factory based on arguments."""
     model_id = format_str(args.model)
     # Extract extra parameters from YAML config if available
     base_params = getattr(args, "base_classifier_params", {})
 
     if model_id == "dpmm":
+        if getattr(args, "detector", None) == "dpmm_native":
+            base_params["return_likelihood"] = True
+            
         classifier, supervised = get_dpmm_classifier(
-            args.dpmm_type, args.dpmm_mode, other_args, base_params=base_params
+            args.dpmm_type, args.dpmm_mode, other_args, base_params=base_params, callback_handler=callback_handler
         )
     elif model_id == "ocsvm":
         classifier, supervised = get_ocsvm_classifier(base_params=base_params)
@@ -429,22 +418,26 @@ def create_classifier(args, other_args):
     if not hasattr(classifier, "role"):
         classifier = SklearnClassifier(
             model=classifier,
-            supervised=supervised
+            supervised=supervised,
+            callback_handler=callback_handler,
+            return_labels=getattr(args, "detector", "none") in [None, "none", "no_detector"]
         )
     
     return classifier, supervised
 
 
-def create_detector(args):
+def create_detector(args, callback_handler=None):
     """Create the anomaly detector based on arguments."""
     detector_params = getattr(args, 'detector_params', {})
     
     if args.detector == "threshold":
-        return ThresholdDetector(**{**dict(threshold=0.9), **detector_params})
+        return ThresholdDetector(**{**dict(threshold=0.9, callback_handler=callback_handler), **detector_params})
     elif args.detector == "quantile":
-        return QuantileThresholdDetector(**{**dict(quantile=0.95), **detector_params})
+        return QuantileThresholdDetector(**{**dict(quantile=0.95, callback_handler=callback_handler), **detector_params})
     elif args.detector == "molookde":
-        return MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
+        return MoLooKDEDetector(**{**dict(alpha=0.001, callback_handler=callback_handler), **detector_params})
+    elif args.detector == "dpmm_native":
+        return DPMMNativeDetector(**{**dict(callback_handler=callback_handler), **detector_params})
     elif args.detector == "none":
         return None
     else:

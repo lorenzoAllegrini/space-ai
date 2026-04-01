@@ -1,22 +1,22 @@
 # iforest_esa_no_detector_config.yaml
-# Configurazione per esperimenti Isolation Forest su ESA senza detector esterno
+# Configurazione BILANCIATA per ESA Channel 12
 
 base_dir: "./datasets"           
 exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "iforest"
-detector: "threshold"
+detector: "none"
 segmentator: false
 feature_extractor: 
   - "base_statistics"
 
 feature_extraction_params:
-  max_features: 5
+  max_features: null
   selected_features: null
 
-window_size: null
-step_size: null
+window_size: 50
+step_size: 50
 max_window: 500
 min_window: 150
 perc_step_size: 1.0
@@ -30,6 +30,3 @@ base_classifier_params:
   n_estimators: 100
   contamination: 0.1
   random_state: 42
-
-detector_params:
-  threshold: 0.98

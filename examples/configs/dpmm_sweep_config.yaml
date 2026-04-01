@@ -1,5 +1,5 @@
-# dpmm_esa_global_config.yaml
-# Esperimenti su ESA con Modular Global Features
+# dpmm_sweep_config.yaml
+# Sweep config for DPMM experiments on ESA
 
 base_dir: "./datasets"           
 exp_dir: "experiments"
@@ -8,11 +8,12 @@ mission_id: 1
 model: "dpmm"
 dpmm_type: "unit"            
 dpmm_mode: "likelihood_threshold"
-detector: "molookde"
+
+# Parameter sweeps
+challenge: [true, false]
+detector: ["molookde", "none"]
 segmentator: false
 perc_eval: 0.3
-
-# Modular Feature Extraction
 feature_extractor: 
   - "base_statistics"
 
@@ -20,24 +21,23 @@ feature_extraction_params:
   max_features: 5
   selected_features: null
   
-window_size: null
-step_size: null
-max_window: 500
-min_window: 150
-perc_step_size: 0.5
+# User requested window_size to 1000 for these runs
+window_size: 1000
+step_size: 1000
+perc_step_size: 1.0
 
 channels: null
 
 
 base_classifier_params:
-  dynamic_scaling: true
+  dynamic_scaling: [true, false] # Sweep
   scaler_window: 1000
   n_clusters: 100
   num_iterations: 1000
-  patience: 100
+  patience: 30
   min_delta: 0.001
   restore_best: true
-  lr: 0.5
+  lr: 0.1
   alpha_dp: 3.0
   var_prior: 3.0
   var_prior_strength: 1.0
@@ -46,9 +46,9 @@ base_classifier_params:
   return_likelihood: true
 
 detector_params:
-  alpha: 0.01
+  alpha: 0.1
   p: 3.0
   unitize: true
-  pot_percentile: 93.0
+  pot_percentile: 70.0
   smoothing_alpha: 0.2
   min_allowed_ll: -200.0

@@ -122,7 +122,7 @@ class NASA(AnomalyDataset):
         channel_id: str,
         mode: Literal["prediction", "anomaly"],
         overlapping: bool = False,
-        seq_length: Optional[int] = 250,
+        seq_length: Optional[int] = None,
         n_predictions: int = 1,
         train: bool = True,
         download: bool = True,
@@ -140,12 +140,12 @@ class NASA(AnomalyDataset):
             drop_last (bool): whether to drop the last incomplete sequence
         """
         super().__init__(root)
-        if seq_length is None or seq_length < 1:
+        if seq_length is not None and seq_length < 1:
             raise ValueError(f"Invalid window size: {seq_length}")
         self.channel_id: str = channel_id
         self._mode: Literal["prediction", "anomaly"] = mode
         self.overlapping: bool = overlapping
-        self.window_size: int = seq_length if seq_length else 250
+        self.window_size: Optional[int] = seq_length
         self.train: bool = train
         self.drop_last: bool = drop_last
         self.n_predictions: int = n_predictions
@@ -175,6 +175,8 @@ class NASA(AnomalyDataset):
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
     ]:
         """Return the data at the given index."""
+        if self.window_size is None:
+            raise ValueError("window_size must be set before accessing items")
         if index < 0 or index >= len(self):
             raise IndexError(f"Index {index} out of bounds")
         first_idx = (
@@ -200,6 +202,8 @@ class NASA(AnomalyDataset):
         return x, y_true
 
     def __len__(self) -> int:
+        if self.window_size is None:
+            return self.data.shape[0]
         if self.overlapping:
             length = self.data.shape[0] - self.window_size - self.n_predictions + 1
             return length

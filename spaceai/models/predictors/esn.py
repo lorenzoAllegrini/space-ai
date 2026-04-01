@@ -14,7 +14,12 @@ from typing import (
 
 import numpy as np
 import torch
-from torchdyno.models.esn import EchoStateNetwork  # type: ignore
+try:
+    from torchdyno.models.esn import EchoStateNetwork  # type: ignore
+except ImportError:
+    EchoStateNetwork = None
+    import logging
+    logging.warning("torchdyno not found. ESN models will be unavailable.")
 
 if TYPE_CHECKING:
     from torch import Size, Tensor

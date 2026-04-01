@@ -6,21 +6,18 @@ model: "dpmm"
 dpmm_type: "unit"            
 dpmm_mode: "likelihood_threshold"
 
-# --- Fixed Parameters ---
 challenge: false
-detector: "dpmm_native"  # Uso il detector nativo che abbiamo appena creato
+detector: "dpmm_native"  
 feature_extractor: "base_statistics"
 
-perc_eval: 0.2
-window_size: null         # Finestra tipica per i segnali NASA
+perc_eval: 0.3
+window_size: null         
 step_size: null
-max_window: 300
-min_window: 150
-perc_step_size: 0.5
+perc_step_size: 1.0
 
 base_classifier_params:
-  #dynamic_scaling: true
-  #scaler_window: 100
+  dynamic_scaling: true
+  scaler_window: 100
   n_clusters: 10
   num_iterations: 1000
   patience: 100
@@ -33,9 +30,12 @@ base_classifier_params:
   mu_prior_strength: 0.001
   quantile: 0.0001
 
-
 feature_extraction_params:
   max_features: null
   selected_features: 
-    - ["spectral_entropy", "spectral_centroid", "dom_freq_energy"]
+    - "spectral_centroid"
+    - "smooth10_n_peaks"
+    - "fractal_roughness"
+    - "kurtosis"
 
+channels: null

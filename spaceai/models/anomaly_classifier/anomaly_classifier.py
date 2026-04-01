@@ -7,8 +7,9 @@ import numpy as np
 import pandas as pd
 import torch
 from dataclasses import dataclass, field
-from spaceai.benchmark.callbacks.mixin import CallbackMixin
+import logging
 
+from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from spaceai.benchmark.callbacks.handler import CallbackHandler
 from spaceai.data import AnomalyDataset
 
@@ -88,6 +89,11 @@ class PipelineMessage:
     save_dir: Optional[str] = None
     split_label: str = "train"  
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def replace(self, **kwargs) -> "PipelineMessage":
+        """Returns a new PipelineMessage with updated fields."""
+        import dataclasses
+        return dataclasses.replace(self, **kwargs)
 
 class AnomalyDetectionPipeline(AnomalyClassifier):
     """Modular anomaly detection pipeline with role-aware fit logic.
@@ -115,56 +121,93 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
         channel_labels: Optional[np.ndarray] = None, 
         results_dir: Optional[str] = None,
+        return_message: bool = False
     ) -> Dict[str, Any]:
         """
         Fit the model on time-series data, propagating metadata through PipelineMessage.
         Each processor is fitted sequentially and then transforms the message for the next stage.
         """
         msg = self._prepare_message(channel_data, channel_labels, save_dir=results_dir)
-        print(f"initial message: {msg}")
         msgs = self._split_data(msg)
-        print(f"messages afer splir: {msgs}")
         
         for name, processor in self.steps:
+            print(f"DEBUG: Pipeline FIT - Processing step: {name} ({processor.__class__.__name__})", flush=True)
             if hasattr(processor, "fit"):
                 processor.fit(*msgs)
 
+            if getattr(processor, "kill_switch_active", False) or \
+               any(m.metadata.get("kill_switch_active", False) for m in msgs):
+                logging.warning("Pipeline short-circuit at %s (%s). No features selected or empty data.", name, processor.__class__.__name__)
+                for m in msgs:
+                    m.metadata["kill_switch_active"] = True
+                self.kill_switch_active = True
+                for m in msgs:
+                    m.data = np.zeros(m.data.shape[0])
+                break
+
             if hasattr(processor, "transform"):
                 msgs = [processor.transform(m) for m in msgs]
+                for i, m in enumerate(msgs):
+                    shape = m.data.shape if hasattr(m.data, 'shape') else len(m.data) if hasattr(m.data, '__len__') else 'N/A'
+                    print(f"DEBUG: Pipeline FIT - Step {name} output {i} shape: {shape}", flush=True)
             
-            print(f"messages at {name}: {msgs}")
+        # Store validation results as attribute (sklearn convention)
+        if len(msgs) > 1:
+            val_msg = msgs[1]
+            self.val_results_ = {
+                "y_true": val_msg.labels,
+                "y_pred": val_msg.data,
+                "true_intervals": val_msg.true_intervals,
+                "original_indices": val_msg.original_indices,
+            }
+        else:
+            self.val_results_ = None
 
-            if processor.kill_switch_active:
-                print(f"[DEBUG] Pipeline fitting short-circuit at {name} ({processor.__class__.__name__}).")
-                break
-            
-        return msgs[0].results
+        if return_message:
+            return msgs[0] if len(msgs) == 1 else msgs
+        return {**msgs[0].results, **msgs[0].metadata}
 
     def predict(
         self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
-        results_dir: Optional[str] = None
+        results_dir: Optional[str] = None,
+        return_message: bool = False 
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Predict via the modular pipeline.
         """
         msg = self._prepare_message(channel_data, save_dir=results_dir, split_label="test")
 
+        if self.kill_switch_active:
+            logging.warning("Pipeline prediction short-circuit (kill switch activated during fit). Returning all zeros.")
+            n_samples = len(msg.data) if hasattr(msg.data, "__len__") else 0
+            return np.zeros(n_samples), {**msg.results, **msg.metadata}
+
         for name, processor in self.steps:
-            if hasattr(processor, "transform"):
-                msg = processor.transform(msg)
+            print(f"DEBUG: Pipeline PREDICT - Processing step: {name} ({processor.__class__.__name__})", flush=True)
+            if getattr(processor, "kill_switch_active", False) or msg.metadata.get("kill_switch_active", False):
+                logging.warning("Pipeline prediction short-circuit at %s (%s). Returning all zeros.", name, processor.__class__.__name__)
+                n_samples = len(msg.data) if hasattr(msg.data, "__len__") else 0
+                return np.zeros(n_samples), {**msg.results, **msg.metadata}
+
             if hasattr(processor, "predict"):
                 msg = processor.predict(msg)
+            elif hasattr(processor, "transform"):
+                msg = processor.transform(msg)
             
-            if getattr(processor, "kill_switch_active", False):
-                print(f"[DEBUG] Pipeline prediction short-circuit at {name} ({processor.__class__.__name__}).")
-                n_samples = len(msg.data) if hasattr(msg.data, "__len__") else 0
-                return np.zeros(n_samples), msg.results
-        print(np.max(msg.data))
+            shape = msg.data.shape if hasattr(msg.data, 'shape') else len(msg.data) if hasattr(msg.data, '__len__') else 'N/A'
+            print(f"DEBUG: Pipeline PREDICT - Step {name} output shape: {shape}", flush=True)
+            if hasattr(msg, 'pred_intervals') and msg.pred_intervals:
+                print(f"DEBUG: Pipeline PREDICT - Step {name} generated {len(msg.pred_intervals)} intervals.", flush=True)
+        if msg.original_indices is not None:
+            msg.results["original_indices"] = msg.original_indices
+
+        if return_message:
+            return msg
         return msg.data, msg.results
 
+    @staticmethod   
     def _prepare_message(
-        self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
         channel_labels: Optional[np.ndarray] = None,
         save_dir: Optional[str] = None,
@@ -233,27 +276,11 @@ class AnomalyDetectionPipeline(AnomalyClassifier):
         return []
 
      
-    def save(self, path: str) -> None:
-        """Save pipeline, temporarily stripping unpicklable callback handlers."""
+    def save(self, path: str):
+        """Save pipeline to disk."""
         import pickle
-        # Collect and strip handlers
-        saved_handlers = []
-        for name, proc in self.steps:
-            saved_handlers.append(getattr(proc, 'callback_handler', None))
-            if hasattr(proc, 'callback_handler'):
-                proc.callback_handler = None
-        own_handler = self.callback_handler
-        self.callback_handler = None
-        
-        try:
-            with open(path, 'wb') as f:
-                pickle.dump(self, f)
-        finally:
-            # Restore handlers
-            self.callback_handler = own_handler
-            for (name, proc), handler in zip(self.steps, saved_handlers):
-                if hasattr(proc, 'callback_handler'):
-                    proc.callback_handler = handler
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
     
     def map_to_timestamps(
         self, 

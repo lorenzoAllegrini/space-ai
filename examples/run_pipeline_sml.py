@@ -23,6 +23,7 @@ from utils.reproducibility import set_seed
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.models.anomaly_classifier import (
     AnomalyDetectionPipeline,
+    SMLClientPipeline
 )
 from spaceai.models.anomaly.base import SklearnClassifier
 from spaceai.benchmark import Benchmark, ESABenchmark
@@ -91,6 +92,8 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--run-id", type=str, help="Override automatically generated run_id")
     parser.add_argument("--challenge", action="store_true", help="Active blind inference for challenge")
     parser.add_argument("--skip-existent", action="store_true", help="Skip existing channels if results exist")
+    parser.add_argument("--server-ip", type=str, default="127.0.0.1", help="SML server IP")
+    parser.add_argument("--port", type=int, default=5557, help="SML server port")
 
     parser.set_defaults(**defaults)
     parsed_args, extra_argv = parser.parse_known_args(remaining_argv)
@@ -132,12 +135,13 @@ def run_exp(args, other_args=None):
     dp = getattr(args, 'detector_params', {})
     alpha = dp.get('alpha', 0.05)
     pot = dp.get('pot_percentile', 0.0)
+    p = dp.get('p', 0.0)
     
     if getattr(args, 'run_id', None):
         run_id = args.run_id
         print(f"Using provided run_id: {run_id}")
     else:
-        run_id = f"pipeline_{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}_lr{lr}_nc{n_cl}_adp{adp}_vp{vp}_vps{vps}_mps{mps}_q{q}_al{alpha}_po{pot}_ds{ds}_ch{ch}_ep{eval_perc}"
+        run_id = f"pipeline_{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}_lr{lr}_nc{n_cl}_adp{adp}_vp{vp}_vps{vps}_mps{mps}_q{q}_al{alpha}_po{pot}_p{p}_ds{ds}_ch{ch}_ep{eval_perc}"
         print(f"Generated run_id: {run_id}")
 
 
@@ -186,13 +190,20 @@ def run_exp(args, other_args=None):
 
         classifier, is_supervised = create_classifier(args, other_args, callback_handler=handler)
 
-        pipeline = AnomalyDetectionPipeline(
-            [
-                ("timeseries_splitter", timeseries_splitter),
-                ("feature_extractor", feature_extractor),
-                ("classifier", classifier),
-                ("detector", detector),
-            ],
+        pipeline = SMLClientPipeline(
+            local_pipeline=AnomalyDetectionPipeline(
+                [
+                    ("timeseries_splitter", timeseries_splitter),
+                    ("feature_extractor", feature_extractor),
+                    ("classifier", classifier),
+                    ("detector", detector),
+                ],
+                callback_handler=handler,
+                eval_perc=eval_perc,
+            ),
+            server_ip=args.server_ip,
+            port=args.port,
+            channel_id=channel_name,
             callback_handler=handler,
             eval_perc=eval_perc,
         )

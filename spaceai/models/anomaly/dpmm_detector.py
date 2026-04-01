@@ -9,12 +9,18 @@ import pandas as pd
 import numpy as np
 import torch as th
 from torch import optim
-from torch_dpmm.models import (  # type: ignore # pylint: disable=import-error
-    DiagonalGaussianDPMM,
-    FullGaussianDPMM,
-    IsotropicGaussianDPMM,
-    UnitGaussianDPMM,
-)
+try:
+    from torch_dpmm.models import (  # type: ignore # pylint: disable=import-error
+        DiagonalGaussianDPMM,
+        FullGaussianDPMM,
+        IsotropicGaussianDPMM,
+        UnitGaussianDPMM,
+    )
+except ImportError:
+    class DiagonalGaussianDPMM: pass
+    class FullGaussianDPMM: pass
+    class IsotropicGaussianDPMM: pass
+    class UnitGaussianDPMM: pass
 from tqdm import tqdm  # type: ignore
 
 from .base import BaseClassifier
@@ -60,6 +66,11 @@ class DPMM(BaseClassifier):
         **kwargs
     ):
         assert mode in ["likelihood_threshold", "cluster_labels"]
+        # Early Stopping (pop BEFORE super().__init__ to avoid leaking to object.__init__)
+        self.patience = kwargs.pop("patience", None)
+        self.min_delta = kwargs.pop("min_delta", 0.0)
+        self.restore_best = kwargs.pop("restore_best", True)
+        
         super().__init__(callback_handler=callback_handler, **kwargs)
         self.mode = mode
         self.model_type = model_type
@@ -71,11 +82,6 @@ class DPMM(BaseClassifier):
         self.var_prior_strength = float(var_prior_strength)
         self.mu_prior_strength = float(mu_prior_strength)
         self.quantile = float(quantile)
-        
-        # Early Stopping
-        self.patience = kwargs.get("patience", None)
-        self.min_delta = kwargs.get("min_delta", 0.0)
-        self.restore_best = kwargs.get("restore_best", True)
 
         self.dpmm_model = None
         self.likelihood_threshold: Optional[float] = None
@@ -93,15 +99,26 @@ class DPMM(BaseClassifier):
     ) -> np.ndarray:
         return self.predict(input_data)
 
-    def fit(self, *args, **kwargs) -> "DPMM":
+    def fit(self, *args, results: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> "DPMM":
         """Polymorphic fit: handles messages (via prepare_data) or raw data."""
+        kwargs["results"] = results
+        kwargs["metadata"] = metadata
         msgs = self.prepare_data(*args, **kwargs)
         msg_train = msgs[0]
         msg_val = msgs[1] if len(msgs) > 1 else None
 
         X_train = msg_train.data
+        if hasattr(X_train, "values"):
+            X_train = X_train.values
         y_train = msg_train.labels
-        X_test = msg_val.data if msg_val is not None else None
+        
+        X_test = None
+        y_test = None
+        if msg_val is not None:
+            X_test = msg_val.data
+            if hasattr(X_test, "values"):
+                X_test = X_test.values
+            y_test = msg_val.labels
         
         with self._callback_context("model_fit", msg_train.results):
             if self.mode == "cluster_labels" and y_train is None:
@@ -109,18 +126,32 @@ class DPMM(BaseClassifier):
                     "In 'cluster_labels' mode, 'y' (0/1) is required to label clusters."
                 )
 
-            if self.mode == "likelihood_threshold" and (y_train is not None):
-                X_train = X_train[y_train == 0]
+            # STABILITY FIX: Filter out anomalies from both Train and Val sets before training
+            if self.mode == "likelihood_threshold":
+                if y_train is not None:
+                    mask_train = (y_train == 0)
+                    orig_train_len = len(X_train)
+                    X_train = X_train[mask_train]
+                    y_train = y_train[mask_train] # Sincronizza y
+                    print(f"DEBUG: DPMM FIT - Filtered {orig_train_len - len(X_train)} anomalies from training set.", flush=True)
+                
+                if X_test is not None and y_test is not None:
+                    mask_test = (y_test == 0)
+                    orig_test_len = len(X_test)
+                    X_test = X_test[mask_test]
+                    y_test = y_test[mask_test] # Sincronizza y
+                    print(f"DEBUG: DPMM FIT - Filtered {orig_test_len - len(X_test)} anomalies from validation set.", flush=True)
 
             if len(X_train) == 0:
-                logging.warning("No data for DPMM fit. Skipping.")
+                logging.warning("No data for DPMM fit after filtering. Skipping.")
+                self.kill_switch_active = True
+                msg_train.metadata["kill_switch_active"] = True
+                if msg_val is not None:
+                    msg_val.metadata["kill_switch_active"] = True
                 return self
 
             x_t = th.as_tensor(X_train, dtype=th.float32, device=self.device)
-            y_t = (
-                None if y_train is None else th.as_tensor(y_train, dtype=th.float32, device=self.device)
-            )
-
+            
             d_dim = x_t.shape[1]
             self.dpmm_model = self._init_model(d_dim).to(self.device)
             if self.dpmm_model is None:
@@ -131,6 +162,7 @@ class DPMM(BaseClassifier):
 
             optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
             
+            x_val_t = None
             x_val_t = None
             if X_test is not None:
                 x_val_t = th.as_tensor(X_test, dtype=th.float32, device=self.device)
@@ -165,32 +197,56 @@ class DPMM(BaseClassifier):
                             epochs_since_improvement += 1
                         
                         if self.patience is not None and epochs_since_improvement >= self.patience:
-                            print(f"[DEBUG] Early stopping at epoch {epoch}")
                             break
                     
                     pbar.set_postfix({"train": f"{train_loss:.4f}", "val": f"{val_loss_val:.4f}"})
                     pbar.update(1)
+                    # Track final epoch
+                    msg_train.results["final_epochs"] = int(epoch + 1)
 
             if self.restore_best and best_state is not None:
                 self.dpmm_model.load_state_dict(best_state)
             
             self.dpmm_model.eval()
             
-            # Calibration phase inside fit
+        # Calibration phase inside fit
+        with self._callback_context("model_calibration", msg_val.results if msg_val is not None else msg_train.results):
             if self.mode == "likelihood_threshold":
                 # Use validation for calibration if available, else training data
-                X_calib = X_test if X_test is not None else X_train
+                X_calib = X_test
+                y_calib = y_test
+                
+                if X_calib is None:
+                    X_calib = X_train
+                    y_calib = y_train
+                
+                if y_calib is not None:
+                    orig_len = len(X_calib)
+                    X_calib = X_calib[y_calib == 0]
+                    logging.info("DPMM Calibration: Using %d/%d nominal samples.", len(X_calib), orig_len)
+                
+                if len(X_calib) == 0:
+                    logging.warning("No nominal data for DPMM calibration. Using all data.")
+                    X_calib = X_test if X_test is not None else X_train
+
                 x_calib_t = th.as_tensor(X_calib, dtype=th.float32, device=self.device)
-                with th.no_grad():
-                    _, _, loglike_tr = self.dpmm_model(x_calib_t)
-                self.likelihood_threshold = float(th.quantile(loglike_tr, self.quantile).item())
-                print(f"[DEBUG] DPMM calibrated likelihood_threshold: {self.likelihood_threshold}")
+                if len(x_calib_t) == 0:
+                    logging.warning("DPMM Calibration: Empty tensor detected! Defaulting likelihood threshold to 1.0.")
+                    self.likelihood_threshold = 1.0
+                else:
+                    with th.no_grad():
+                        _, _, loglike_tr = self.dpmm_model(x_calib_t)
+                    self.likelihood_threshold = float(th.quantile(loglike_tr, self.quantile).item())
+                    print(f"DEBUG: DPMM FIT - Calibrated likelihood threshold: {self.likelihood_threshold:.4f} (Quantile: {self.quantile})", flush=True)
+                    print(f"DEBUG: DPMM FIT - Calibration Log-Likelihoods: Min={loglike_tr.min():.2f}, Max={loglike_tr.max():.2f}, Mean={loglike_tr.mean():.2f}", flush=True)
                 
                 # Store it for downstream use
                 if msg_val is not None:
                     msg_val.metadata["likelihood_threshold"] = self.likelihood_threshold
+                    msg_val.results["likelihood_threshold"] = self.likelihood_threshold
                 else:
                     msg_train.metadata["likelihood_threshold"] = self.likelihood_threshold
+                    msg_train.results["likelihood_threshold"] = self.likelihood_threshold
             else:  
                 with th.no_grad():
                     pi_tr, _, _ = self.dpmm_model(x_t)
@@ -225,20 +281,25 @@ class DPMM(BaseClassifier):
             with th.no_grad():
                 pi_te, _, loglike_te = self.dpmm_model(x_t)
 
-            print(f"loglike_te range: [{loglike_te.min():.4f}, {loglike_te.max():.4f}], mean: {loglike_te.mean():.4f}")
             if self.mode == "likelihood_threshold":
                 if self.likelihood_threshold is None:
-                    raise RuntimeError("likelihood_threshold not set. Fit the DPMM first.")
-                
-                print(f"[DEBUG] Using likelihood_threshold: {self.likelihood_threshold:.4f}")
-                
+                    raise RuntimeError(
+                        "likelihood_threshold not set. Fit the DPMM first."
+                    )
+
                 if self.return_likelihood:
                     scores = -loglike_te.detach().cpu().numpy()
+                    print(f"scores: {scores}")
+                    print("-----------------------------------")
                 else:
                     diff = th.tensor(self.likelihood_threshold, device=self.device) - loglike_te
-                    print(f"diff range: [{diff.min():.4f}, {diff.max():.4f}]")
                     scores = th.sigmoid(diff).detach().cpu().numpy()
-                    print(f"scores sample: {scores[:5]}")
+                
+                print(f"DEBUG: DPMM PREDICT - Samples: {len(scores)}, Mean Score: {scores.mean():.4f}, Max Score: {scores.max():.4f}", flush=True)
+                if scores.max() > 0.5:
+                    print(f"DEBUG: DPMM PREDICT - Found {np.sum(scores > 0.5)} anomalous samples.", flush=True)
+                else:
+                    print(f"DEBUG: DPMM PREDICT - NO anomalies found (Threshold: {self.likelihood_threshold:.4f}, Max LogLike: {loglike_te.max():.2f})", flush=True)
             else:  
                 if self.anomaly_cluster_labels is None:
                     raise RuntimeError("Cluster labels not set. Fit with 'cluster_labels' first.")
@@ -247,11 +308,11 @@ class DPMM(BaseClassifier):
                 scores = anom_probs[cl].detach().cpu().numpy()
 
         if is_pipeline_mode:
+            msg_test.metadata["likelihood_threshold"] = self.likelihood_threshold
             msg_test.data = scores
             return msg_test
         return scores
 
-    # ---- helpers ----
     def _init_model(self, d_dim: int):
         if self.model_type == "full":
             return FullGaussianDPMM(self.n_clusters, d_dim, self.alpha_dp, mu_prior=0, mu_prior_strength=self.mu_prior_strength, var_prior=self.var_prior, var_prior_strength=self.var_prior_strength)

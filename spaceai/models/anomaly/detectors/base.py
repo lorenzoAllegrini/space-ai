@@ -91,10 +91,21 @@ class AnomalyDetector(CallbackMixin):
 
     def transform(self, message: "PipelineMessage") -> "PipelineMessage":
         """
-        Process the scores in the message and return binary detections.
+        Process the scores in the message, return binary detections and populate intervals.
         """
         y_hat = message.data
-        message.data = self.detect(y_hat, results=message.results)
+        detections = self.detect(y_hat, results=message.results)
+        message.data = detections
+        
+        # Extract intervals if they don't exist yet
+        if hasattr(message, "pred_intervals") and (message.pred_intervals is None or len(message.pred_intervals) == 0):
+            from spaceai.benchmark.benchmark import Benchmark
+            # Convert binary array to list of (start, end) indices
+            intervals = Benchmark.process_pred_anomalies(detections)
+            message.pred_intervals = intervals
+            if len(intervals) > 0:
+                print(f"DEBUG: Detector ({self.__class__.__name__}) - Extracted {len(intervals)} pred_intervals.", flush=True)
+            
         return message
 
     def fit(self, *messages: "PipelineMessage", **kwargs):
@@ -105,10 +116,10 @@ class AnomalyDetector(CallbackMixin):
         if not messages:
             return
         target = next((m for m in messages if m.split_label == "val"), messages[0])
-        return self._fit(np.asarray(target.data), results=target.results)
+        return self._fit(np.asarray(target.data), labels=target.labels, results=target.results)
 
     @abstractmethod
-    def _fit(self, scores: np.ndarray, results: Optional[Dict[str, Any]] = None) -> None:
+    def _fit(self, scores: np.ndarray, labels: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:
         """Internal fit implementation for calibration data."""
         pass
 

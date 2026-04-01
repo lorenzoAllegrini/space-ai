@@ -12,6 +12,8 @@ import more_itertools as mit
 import statsmodels.api as sm
 from scipy.signal import find_peaks, detrend
 from scipy.fft import rfft, rfftfreq
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
@@ -96,6 +98,9 @@ class TimeSeriesSplitter(CallbackMixin):
             idxs = np.arange(len(message.data)) * self.step_size
             message.original_indices = np.column_stack((idxs, idxs + self.window_size - 1))
         
+        # Inject metadata
+        message.metadata["window_size"] = self.window_size
+        
         return message
 
     def fit_transform(self, message: "PipelineMessage", **kwargs) -> "PipelineMessage":
@@ -119,59 +124,69 @@ class TimeSeriesSplitter(CallbackMixin):
             return None
         return int(duration.total_seconds() / (sampling_period or 1.0))
 
-    def _ensure_sizes(self, data: np.ndarray, sampling_period: Optional[float] = None) -> None:
+    def _ensure_sizes(self, data: np.ndarray, sampling_period: Optional[float] = None, results: Optional[Dict[str, Any]] = None) -> None:
         """Resolve window and step sizes dynamically or statically."""
         if getattr(self, "window_size", None) is None:
-            self.window_size = self._resolve_samples(self.window_size_raw, sampling_period) if self.window_size_raw else self.find_window_size(data, sampling_period)
+            if self.window_size_raw:
+                self.window_size = self._resolve_samples(self.window_size_raw, sampling_period)
+            else:
+                with self._callback_context("ts_window_search", results):
+                    self.window_size = self.find_window_size(data, sampling_period)
+                    
         if getattr(self, "step_size", None) is None:
             self.step_size = self._resolve_samples(self.step_size_raw, sampling_period) if self.step_size_raw else max(1, int(self.window_size * self.perc_step_size))
 
     def split(self, data: np.ndarray, sampling_period: Optional[float] = None, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """Segment data into windows."""
+        self._ensure_sizes(data, sampling_period, results=results)
         with self._callback_context("segmentation_split", results):
-            self._ensure_sizes(data, sampling_period)
             if len(data) < self.window_size:
                 return np.empty((0, self.window_size))
             starts = np.arange(0, len(data) - self.window_size + 1, self.step_size)
+            # Handle multi-dimensional data (e.g. [N, F]) by specifying axis=0 for temporal sliding
+            if data.ndim > 1:
+                return np.lib.stride_tricks.sliding_window_view(data, window_shape=self.window_size, axis=0)[starts]
             return np.lib.stride_tricks.sliding_window_view(data, window_shape=self.window_size)[starts]
 
     def split_labels(self, labels: np.ndarray, sampling_period: Optional[float] = None, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """Segment pointwise labels into window-level binary labels."""
+        self._ensure_sizes(labels, sampling_period, results=results)
         with self._callback_context("segmentation_split_labels", results):
-            self._ensure_sizes(labels, sampling_period)
             if len(labels) < self.window_size:
                 return np.array([], dtype=int)
             starts = np.arange(0, len(labels) - self.window_size + 1, self.step_size)
-            windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size)[starts]
+            if labels.ndim > 1:
+                windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size, axis=0)[starts]
+            else:
+                windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size)[starts]
             return (np.max(windows, axis=1) > 0).astype(int)
 
     def segment_dataset(self, dataset_channel: AnomalyDataset, mode: str = "anomaly", results: Optional[Dict[str, Any]] = None, save_dir: Optional[str] = None, suffix: str = "") -> SegmentationResult:
         """Segment an AnomalyDataset channel into windows or sub-datasets."""
-        with self._callback_context("segmentation", results):
-            sampling_period = getattr(dataset_channel, "sampling_period", None)
-            data = dataset_channel.data[:, 0]
-            if save_dir:
-                self.save_timeseries_csv(dataset_channel, save_dir, suffix=suffix)
-            self._ensure_sizes(data, sampling_period)
-            
-            p_labels = np.zeros(len(data), dtype=int)
-            if getattr(dataset_channel, "anomalies", None) is not None:
-                for s, e in dataset_channel.anomalies:
-                    p_labels[max(0, s):min(len(data), e)] = 1
+        sampling_period = getattr(dataset_channel, "sampling_period", None)
+        data = dataset_channel.data[:, 0]
+        if save_dir:
+            self.save_timeseries_csv(dataset_channel, save_dir, suffix=suffix)
+        self._ensure_sizes(data, sampling_period, results=results)
+        
+        p_labels = np.zeros(len(data), dtype=int)
+        if getattr(dataset_channel, "anomalies", None) is not None:
+            for s, e in dataset_channel.anomalies:
+                p_labels[max(0, s):min(len(data), e)] = 1
 
-            all_segments, all_labels, all_indices = [], [], []
-            for s, e in getattr(dataset_channel, "block_intervals", [(0, len(data))]):
-                b_data = data[s:e]
-                if self.apply_func is not None:
-                    b_data = self.apply_func(b_data)
-                segs = self.split(b_data, sampling_period, results=results)
-                if not len(segs):
-                    continue
-                lbls = self.split(p_labels[s:e], sampling_period, results=results) if mode == "experience" else self.split_labels(p_labels[s:e], sampling_period, results=results)
-                all_segments.append(segs)
-                all_labels.append(lbls)
-                idxs = np.arange(len(segs)) * self.step_size + s
-                all_indices.append(np.column_stack((idxs, idxs + self.window_size - 1)))
+        all_segments, all_labels, all_indices = [], [], []
+        for s, e in getattr(dataset_channel, "block_intervals", [(0, len(data))]):
+            b_data = data[s:e]
+            if self.apply_func is not None:
+                b_data = self.apply_func(b_data)
+            segs = self.split(b_data, sampling_period, results=results)
+            if not len(segs):
+                continue
+            lbls = self.split(p_labels[s:e], sampling_period, results=results) if mode == "experience" else self.split_labels(p_labels[s:e], sampling_period, results=results)
+            all_segments.append(segs)
+            all_labels.append(lbls)
+            idxs = np.arange(len(segs)) * self.step_size + s
+            all_indices.append(np.column_stack((idxs, idxs + self.window_size - 1)))
 
             if not all_segments:
                 return SegmentationResult(np.empty((0, self.window_size)), np.array([]), np.empty((0, 2)), [])
@@ -225,8 +240,10 @@ class TimeSeriesSplitter(CallbackMixin):
         """Save OXI-compatible raw timeseries CSV."""
         data = dataset_channel.data[:, 0]
         p_labels = np.zeros(len(data), dtype=int)
-        for s, e in getattr(dataset_channel, "anomalies", []):
-            p_labels[max(0, s):min(len(data), e)] = 1
+        anomalies = getattr(dataset_channel, "anomalies", None)
+        if anomalies is not None:
+            for s, e in anomalies:
+                p_labels[max(0, s):min(len(data), e)] = 1
         
         idx = np.arange(0, len(data), 10)
         channel_id = getattr(dataset_channel, "channel_id", "Unknown")

@@ -64,7 +64,6 @@ class RocketFeatureExtractor(FeatureExtractor):
                     filename += f"_{suffix}"
                 save_path = os.path.join(save_dir, f"{filename}.csv")
                 df.to_csv(save_path, index=False)
-                print(f"[DEBUG] Rocket features saved to {save_path}")
 
         message.data = df
         return message

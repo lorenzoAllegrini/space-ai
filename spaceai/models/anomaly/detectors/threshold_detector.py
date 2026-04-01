@@ -18,7 +18,7 @@ class ThresholdDetector(AnomalyDetector):
         threshold (float): The threshold value. Defaults to 0.5.
     """
 
-    def __init__(self, threshold: float = 0.5):
+    def __init__(self, threshold: float = 0.5, **kwargs):
         super().__init__()
         self.threshold = threshold
 
@@ -71,7 +71,7 @@ class QuantileThresholdDetector(AnomalyDetector):
             Values between 0 and 1.
     """
 
-    def __init__(self, quantile: float = 0.95):
+    def __init__(self, quantile: float = 0.95, **kwargs):
         super().__init__()
         self.quantile = quantile
         self.threshold: Optional[float] = None

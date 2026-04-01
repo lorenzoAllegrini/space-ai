@@ -8,7 +8,10 @@ import numpy as np
 from typing import Optional, Dict, Any
 
 from .ndpm_internal import Ndpm, Config
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 from .base import BaseClassifier
 
 

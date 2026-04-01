@@ -15,6 +15,7 @@ from spaceai.preprocessing.functions import FEATURE_MAP
 from .feature_extractor import FeatureExtractor
 from sklearn.metrics import precision_recall_curve
 from sklearn.feature_selection import SelectKBest
+from dataclasses import replace
 
 
 
@@ -65,18 +66,28 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         val_msg = messages[1] if len(messages) > 1 else None
         results = train_msg.results
 
-        with self._callback_context("feature_selection", results):
-            if self.max_features is not None and self.max_features < len(self.transformations):
-                selection_msg = val_msg if val_msg is not None else train_msg
-                labels = selection_msg.labels
-                
-                if labels is None:
-                    raise ValueError("Labels must be provided for feature selection")
-                with self._callback_context("feature_selection", results):
-                    X_features = self.transform(selection_msg).data
-                    self.select_features(X_features, labels, results=results)
+        if self.max_features is not None and self.max_features < len(self.transformations):
+            if val_msg is not None:
+                # Use both train and validation data for feature scoring if available
+                comb_data = np.concatenate([train_msg.data, val_msg.data])
+                comb_labels = np.concatenate([train_msg.labels, val_msg.labels]) if train_msg.labels is not None and val_msg.labels is not None else (train_msg.labels or val_msg.labels)
+                selection_msg_tmp = replace(train_msg, data=comb_data, labels=comb_labels, save_dir=None)
+            else:
+                selection_msg_tmp = replace(train_msg, save_dir=None)
+            
+            labels = selection_msg_tmp.labels
+            if labels is None:
+                raise ValueError("Labels must be provided for feature selection")
+
+            with self._callback_context("feature_selection", results):
+                X_features = self.transform(selection_msg_tmp).data
+                self.select_features(X_features, labels, results=results)
         for msg in messages:
             msg.metadata["selected_features"] = list(self.transformations.keys())
+            if "feature_scores" in results:
+                msg.metadata["feature_scores"] = results["feature_scores"]
+            if getattr(self, "kill_switch_active", False):
+                msg.metadata["kill_switch_active"] = True
         return self
 
 
@@ -131,7 +142,11 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                     filename += f"_{suffix}"
                 save_path = os.path.join(save_dir, f"{filename}.csv")
                 df.to_csv(save_path, index=False)
-                print(f"[DEBUG] Features saved to {save_path}")
+
+            # Debug: Log feature stats
+            print(f"DEBUG: Feature Extraction ({suffix}) - Min: {df.min().min():.4f}, Max: {df.max().max():.4f}, Mean: {df.mean().mean():.4f}", flush=True)
+            if (df.max() - df.min()).sum() == 0:
+                print(f"WARNING: Feature Extraction ({suffix}) - All features are constant!", flush=True)
 
         message.data = df
         return message
@@ -154,6 +169,11 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         precision_selector.fit(X_clean.values, y)
 
         feature_scores = sorted(zip(X_features.columns, precision_selector.scores_), key=lambda x: x[1], reverse=True)
+        
+        # Store scores in metadata for transparency
+        scores_dict = {name: float(score) for name, score in feature_scores}
+        if results is not None:
+            results["feature_scores"] = scores_dict
         
         correlation_threshold = 0.8
         corr_matrix = X_clean.corr().abs()
@@ -189,6 +209,8 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         
         if len(selected_feature_names) == 0:
             self.kill_switch_active = True
+            if results is not None:
+                results["kill_switch_active"] = True
 
         self.transformations = {
             name: func 
@@ -196,7 +218,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             if name in selected_feature_names
         }
 
-        print(f"[DEBUG] Selected features ({len(selected_feature_names)}): {selected_feature_names}")
         X_train_selected = X_features[selected_feature_names].copy()
 
         return X_train_selected

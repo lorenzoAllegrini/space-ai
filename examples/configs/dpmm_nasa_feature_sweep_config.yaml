@@ -1,0 +1,75 @@
+# dpmm_nasa_feature_sweep_config.yaml
+# Sweep for DPMM experiments on NASA varying only the features extracted
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "nasa"               
+mission_id: 1                  
+model: "dpmm"
+dpmm_type: "unit"            
+dpmm_mode: "likelihood_threshold"
+
+# --- Fixed Parameters ---
+challenge: false
+detector: "dpmm_native"  # Uso il detector nativo che abbiamo appena creato
+feature_extractor: "base_statistics"
+
+perc_eval: 0.2
+window_size: null         # Finestra tipica per i segnali NASA
+step_size: null
+max_window: 300
+min_window: 150
+perc_step_size: 0.5
+
+base_classifier_params:
+  #dynamic_scaling: true
+  #scaler_window: 100
+  n_clusters: 10
+  num_iterations: 1000
+  patience: 100
+  min_delta: 0.001
+  restore_best: true
+  lr: 0.1
+  alpha_dp: 3.0
+  var_prior: 3.0
+  var_prior_strength: 0.001
+  mu_prior_strength: 0.001
+  quantile: 0.0001
+
+detector_params: {}
+
+feature_extraction_params:
+  max_features: null
+  selected_features: 
+    - ["spectral_centroid", "smooth10_n_peaks", "fractal_roughness", "kurtosis"]
+    - ["spectral_spread", "diff_peaks", "waveform_length", "skew"]
+    - ["dom_freq_energy", "smooth10_n_peaks", "time_reversibility", "lag1_autocorrelation"]
+    - ["spectral_centroid", "crest_factor", "time_reversibility", "peak_to_peak_amplitude"]
+    - ["spectral_spread", "smooth10_n_peaks", "fractal_roughness", "lag1_autocorrelation"]
+    - ["spectral_centroid", "diff_peaks", "waveform_length", "kurtosis"]
+    - ["dom_freq_energy", "crest_factor", "fractal_roughness", "skew"]
+    - ["spectral_spread", "diff_peaks", "time_reversibility", "peak_to_peak_amplitude"]
+    - ["spectral_centroid", "smooth10_n_peaks", "mean_crossing_rate", "kurtosis"]
+    - ["spectral_entropy", "diff_peaks", "fractal_roughness", "lag1_autocorrelation"]
+    - ["spectral_spread", "crest_factor", "waveform_length", "kurtosis"]
+    - ["dom_freq_energy", "smooth10_n_peaks", "time_reversibility", "peak_to_peak_amplitude"]
+    - ["spectral_centroid", "diff_peaks", "fractal_roughness", "skew"]
+    - ["spectral_spread", "smooth10_n_peaks", "mean_crossing_rate", "lag1_autocorrelation"]
+    - ["dom_freq_energy", "diff_peaks", "waveform_length", "kurtosis"]
+    - ["spectral_centroid", "diff_peaks", "time_reversibility", "skew"]
+    - ["spectral_spread", "smooth10_n_peaks", "waveform_length", "peak_to_peak_amplitude"]
+    - ["spectral_entropy", "smooth10_n_peaks", "fractal_roughness", "kurtosis"]
+    - ["dom_freq_energy", "diff_peaks", "time_reversibility", "lag1_autocorrelation"]
+    - ["spectral_centroid", "diff_peaks", "mean_crossing_rate", "peak_to_peak_amplitude"]
+    - ["spectral_spread", "crest_factor", "time_reversibility", "skew"]
+    - ["spectral_entropy", "diff_peaks", "mean_crossing_rate", "skew"]
+    - ["dom_freq_energy", "smooth10_n_peaks", "waveform_length", "kurtosis"]
+    - ["spectral_centroid", "crest_factor", "fractal_roughness", "lag1_autocorrelation"]
+    - ["spectral_spread", "diff_peaks", "fractal_roughness", "peak_to_peak_amplitude"]
+    - ["spectral_entropy", "smooth10_n_peaks", "time_reversibility", "skew"]
+    - ["dom_freq_energy", "crest_factor", "mean_crossing_rate", "kurtosis"]
+    - ["spectral_centroid", "smooth10_n_peaks", "waveform_length", "lag1_autocorrelation"]
+    - ["spectral_spread", "diff_peaks", "mean_crossing_rate", "skew"]
+    - ["spectral_entropy", "crest_factor", "fractal_roughness", "peak_to_peak_amplitude"]
+
+channels: null  # Esegui su tutti i canali NASA disponibili

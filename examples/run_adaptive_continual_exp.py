@@ -107,21 +107,24 @@ def build_drift_detector(args):
 def run_exp(args, other_args=None):
     """Run adaptive continual experiment."""
 
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+
     ts_splitter = TimeSeriesSplitter(
         window_size=args.window_size,
         step_size=args.step_size,
+        callback_handler=handler,
     )
 
     feature_extractor = get_feature_extractor(
         args.feature_extractor,
         window_size=args.window_size,
         stride=args.step_size,
+        callback_handler=handler,
         n_kernel=args.n_kernel,
     )
 
-    base_classifier, is_supervised = create_classifier(args, other_args)
+    base_classifier, is_supervised = create_classifier(args, other_args, callback_handler=handler)
     drift_detector = build_drift_detector(args)
-    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
     run_id = f"adaptive_continual_{args.dataset}_{args.model}_{args.drift_detector}"
     if args.model == "dpmm":

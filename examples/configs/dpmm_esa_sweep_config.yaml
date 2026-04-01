@@ -1,5 +1,3 @@
-# dpmm_esa_global_config.yaml
-# Esperimenti su ESA con Modular Global Features
 
 base_dir: "./datasets"           
 exp_dir: "experiments"
@@ -8,11 +6,11 @@ mission_id: 1
 model: "dpmm"
 dpmm_type: "unit"            
 dpmm_mode: "likelihood_threshold"
-detector: "molookde"
+detector: 
+  - "molookde"
 segmentator: false
 perc_eval: 0.3
-
-# Modular Feature Extraction
+challenge: false
 feature_extractor: 
   - "base_statistics"
 
@@ -26,29 +24,34 @@ max_window: 500
 min_window: 150
 perc_step_size: 0.5
 
-channels: null
-
-
-base_classifier_params:
-  dynamic_scaling: true
+base_classifier_params: 
+  dynamic_scaling: 
+    - true
+    - false
   scaler_window: 1000
   n_clusters: 100
   num_iterations: 1000
   patience: 100
   min_delta: 0.001
   restore_best: true
-  lr: 0.5
-  alpha_dp: 3.0
+  lr: 0.1
+  alpha_dp: 
+    - 1.0
+    - 3.0
+    - 5.0
   var_prior: 3.0
-  var_prior_strength: 1.0
+  var_prior_strength: 0.001
   mu_prior_strength: 0.001
-  quantile: 0.001
-  return_likelihood: true
+  quantile: 0.0001
+  return_likelihood: false
+
+channels: null
+  
 
 detector_params:
-  alpha: 0.01
-  p: 3.0
+  alpha: [0.05, 0.01]
+  p: [3.0, 5.0, 10.0]
   unitize: true
-  pot_percentile: 93.0
+  pot_percentile: 95.0
   smoothing_alpha: 0.2
   min_allowed_ll: -200.0
