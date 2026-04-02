@@ -43,7 +43,25 @@ def count_peaks_vectorized(windows: np.ndarray) -> np.ndarray:
     Count peaks in each window of the 2D array.
     Designed to be used with apply_statistic_to_batch.
     """
+    n_seq, window_size = windows.shape
+
     prominences = 0.1 * (np.max(windows, axis=1) - np.min(windows, axis=1))
+
+    windows = np.concatenate([windows, np.full((n_seq, window_size), +np.inf)], axis=1)
+    new_window_size = windows.shape[1]
+    windows = windows.reshape(-1)  # Flatten the array
+
+    prominences = np.repeat(prominences, new_window_size)
+
+    assert windows.shape[0] == prominences.shape[0]
+
+    peaks, _ = sig.find_peaks(windows, prominence=prominences, wlen=window_size)
+
+    row, col = np.unravel_index(peaks, shape=(n_seq, new_window_size))
+
+    res, _ = np.histogram(row, bins=n_seq)
+    return res
+    '''
     counts = []
     for i in range(windows.shape[0]):
         if prominences[i] == 0:
@@ -52,7 +70,7 @@ def count_peaks_vectorized(windows: np.ndarray) -> np.ndarray:
         peaks, _ = sig.find_peaks(windows[i], prominence=prominences[i])
         counts.append(len(peaks))
     return np.array(counts)
-
+    '''
 
 def _safe_savgol(x, target_window, polyorder=2):
     """
