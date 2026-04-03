@@ -32,7 +32,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         window_size: Optional[int],
         stride: Optional[int],
         telecommands: bool = False,
-        max_features: Optional[int] = 7,
+        max_features: Optional[int] = 5,
         callback_handler: Optional[Any] = None,
         **kwargs
     ) -> None:
@@ -169,7 +169,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         for i, (f_name, f_score) in enumerate(feature_scores):
             if len(selected_feature_names) >= self.max_features:
                 break
-            if i < 2 and f_score >= 0.3:
+            if i < 2 and f_score >= 0.4:
                 selected_feature_names.append(f_name)
             elif f_score >= 0.5:
                 selected_feature_names.append(f_name)

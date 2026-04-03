@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 import numpy as np
 import torch
+import pandas as pd
+import os
 
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
@@ -94,17 +96,16 @@ class RollingWindowClassifier(AnomalyClassifier):
             return results
 
         with self._callback_context("fitting", results):
+            # --- DEBUG EXPORT ---
+            os.makedirs("debug_exports", exist_ok=True)
+            pd.DataFrame(X_train).to_csv(f"debug_exports/train_features_extracted.csv", index=False)
+            print(f"[DEBUG-EXPORT] Saved train features to debug_exports/train_features_extracted.csv")
+
             t0 = time.time()
             if self.supervised_classifier:
-                try:
-                    self.base_classifier.fit(X_train, y_train, results=results)
-                except (TypeError, ValueError):
-                    self.base_classifier.fit(X_train, y_train)
+                self.base_classifier.fit(X_train, y_train)
             else:
-                try:
-                    self.base_classifier.fit(X_train, results=results)
-                except (TypeError, ValueError):
-                    self.base_classifier.fit(X_train)
+                self.base_classifier.fit(X_train)
             print(f"[DEBUG] base_classifier.fit took {time.time() - t0:.2f}s")
         
         if self.detector is not None and hasattr(self.detector, 'fit'):
@@ -157,22 +158,18 @@ class RollingWindowClassifier(AnomalyClassifier):
             channel_data = X
 
         with self._callback_context("prediction", results):
+            # --- DEBUG EXPORT ---
+            os.makedirs("debug_exports", exist_ok=True)
+            pd.DataFrame(channel_data).to_csv(f"debug_exports/test_features_PRE_SCALE.csv", index=False)
+            print(f"[DEBUG-EXPORT] Saved test features to debug_exports/test_features_PRE_SCALE.csv")
+
             t0 = time.time()
-            try:
-                if hasattr(self.base_classifier, "predict_proba"):
-                    y_pred = self.base_classifier.predict_proba(channel_data, results=results)
-                    # If it's binary classification, we want the probability of the positive class (anomaly)
-                    if y_pred.ndim > 1 and y_pred.shape[1] == 2:
-                        y_pred = y_pred[:, 1]
-                else:
-                    y_pred = self.base_classifier.predict(channel_data, results=results)
-            except (TypeError, ValueError):
-                if hasattr(self.base_classifier, "predict_proba"):
-                    y_pred = self.base_classifier.predict_proba(channel_data)
-                    if y_pred.ndim > 1 and y_pred.shape[1] == 2:
-                        y_pred = y_pred[:, 1]
-                else:
-                    y_pred = self.base_classifier.predict(channel_data)
+            if hasattr(self.base_classifier, "predict_proba"):
+                y_pred = self.base_classifier.predict_proba(channel_data)
+                if y_pred.ndim > 1 and y_pred.shape[1] == 2:
+                    y_pred = y_pred[:, 1]
+            else:
+                y_pred = self.base_classifier.predict(channel_data)
             print(f"[DEBUG] base_classifier.predict took {time.time() - t0:.2f}s")
 
         if self.detector is not None:

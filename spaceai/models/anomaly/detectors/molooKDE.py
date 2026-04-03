@@ -78,7 +78,9 @@ class MoLooKDEDetector(AnomalyDetector):
             # Topological Analysis (Persistence Homology) for spatial scale definition
             print(f"Starting topological analysis on {min(len(X_scaled), 5000)} points...")
             if len(X_scaled) > 5000:
-                indices = np.random.choice(len(X_scaled), 5000, replace=False)
+                # Force local seed for reproducibility in bandwidth calculation
+                rng = np.random.default_rng(42)
+                indices = rng.choice(len(X_scaled), 5000, replace=False)
                 X_topo = X_scaled[indices]
             else:
                 X_topo = X_scaled
@@ -95,7 +97,8 @@ class MoLooKDEDetector(AnomalyDetector):
             self.kde = KernelDensity(kernel='epanechnikov', bandwidth=h)
             print(f"Calculating KDE scores for {len(X_scaled)} points...")
             if len(X_scaled) > 10000:
-                indices = np.random.choice(len(X_scaled), 10000, replace=False)
+                rng = np.random.default_rng(42)
+                indices = rng.choice(len(X_scaled), 10000, replace=False)
                 self.kde.fit(X_scaled[indices])
                 log_y = self.kde.score_samples(X_scaled[indices])
             else:
@@ -139,15 +142,22 @@ class MoLooKDEDetector(AnomalyDetector):
             # Score calculation and probability estimation via Extreme Value Theory
             log_y_new = self.kde.score_samples(X_scaled)
             scores_new = -log_y_new
+            
+            # DIAGNOSTIC LOG (internal)
+            # print(f"[DEBUG-DETECTOR] Input scores (clipped) mean: {np.mean(X_clipped):.4f}")
+            # print(f"[DEBUG-DETECTOR] Smoothed scores mean: {np.mean(X_smoothed):.4f}")
 
             c, loc, scale = self.gpd_params
             probs = genpareto.sf(scores_new, c, loc=loc, scale=scale)
             probs[scores_new <= self.pot_threshold] = 1.0
 
+            anomalies = (probs < self.alpha).astype(int)
+            
+            if len(anomalies) > 0:
+                 print(f"[DIAGNOSTIC-DETECTOR] Detect Batch: Samples={len(anomalies)}, Anomalies={np.sum(anomalies)}, PotThreshold={self.pot_threshold:.4f}, GPD_params={self.gpd_params}", flush=True)
+
             if return_probs:
                 return probs
-
-            anomalies = (probs < self.alpha).astype(int)
             
             return anomalies
 

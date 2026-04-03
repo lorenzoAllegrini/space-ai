@@ -53,8 +53,8 @@ class AnomalyClassifier(CallbackMixin):
         return []
 
     @abstractmethod
-    def prepare_labels(channel_labels):
-        """ Prepare the ground trutg to uniform with the predicted labels"""
+    def prepare_labels(self, channel_labels: Any) -> List[Tuple[int, int]]:
+        """ Prepare the ground truth to uniform with the predicted labels"""
 
     def save(self, path: str) -> None:
         """Save the classifier to disk."""

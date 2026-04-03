@@ -1,7 +1,4 @@
-"""ADWIN-based concept drift detector using the river library."""
-
-from river import drift  # type: ignore
-
+# from river import drift  <-- Spostato in __init__ e reset (Lazy Import)
 from .drift_detector import DriftDetector
 
 
@@ -23,6 +20,7 @@ class ADWINDetector(DriftDetector):
 
     def __init__(self, delta: float = 0.002, filters=None, warmup_steps: int = 0, **kwargs) -> None:
         super().__init__(filters=filters)
+        from river import drift
         self.delta = delta
         self._kwargs = kwargs
         self._detector = drift.ADWIN(delta=delta, **kwargs)
@@ -52,5 +50,6 @@ class ADWINDetector(DriftDetector):
 
     def reset(self) -> None:
         """Re-initialise the ADWIN detector and reset all filters."""
+        from river import drift
         self._detector = drift.ADWIN(delta=self.delta, **self._kwargs)
         self.reset_filters()

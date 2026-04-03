@@ -5,7 +5,9 @@ from spaceai.benchmark.callbacks.mixin import CallbackMixin
 
 from spaceai.benchmark.callbacks.handler import CallbackHandler
 
-class BaseClassifier(CallbackMixin, ABC):
+from sklearn.base import BaseEstimator
+
+class BaseClassifier(BaseEstimator, CallbackMixin, ABC):
     """
     Abstract base class for underlying anomaly detection algorithms.
     Provides standard callback support for fitting and prediction phases.
@@ -17,6 +19,7 @@ class BaseClassifier(CallbackMixin, ABC):
         **kwargs
     ) -> None:
         super().__init__(callback_handler=callback_handler, **kwargs)
+        self.is_fitted_ = False
 
     @abstractmethod
     def fit(

@@ -143,6 +143,10 @@ class Benchmark:
         event_labels = Benchmark.merge_intervals(self.event_labels_global)
         predicted_events = Benchmark.merge_intervals(self.predicted_events_global)
         
+        print(f"\n \n predicted_events: {predicted_events} \n \n ")
+
+        print(f"\n \n event labels: {event_labels} \n \n")
+
         adtqc_metrics = Benchmark.adtqc_score(event_labels, predicted_events)
         self.global_results.update(adtqc_metrics)
         
@@ -155,13 +159,16 @@ class Benchmark:
                     int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
                 ) for s, e in event_labels
             ]
+
+            print(f"\n \n event labels: {sorted(event_labels)} \n \n")
+           
             predicted_events = [
                 (
                     int((pd.Timestamp(s) - min_start_time).total_seconds() / min_period),
                     int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
                 ) for s, e in predicted_events
             ]
-
+            print(f"\n \n predicted_events: {sorted(predicted_events)} \n \n ")
         self.global_results.update(
             Benchmark.compute_metrics(event_labels, predicted_events)
         )
@@ -239,6 +246,12 @@ class Benchmark:
             test_anomalies, pred_anomalies, total_length=len(y_pred),
             true_anomalies_ts=true_anomaly_intervals_ts, pred_anomalies_ts=pred_intervals_ts
         )
+        
+        # --- DIAGNOSTIC INTERVAL LOGS ---
+        print(f"\n[DIAGNOSTIC-BENCHMARK] === Intervals for {channel_id} ===", flush=True)
+        print(f"[DIAGNOSTIC-BENCHMARK] -> True Intervals ({len(true_anomaly_intervals_ts)}): {true_anomaly_intervals_ts}", flush=True)
+        print(f"[DIAGNOSTIC-BENCHMARK] -> Pred Intervals ({len(pred_intervals_ts)}): {pred_intervals_ts}", flush=True)
+        
         results.update(all_metrics)
         self.processed_channels.add(channel_id)
 

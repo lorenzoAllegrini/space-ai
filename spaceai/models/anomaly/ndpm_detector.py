@@ -8,13 +8,13 @@ import numpy as np
 from typing import Optional, Dict, Any
 
 from .ndpm_internal import Ndpm, Config
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter  <-- Spostato in __init__ e _ensure_writer (Lazy Import)
 from .base import BaseClassifier
 
 
 class NDPMDetector(BaseClassifier):
     def __init__(self, config_dict: Dict[str, Any], device: str = "cpu", 
-                 log_dir: Optional[str] = None, writer: Optional[SummaryWriter] = None,
+                 log_dir: Optional[str] = None, writer: Optional[Any] = None,
                  threshold: Optional[float] = None, callback_handler: Optional[Any] = None,
                  **kwargs):
         super().__init__(callback_handler=callback_handler, **kwargs)
@@ -31,6 +31,7 @@ class NDPMDetector(BaseClassifier):
             self.writer = writer
             self._own_writer = False
         else:
+            from tensorboardX import SummaryWriter
             log_dir = log_dir or self.config.get("log_dir", "logs/ndpm_default")
             self.writer = SummaryWriter(log_dir)
             self._own_writer = True
@@ -49,6 +50,7 @@ class NDPMDetector(BaseClassifier):
     def _ensure_writer(self):
         """Ensure the SummaryWriter is initialized after loading from disk."""
         if not hasattr(self, 'writer') or self.writer is None:
+            from tensorboardX import SummaryWriter
             log_dir = self.config.get("log_dir", "logs/ndpm_default")
             self.writer = SummaryWriter(log_dir)
             self._own_writer = True

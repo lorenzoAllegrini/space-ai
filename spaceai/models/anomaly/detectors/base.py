@@ -11,18 +11,15 @@ from typing import (
 )
 
 import numpy as np
-import torch
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
+from sklearn.base import BaseEstimator
 
-if TYPE_CHECKING:
-    from spaceai.models.predictors import SequenceModel
-
-
-class AnomalyDetector(CallbackMixin):
+class AnomalyDetector(BaseEstimator, CallbackMixin):
     """Base class for anomaly detectors."""
 
     def __init__(self, callback_handler: Optional[Any] = None):
         super().__init__(callback_handler=callback_handler)
+        self.is_fitted_ = False
         self._predictor: Optional[SequenceModel] = None
         self.ignore_first_n_factor: float = 0
 

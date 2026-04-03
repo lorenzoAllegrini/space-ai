@@ -11,6 +11,7 @@ dpmm_mode: "likelihood_threshold"
 detector: "molookde"
 segmentator: false
 
+perc_eval: 0.3
 # Modular Feature Extraction
 feature_extractor: 
   - "base_statistics"
@@ -42,9 +43,9 @@ base_classifier_params:
   return_likelihood: true
 
 detector_params:
-  alpha: 0.001
+  alpha: 0.002
   p: 3.0
   unitize: true
-  pot_percentile: 95.0
+  pot_percentile: 93.0
   smoothing_alpha: 0.2
   min_allowed_ll: -200.0

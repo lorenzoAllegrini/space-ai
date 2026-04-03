@@ -14,7 +14,7 @@ from typing import (
 
 import numpy as np
 import torch
-from torchdyno.models.esn import EchoStateNetwork  # type: ignore
+# from torchdyno.models.esn import EchoStateNetwork  # <-- Spostato in build_fn (Lazy Import)
 
 if TYPE_CHECKING:
     from torch import Size, Tensor
@@ -70,7 +70,7 @@ class ESN(SequenceModel):
         super().__init__(
             device, stateful=stateful, reduce_out=reduce_out, washout=washout
         )
-        self.model: EchoStateNetwork
+        self.model: Any # Lazy type hint
         self.input_size: int = input_size
         self.layers: List[int] = layers
         self.output_size: int = output_size
@@ -148,6 +148,7 @@ class ESN(SequenceModel):
             return [metrics_results]
 
     def build_fn(self) -> Module:
+        from torchdyno.models.esn import EchoStateNetwork 
         return EchoStateNetwork(
             input_size=self.input_size,
             layer_sizes=self.layers,

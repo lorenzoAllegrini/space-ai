@@ -9,7 +9,7 @@ from typing import Union, Dict, List, Optional, Any, Tuple, Callable, TYPE_CHECK
 import numpy as np
 import pandas as pd
 import more_itertools as mit
-import statsmodels.api as sm
+# import statsmodels.api as sm  <-- Spostato in find_window_size (Lazy Import)
 from scipy.signal import find_peaks, detrend
 from scipy.fft import rfft, rfftfreq
 import matplotlib.pyplot as plt
@@ -18,6 +18,10 @@ from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
 
 if TYPE_CHECKING:
     from spaceai.benchmark.callbacks.handler import CallbackHandler
+
+def linear_detrend_func(x: np.ndarray) -> np.ndarray:
+    """Named function for linear detrending (pickleable)."""
+    return detrend(x, type='linear', axis=-1)
 
 @dataclass
 class SegmentationResult:
@@ -40,7 +44,7 @@ class TimeSeriesSplitter(CallbackMixin):
         min_window: int = 50,
         max_window: int = 500,
         callback_handler: Optional[CallbackHandler] = None,
-        apply_func: Optional[Callable[[np.ndarray], np.ndarray]] = lambda x: detrend(x, type='linear', axis=-1),
+        apply_func: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         **kwargs
     ) -> None:
         self.window_size_raw = window_size
@@ -202,13 +206,18 @@ class TimeSeriesSplitter(CallbackMixin):
 
     def find_window_size(self, data: np.ndarray, sampling_period: Optional[float] = None) -> int:
         """Estimate optimal window size using Auto-Correlation Function (ACF)."""
-        d = np.diff(np.asarray(data).ravel())
-        if len(d) < 200 or np.var(d) < 1e-6:
-            return 100
-        acf = sm.tsa.acf(d, nlags=min(self.max_window, len(d) // 2), fft=True)
-        peaks, _ = find_peaks(acf, prominence=0.02, distance=10)
-        peaks = [p for p in peaks if self.min_window < p < self.max_window]
-        return int(peaks[0]) if peaks else self.find_window_size_fft(data)
+        try:
+            import statsmodels.api as sm
+            d = np.diff(np.asarray(data).ravel())
+            if len(d) < 200 or np.var(d) < 1e-6:
+                return 100
+            acf = sm.tsa.acf(d, nlags=min(self.max_window, len(d) // 2), fft=True)
+            peaks, _ = find_peaks(acf, prominence=0.02, distance=10)
+            peaks = [p for p in peaks if self.min_window < p < self.max_window]
+            return int(peaks[0]) if peaks else self.find_window_size_fft(data)
+        except (ImportError, ModuleNotFoundError):
+            logging.warning("statsmodels non trovato. Ripiego sulla stima FFT per la window_size.")
+            return self.find_window_size_fft(data)
 
     def find_window_size_fft(self, data: np.ndarray) -> int:
         """Estimate optimal window size using Fast Fourier Transform (FFT)."""

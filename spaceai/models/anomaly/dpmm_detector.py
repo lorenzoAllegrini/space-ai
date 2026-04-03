@@ -35,6 +35,8 @@ def get_dpmm_argparser():
     return parser
 
 
+from typing import Optional, Any
+
 class DPMM(BaseClassifier):
     """DPMM model that returns continuous anomaly scores."""
 
@@ -51,8 +53,10 @@ class DPMM(BaseClassifier):
         var_prior_strength: float = 3.0,
         mu_prior_strength: float = 0.001,
         quantile: float = 0.0001,
-        device: Optional[str] = None,  # "cpu" / "cuda" o None -> auto
+        device: Optional[str] = None,  # "cpu" / "cuda" / "mps" o None -> auto
         return_likelihood: bool = False,
+        early_stopping_patience: int = 5,
+        early_stopping_tolerance: float = 1e-4,
         callback_handler: Optional[Any] = None,
         **kwargs
     ):
@@ -71,20 +75,21 @@ class DPMM(BaseClassifier):
         self.quantile = float(quantile)
         self.early_stopping_patience = int(early_stopping_patience)
         self.early_stopping_tolerance = float(early_stopping_tolerance)
-        early_stopping_patience: int = 5,
-        early_stopping_tolerance: float = 1e-4
 
         self.dpmm_model = None
         self.likelihood_threshold: Optional[th.Tensor] = None
         self.anomaly_cluster_labels: Optional[th.Tensor] = None
         self.return_likelihood = return_likelihood
 
-        self.device = (
-            th.device(device)
-            if device
-            else th.device("cuda" if th.cuda.is_available() else "cpu")
-        )
-        print(self.return_likelihood)
+        # Device selection: cuda > cpu (MPS excluded: missing aten::digamma)
+        if device:
+            self.device = th.device(device)
+        elif th.cuda.is_available():
+            self.device = th.device("cuda")
+        else:
+            self.device = th.device("cpu")
+        
+        # print(f"[DEBUG-DPMM] Selected device: {self.device}")
 
     def __call__(
         self, input_data: np.ndarray, y_true: Optional[np.ndarray] = None, **kwargs
@@ -155,6 +160,7 @@ class DPMM(BaseClassifier):
         if self.mode == "likelihood_threshold":
             # salva su self
             self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
+            print(f"likelihood threshold: {self.likelihood_threshold}")
 
         else:  # cluster_labels
             # assegnazione cluster hard
@@ -168,6 +174,8 @@ class DPMM(BaseClassifier):
 
             perc = anom / (tot + 1e-6)
             self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
+
+        self.is_fitted_ = True
 
     def predict(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:  # pylint: disable=invalid-name, unused-argument
         """Predice etichetta anomalia per ciascun punto (bool) usando il modello fit-tato."""
@@ -185,6 +193,7 @@ class DPMM(BaseClassifier):
                     "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
                 )
             if self.return_likelihood:
+                print(f"likelihood scores, max: {np.max(-loglike_te.detach().to('cpu').numpy())} min: {np.min(-loglike_te.detach().to('cpu').numpy())} mean: {np.mean(-loglike_te.detach().to('cpu').numpy())}")
                 return -loglike_te.detach().to("cpu").numpy()
             else:
                 y_pred = loglike_te < self.likelihood_threshold
