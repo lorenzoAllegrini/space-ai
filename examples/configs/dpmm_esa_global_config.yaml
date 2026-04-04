@@ -6,7 +6,7 @@ exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"
-dpmm_type: "unit"            
+dpmm_type: ["full", "single", "diagonal"]            
 dpmm_mode: "likelihood_threshold"
 detector: "molookde"
 segmentator: false

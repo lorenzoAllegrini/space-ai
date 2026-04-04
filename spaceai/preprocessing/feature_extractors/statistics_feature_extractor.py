@@ -59,8 +59,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         """
         with self._callback_context("feature_selection", results):
             if self.max_features is not None and self.max_features < len(self.transformations):
-                if y is None:
-                    raise ValueError("y must be provided for feature selection")
                 X_features = self.transform(X, results=results)
                 self.select_features(X_features, y, results=results)
         return self
@@ -129,7 +127,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
     def select_features(
         self, 
         X_features: pd.DataFrame, 
-        y: np.ndarray,
+        y: Optional[np.ndarray] = None,
         results: Optional[Dict[str, Any]] = None
     ) -> pd.DataFrame:
         """
@@ -139,11 +137,22 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         """
 
         X_clean = X_features.fillna(0)
-        precision_selector = SelectKBest(score_func=tail_f01_score, k=self.max_features)
-        precision_selector.fit(X_clean.values, y)
+        
+        if y is not None:
+            precision_selector = SelectKBest(score_func=tail_f01_score, k=self.max_features)
+            precision_selector.fit(X_clean.values, y)
+            scores = precision_selector.scores_
+        else:
+            # Fallback unsupervised: usiamo la varianza normalizzata per importanza
+            # e saltiamo i threshold supervisionati più avanti
+            logging.info("Feature selection unsupervised: scoring basato su varianza.")
+            scores = X_clean.var().values
 
-        feature_scores = sorted(zip(X_features.columns, precision_selector.scores_), key=lambda x: x[1], reverse=True)
-        print(f"[DEBUG] Feature scores: {feature_scores}")
+        feature_scores = sorted(zip(X_features.columns, scores), key=lambda x: x[1], reverse=True)
+        if y is not None:
+            print(f"[DEBUG] Feature scores (supervised): {feature_scores}")
+        else:
+            print(f"[DEBUG] Feature scores (unsupervised - variance): {feature_scores}")
         
         correlation_threshold = 0.8
         corr_matrix = X_clean.corr().abs()
@@ -169,12 +178,16 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         for i, (f_name, f_score) in enumerate(feature_scores):
             if len(selected_feature_names) >= self.max_features:
                 break
-            if i < 2 and f_score >= 0.4:
-                selected_feature_names.append(f_name)
-            elif f_score >= 0.5:
+            
+            if y is None:
+                # Caso unsupervised: prendiamo le top K non correlate
                 selected_feature_names.append(f_name)
             else:
-                pass
+                # Caso supervisionato: applichiamo i threshold di qualità
+                if i < 2 and f_score >= 0.4:
+                    selected_feature_names.append(f_name)
+                elif f_score >= 0.5:
+                    selected_feature_names.append(f_name)
         
         if len(selected_feature_names) == 0:
             self.kill_switch_active = True

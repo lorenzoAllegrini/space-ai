@@ -6,9 +6,11 @@ import collections
 from collections import deque
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
+import time
 
 import numpy as np
 import pandas as pd
+import torch
 
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.data import AnomalyDataset
@@ -19,7 +21,6 @@ from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureEx
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 
 from .rolling_window_classifier import RollingWindowClassifier
-import time 
 
 
 class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
@@ -27,12 +28,14 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
 
     Args:
         drift_detector (DriftDetector): An instantiated drift-detector object (e.g., ``ADWINDetector``).
-        buffer_size (Union[int, str, pd.Timedelta]): Maximum number of segments to retain in the replay buffer. Defaults to 1000.
-            Ignored if a custom `replay_buffer` is provided.
-        replay_buffer (Optional[ReplayBuffer]): An optional custom replay buffer.
-            If not provided, a standard :class:`TimeDecayReplayBuffer` is used.
-        *args: Positional arguments forwarded to :class:`RollingWindowClassifier`.
-        **kwargs: Keyword arguments forwarded to :class:`RollingWindowClassifier`.
+        eval_perc (Optional[float]): Percentage of data to use for detector calibration.
+        ts_splitter (TimeSeriesSplitter): Buffer/Window manager.
+        base_classifier (Any): The underlying ML model.
+        supervised_classifier (bool): Whether it requires labels for training.
+        feature_extractor (Optional[FeatureExtractor]): Optional processing pipeline.
+        callback_handler (Optional[CallbackHandler]): Performance monitoring.
+        detector (Optional[AnomalyDetector]): The anomaly scoring refinement (e.g. MoLooKDE).
+        alpha_buffer (float): Probability threshold for adding samples to the short-term buffer (denoising).
     """
 
     def __init__(
@@ -68,7 +71,7 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         self.initial_train_size = 0
         self.alpha_buffer = alpha_buffer
 
-        # Dirottiamo il callback handler
+        # Routing the callback handler to sub-components
         if self.drift_detector is not None and getattr(self.drift_detector, "callback_handler", None) is None:
             self.drift_detector.callback_handler = callback_handler
         if self.replay_buffer is not None and getattr(self.replay_buffer, "callback_handler", None) is None:
@@ -83,10 +86,9 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
     ) -> Dict[str, Any]:
         """Initial training with optional chronological validation hold-out for the detector."""
 
-        self._is_fitted = True
         results: Dict[str, Any] = {}
 
-        prepared_data, prepared_labels = self._prepare_input(
+        prepared_data, prepared_labels, indices, _ = self._prepare_input(
             channel_data, channel_labels, results=results, save_dir=results_dir, suffix="train"
         )
         timestamps = self._get_timesteps(channel_data, results=results)
@@ -101,7 +103,7 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             y_train = prepared_labels[:split_idx] if prepared_labels is not None else None
 
             if self.feature_extractor is not None:
-                X_train = self.feature_extractor.fit_transform(X_train_raw, results=results, save_dir=results_dir, suffix="train")
+                X_train = self.feature_extractor.fit_transform(X_train_raw, y_train, results=results, save_dir=results_dir, suffix="train")
                 X_val = self.feature_extractor.transform(X_val_raw, results=results, save_dir=results_dir, suffix="val")
                 buffer_data = np.vstack((X_train, X_val))
             else:
@@ -116,20 +118,23 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 is_retraining=False
             )
         else:
-            results = super().fit(channel_data, channel_labels, results_dir=results_dir)
+            # Fallback to standard fit from parent class
+            res_parent = super().fit(channel_data, channel_labels, results_dir=results_dir)
+            results.update(res_parent)
+            
             if self.feature_extractor is not None:
-                # results is already updated by super().fit
                 buffer_data = self.feature_extractor.transform(prepared_data, results=results, save_dir=results_dir, suffix="train")
             else:
                 buffer_data = prepared_data
             
             if self.detector is not None and hasattr(self.detector, 'fit'):
-                logging.warning("Nessun eval_perc definito! Il detector verrà fittato sui dati di training (rischio overfitting).")
+                logging.warning("No eval_perc defined! Fitting detector on training data (high overfitting risk).")
                 initial_preds = self.base_classifier.predict(buffer_data)
                 self.detector.fit(initial_preds)
 
         self.replay_buffer.add(buffer_data, prepared_labels, timestamps=timestamps, results=results)
         self.initial_train_size = len(buffer_data)
+        self._is_fitted = True
         return results
 
     def step(
@@ -138,24 +143,19 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         channel_labels: Optional[np.ndarray] = None,
         results_dir: Optional[str] = None
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Predict on new data and update the model in a single pass.
-
-        Args:
-            channel_data: Raw channel data (array, list, or AnomalyDataset).
-            channel_labels: Optional pointwise labels.
-            results_dir: Optional directory for saving plots.
-
-        Returns:
-            Tuple of (predictions array, metrics dict).
-        """
-
+        """Predict on new data and update the model incrementally if drift is detected."""
+        
+        # --- LAZY FIT ---
         if not self._is_fitted:
-            raise ValueError("Model is not fitted. Please fit the model before using it.")
+            logging.info("Lazy fitting AdaptiveRollingWindowClassifier on the first experience.")
+            metrics = self.fit(channel_data, channel_labels, results_dir=results_dir)
+            predictions, _ = self.predict(channel_data)
+            return predictions, metrics
 
-
+        # --- STANDARD STEP FOR FITTED MODELS ---
         results: Dict[str, Any] = {}
 
-        prepared_data, prepared_labels = self._prepare_input(
+        prepared_data, prepared_labels, indices, _ = self._prepare_input(
             channel_data, channel_labels, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
         )
             
@@ -166,57 +166,59 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 prepared_data, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
             )
 
+        # 1. Prediction (Raw Scores)
         with self._callback_context("prediction", results):
             y_pred = self.base_classifier.predict(prepared_data)
         
-        probs = self.detector.detect(y_pred, return_probs=True)
-        mask = (probs >= self.alpha_buffer)
+        # 2. Buffer Management (Denoising)
+        # We only add to buffer points that are likely "normal" according to the current detector
+        if self.detector is not None:
+            probs = self.detector.detect(y_pred, return_probs=True)
+            mask = (probs >= self.alpha_buffer)
+        else:
+            mask = np.ones(len(y_pred), dtype=bool)
         
         if np.any(mask):
-            if isinstance(prepared_data, (np.ndarray, pd.DataFrame)):
-                data_to_buffer = prepared_data[mask]
-            else:
-                data_to_buffer = [prepared_data[i] for i, m in enumerate(mask) if m]
-                
-            labels_to_buffer = prepared_labels[mask]
-
-            timestamps_to_buffer = None
-            if timestamps is not None and len(timestamps) == len(mask):
-                timestamps_to_buffer = timestamps[mask]
-            
+            data_to_buffer = prepared_data[mask]
+            labels_to_buffer = prepared_labels[mask] if prepared_labels is not None else None
+            timestamps_to_buffer = timestamps[mask] if (timestamps is not None and len(timestamps) == len(mask)) else None
             self.short_term_buffer.append((data_to_buffer, labels_to_buffer, timestamps_to_buffer))
         else:
-            logging.warning("All samples in this step were filtered out (all detected as anomalies).")
+            logging.warning("All samples in this step were filtered out (detected as anomalies). Buffer not updated.")
 
+        # 3. Drift Detection
         drift_detected = False
         if self.drift_detector is not None:
             drift_detected = self.drift_detector.process(np.mean(y_pred), results=results)
-            
             width = self.drift_detector.current_width
         else:
+            # If no drift detector is present, we might want to force update periodically (optional)
             drift_detected = True
             width = 1
 
+        # 4. Incremental Retraining
         if drift_detected:
+            print("drift detected")
             self.global_steps += 1
-            print("-------------------------")
-            print(f"\n total_steps: {self.global_steps}")
+            logging.info("--- Drift Detected! Starting incremental update [Step %d] ---", self.global_steps)
 
             retrain_data, calib_X = self._prepare_retraining_data(width, results=results)
             
-            if retrain_data is None:
-                print("Skipping retraining: No valid data in buffer (too many anomalies filtered?).")
-            else:
+            if retrain_data is not None:
                 self._run_training_cycle(
                     data=retrain_data, 
                     results=results, 
                     X_val=calib_X, 
                     is_retraining=True
                 )
+                logging.info("Incremental update complete.")
+            else:
+                logging.warning("Skipping update: No valid data in buffer after filtering.")
+            
+            if self.drift_detector is not None:
+                self.drift_detector.reset()
 
-            print(f"\n Retraining complete!")
-            time.sleep(1)
-
+        # 5. Final Detection (Binary Anomaly Classification)
         if self.detector is not None:
             with self._callback_context("detection", results):
                 y_pred = self.detector.detect(y_pred)
@@ -224,40 +226,39 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         return y_pred, results
 
     def _prepare_retraining_data(self, width: int, results: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-        """Consolida il buffer a breve termine, estrae i dati di replay e costruisce il set di retraining."""
+        """Consolidates short-term buffer, adds older items to replay, and constructs retraining set."""
     
+        # Items to be moved to permanent Replay Buffer
         old_items = list(self.short_term_buffer)[:-width]
         if old_items:
             old_X = np.concatenate([it[0] for it in old_items], axis=0)
             old_ts = np.concatenate([it[2] for it in old_items], axis=0) if old_items[0][2] is not None else None
             self.replay_buffer.add(old_X, None, timestamps=old_ts, results=results)
         
+        # Recent items (since last drift)
         recent_items = list(self.short_term_buffer)[-width:]
         if not recent_items:
             return None, None
             
         recent_samples_X = np.concatenate([it[0] for it in recent_items], axis=0)
 
-        # Campioniamo i dati storici PRIMA dello split
+        # Sample from history to prevent forgetting
         replay_data_X, _ = self.replay_buffer.sample(sample_size=min(len(recent_samples_X)*2, 100000), results=results)
         replay_X = np.vstack(replay_data_X) if replay_data_X else np.empty((0, recent_samples_X.shape[1]))
 
         calib_X = None
         
-        # Split per calibrazione detector se richiesto e se il detector può essere fittato
+        # Calibration split for the detector
         if self.detector is not None and hasattr(self.detector, 'fit') and self.eval_perc is not None and 0.0 < self.eval_perc < 1.0:
-            # 1. Split dei dati recenti
             split_idx_recent = int(len(recent_samples_X) * (1 - self.eval_perc))
             recent_train_X = recent_samples_X[:split_idx_recent]
             recent_calib_X = recent_samples_X[split_idx_recent:]
             
-            # 2. Split dei dati storici (Cruciale per fermare il collasso della bandwidth!)
             if len(replay_X) > 0:
                 split_idx_replay = int(len(replay_X) * (1 - self.eval_perc))
                 replay_train_X = replay_X[:split_idx_replay]
                 replay_calib_X = replay_X[split_idx_replay:]
                 
-                # Uniamo i pezzi
                 retrain_data = np.concatenate((recent_train_X, replay_train_X), axis=0)
                 calib_X = np.concatenate((recent_calib_X, replay_calib_X), axis=0)
             else:
@@ -267,10 +268,8 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             retrain_data = np.concatenate((recent_samples_X, replay_X), axis=0) if len(replay_X) > 0 else recent_samples_X
             calib_X = None
 
+        # Clear short-term buffer after consumption
         self.short_term_buffer.clear()
-        if self.drift_detector is not None:    
-            self.drift_detector.reset()
-            
         return retrain_data, calib_X
 
     def _run_training_cycle(
@@ -296,6 +295,7 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 except (TypeError, ValueError):
                     self.base_classifier.fit(X_train)
 
+        # Calibrate/Update the anomaly detector thresholds
         if X_calib is not None and self.detector is not None and hasattr(self.detector, 'fit'):
             with self._callback_context("validation_prediction", results):
                 try:
@@ -303,13 +303,10 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 except (TypeError, ValueError):
                     y_pred_val = self.base_classifier.predict(X_calib)
             
-            msg = "Ricalibrazione dinamica del Detector post-drift..." if is_retraining else \
-                  f"Calibrazione Anomaly Detector su {len(y_pred_val)} predizioni di validation..."
-            print(msg)
+            logging.info("Recalibrating Anomaly Detector on %d validation predictions...", len(y_pred_val))
             self.detector.fit(y_pred_val)
             
         elif self.detector is not None and hasattr(self.detector, 'fit') and is_retraining:
-            # Fallback di emergenza se eval_perc è None
-            logging.warning("Calibrazione su dati di addestramento! Rischio code piatte nella GPD.")
+            logging.warning("Calibration fallback: Using training data for detector refinement.")
             y_pred_train = self.base_classifier.predict(X_train)
             self.detector.fit(y_pred_train)

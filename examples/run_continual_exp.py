@@ -142,6 +142,15 @@ def run_exp(args, other_args=None):
 
     classifier, is_supervised = create_classifier(args, other_args)
     
+    from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+    if isinstance(classifier, SequenceModelClassifier):
+        raise NotImplementedError(
+            f"The model '{args.model}' is a SequenceModelClassifier. "
+            "Continual learning adaptation via AdaptiveRollingWindowClassifier "
+            "is currently not supported for sequence-based models. "
+            "Please use a point-based model (dpmm, iforest, xgboost, etc.) for continual tests."
+        )
+    
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
     run_id = f"continual_{args.dataset}_{args.model}"
@@ -194,12 +203,18 @@ def run_exp(args, other_args=None):
 
     channels = benchmark.channels if args.channels is None else args.channels
      
+    # Dataset-specific parameters (e.g. ESA telecommands)
+    dataset_kwargs = {}
+    if args.dataset == "esa":
+        dataset_kwargs["use_telecommands"] = getattr(args, "use_telecommands", False)
+
     for channel_name in channels:
         logging.info("Starting continual test for channel %s...", channel_name)
 
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=rolling_window_classifier,
+            **dataset_kwargs
         )
 
         print(fitting_metrics)
@@ -208,6 +223,7 @@ def run_exp(args, other_args=None):
             channel_id=channel_name,
             classifier=fitted_classifier,
             experience_size=args.experience_size,
+            **dataset_kwargs
         )
     
 

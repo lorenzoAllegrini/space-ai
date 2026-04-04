@@ -1,0 +1,25 @@
+# iforest_esa_robust.yaml
+# Profilo: Sweep Multi-Parametro (Grid Search)
+base_dir: "./datasets"           
+exp_dir: "experiments_iforest_sweep"
+dataset: "esa"               
+mission_id: 1
+model: "iforest"
+detector: "threshold"
+
+window_size: null
+step_size: null
+perc_step_size: 0.5
+
+feature_extractor: "base_statistics"
+feature_extraction_params:
+  max_features: 10
+
+base_classifier_params:
+  n_estimators: [100, 200, 500]
+  contamination: [0.01, 0.05, 0.1]
+  max_samples: [128, 256, 512]
+  random_state: 42
+  
+detector_params:
+  threshold: [0.9, 0.95, 0.99]

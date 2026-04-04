@@ -74,28 +74,29 @@ class RollingWindowClassifier(AnomalyClassifier):
             y_train = y
 
         if self.feature_extractor is not None:
-            self.feature_extractor.set_context(dataset=dataset, indices=idx_train)
-            t0 = time.time()
-            X_train = self.feature_extractor.fit_transform(
-                X_train, y_train, results=results, save_dir=results_dir, suffix="train"
-            )
-            print(f"[DEBUG] feature_extractor.fit_transform took {time.time() - t0:.2f}s")
-            if X_val is not None:
-                self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
+            with self._callback_context("feature_extraction", results):
+                self.feature_extractor.set_context(dataset=dataset, indices=idx_train)
                 t0 = time.time()
-                X_val = self.feature_extractor.transform(
-                    X_val, results=results, save_dir=results_dir, suffix="val"
+                X_train = self.feature_extractor.fit_transform(
+                    X_train, y_train, results=results, save_dir=results_dir, suffix="train"
                 )
-                print(f"[DEBUG] feature_extractor.transform (val) took {time.time() - t0:.2f}s")
-        # Clear context after use
-        self.feature_extractor.clear_context()
+                print(f"[DEBUG] feature_extractor.fit_transform took {time.time() - t0:.2f}s")
+                if X_val is not None:
+                    self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
+                    t0 = time.time()
+                    X_val = self.feature_extractor.transform(
+                        X_val, results=results, save_dir=results_dir, suffix="val"
+                    )
+                    print(f"[DEBUG] feature_extractor.transform (val) took {time.time() - t0:.2f}s")
+            # Clear context after use
+            self.feature_extractor.clear_context()
 
         # Short-circuit if no features were selected
         if self.feature_extractor.kill_switch_active:
             print(f"[DEBUG] RollingWindowClassifier short-circuit in fit (0 features).")
             return results
 
-        with self._callback_context("fitting", results):
+        with self._callback_context("training", results):
             # --- DEBUG EXPORT ---
             os.makedirs("debug_exports", exist_ok=True)
             pd.DataFrame(X_train).to_csv(f"debug_exports/train_features_extracted.csv", index=False)
@@ -107,6 +108,11 @@ class RollingWindowClassifier(AnomalyClassifier):
             else:
                 self.base_classifier.fit(X_train)
             print(f"[DEBUG] base_classifier.fit took {time.time() - t0:.2f}s")
+            
+            # Extract num_epochs if available (e.g. from DPMM or neural nets)
+            epochs = getattr(self.base_classifier, "epochs_count", getattr(self.base_classifier, "n_iter_", None))
+            if epochs:
+                results["num_epochs"] = epochs
         
         if self.detector is not None and hasattr(self.detector, 'fit'):
             with self._callback_context("detector_calibration", results):
@@ -141,13 +147,14 @@ class RollingWindowClassifier(AnomalyClassifier):
         print(f"[DEBUG] _prepare_input (test) took {time.time() - t0:.2f}s. Segments: {len(X)}")
 
         if self.feature_extractor is not None:
-            self.feature_extractor.set_context(dataset=dataset, indices=indices)
-            t0 = time.time()
-            channel_data = self.feature_extractor.transform(
-                X, results=results, save_dir=results_dir, suffix="test"
-            )
-            print(f"[DEBUG] feature_extractor.transform (test) took {time.time() - t0:.2f}s")
-            self.feature_extractor.clear_context()
+            with self._callback_context("feature_extraction", results):
+                self.feature_extractor.set_context(dataset=dataset, indices=indices)
+                t0 = time.time()
+                channel_data = self.feature_extractor.transform(
+                    X, results=results, save_dir=results_dir, suffix="test"
+                )
+                print(f"[DEBUG] feature_extractor.transform (test) took {time.time() - t0:.2f}s")
+                self.feature_extractor.clear_context()
             
             # Opzione A: Kill-switch Short-circuit
             if getattr(self.feature_extractor, "kill_switch_active", False):

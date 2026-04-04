@@ -31,6 +31,10 @@ from spaceai.preprocessing import get_feature_extractor
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
 from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.anomaly_classifier.adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
+from spaceai.models.drift_detectors.adwin_detector import ADWINDetector
+from spaceai.models.drift_detectors.utils.replay_buffers import TimeDecayReplayBuffer
+from spaceai.models.drift_detectors.utils.filters import SafeRampUpFilter
 from utils.model_creators import create_classifier
 from utils.reproducibility import set_seed
 
@@ -121,7 +125,34 @@ def initialize_pipeline_from_args(payload_args):
         detector = MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
         
     # 5. Assembly
-    pipeline = RollingWindowClassifier(
+    drift_detector_enabled = getattr(args, 'drift_detector', False)
+    
+    # We use AdaptiveRollingWindowClassifier for CONTINUAL learning.
+    # If drift_detector_enabled is False, we still use it but with drift_detector=None
+    # to allow manual/forced retraining at every step.
+    logging.info("[SERVER-FACTORY] Initializing AdaptiveRollingWindowClassifier (Continual Mode).")
+    
+    # Replay Buffer
+    replay_params = getattr(args, 'replay_params', {})
+    default_replay = dict(max_size=100000, half_life_segments="180D", min_prob=1e-6)
+    replay_buffer = TimeDecayReplayBuffer(**{**default_replay, **replay_params})
+    
+    # Drift Detector (only if explicitly enabled)
+    drift_detector = None
+    if drift_detector_enabled:
+        logging.info("[SERVER-FACTORY] Drift detector (ADWIN) ACTIVE.")
+        drift_detector = ADWINDetector(
+            delta=getattr(args, 'adwin_delta', 0.2),
+            filters=[SafeRampUpFilter(lookahead_steps=5, max_safe_score=0.4)],
+        )
+    else:
+        logging.info("[SERVER-FACTORY] Drift detector DISABLED. Model will retrain at every experience step.")
+    
+    # Adaptive Wrapper
+    wrapper_params = getattr(args, 'wrapper_params', {})
+    pipeline = AdaptiveRollingWindowClassifier(
+        drift_detector=drift_detector,
+        replay_buffer=replay_buffer,
         base_classifier=base_classifier,
         supervised_classifier=is_supervised,
         ts_splitter=ts_splitter,
@@ -129,7 +160,11 @@ def initialize_pipeline_from_args(payload_args):
         callback_handler=handler,
         detector=detector,
         eval_perc=eval_perc,
+        **wrapper_params
     )
+    
+    logging.info("[SERVER-FACTORY] Pipeline initialized successfully.")
+    return pipeline
     
     logging.info("[SERVER-FACTORY] Pipeline initialized successfully.")
     return pipeline
@@ -160,21 +195,7 @@ def get_memory_usage():
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / (1024 * 1024)
 
-def inspect_sml_object(obj, name="classifier"):
-    """Recursively dumps interesting attributes of the SML pipeline."""
-    if obj is None: return
-    print(f"\n[DIAGNOSTIC-INSPECT] === Deep Inspection of {name} ({type(obj).__name__}) [ID: {id(obj)}] ===", flush=True)
-    attrs = ['window_size', 'step_size', 'alpha', 'p', 'unitize', 'smoothing_alpha', 'min_allowed_ll', 'pot_threshold', 
-             'alpha_dp', 'mu_prior_strength', 'var_prior_strength', 'num_iterations', 'lr']
-    for attr in attrs:
-        if hasattr(obj, attr):
-            print(f"[DIAGNOSTIC-INSPECT] -> {attr}: {getattr(obj, attr)}", flush=True)
-    if hasattr(obj, 'steps'): # Pipeline
-        for s_name, s_obj in obj.steps: inspect_sml_object(s_obj, name=f"{name}.{s_name}")
-    elif hasattr(obj, 'base_classifier'):
-        inspect_sml_object(obj.base_classifier, name=f"{name}.base")
-    elif hasattr(obj, 'detector'):
-        inspect_sml_object(obj.detector, name=f"{name}.detector")
+
 
 def main():
     args, _other_args = parse_exp_args()
@@ -231,7 +252,7 @@ def main():
             logging.info("[SERVER] Data SHAPE: %s", str(d_shape))
             if hasattr(exp_np, 'data') and len(exp_np.data) > 0:
                 logging.info("[SERVER] First row: %s", str(exp_np.data[0]))
-            inspect_sml_object(classifier, name="active_server_classifier_START")
+
             response = {"preds": [], "metrics": {}}
             
             try:
@@ -244,13 +265,25 @@ def main():
                             metrics['_fitted_window_size'] = classifier.ts_splitter.window_size
                             metrics['_fitted_step_size'] = classifier.ts_splitter.step_size
                         response["metrics"] = metrics
-                        inspect_sml_object(classifier, name="post_fit_classifier")
+
                 
                 if action == "predict":
                     if hasattr(classifier, 'predict'):
                         predictions, metrics = classifier.predict(exp_np)
                         response["preds"] = predictions.tolist() if hasattr(predictions, 'tolist') else predictions
-                        response.update(metrics)
+                        response["metrics"] = metrics
+                
+                if action == "step":
+                    if hasattr(classifier, 'step'):
+                        predictions, metrics = classifier.step(exp_np, channel_labels=y_train)
+                        response["preds"] = predictions.tolist() if hasattr(predictions, 'tolist') else predictions
+                        response["metrics"] = metrics
+                    else:
+                        logging.warning("[SERVER] 'step' requested but classifier has no step method. Fallback to predict+fit.")
+                        predictions, metrics_p = classifier.predict(exp_np)
+                        metrics_f = classifier.fit(exp_np, channel_labels=y_train)
+                        response["preds"] = predictions.tolist() if hasattr(predictions, 'tolist') else predictions
+                        response["metrics"] = {**metrics_p, **metrics_f}
             except Exception as e:
                 import traceback
                 err_trace = traceback.format_exc()
@@ -258,6 +291,20 @@ def main():
                 response["error"] = str(e)
             
             data_socket.send_multipart([frames[0], json.dumps(convert_numpy(response)).encode("utf-8")])
+
+            # --- AGGRESSIVE GARBAGE COLLECTION ---
+            del payload
+            del response
+            if 'experience_data' in locals(): del experience_data
+            if 'exp_np' in locals(): del exp_np
+            
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch, 'cpu'):
+                # PyTorch doesn't have a direct 'empty_cache' for CPU, 
+                # but gc.collect() handles most of it. 
+                pass
     finally:
         data_socket.close()
         context.term()

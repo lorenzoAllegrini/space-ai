@@ -2,6 +2,7 @@
 
 import argparse
 import warnings
+from datetime import datetime
 import logging
 import yaml
 import numpy as np
@@ -64,6 +65,11 @@ def parse_sml_args(str_args=None):
     parser.add_argument("--server-ip", type=str)
     parser.add_argument("--server-port", "--port", type=int)
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--run-id", type=str, help="Override run_id")
+    
+    # DPMM specific
+    parser.add_argument("--dpmm-type", choices=["full", "unit", "diagonal"], help="DPMM covariance type")
+    parser.add_argument("--dpmm-mode", choices=["likelihood_threshold", "score_threshold"], help="DPMM anomaly detection mode")
 
     parser.set_defaults(**defaults)
     return parser.parse_known_args(remaining_argv)
@@ -81,24 +87,31 @@ def run_sml_exp():
     else:
         detector = None
     
+    # Inject DPMM params into base_classifier_params if needed
+    if args.model == "dpmm":
+        base_params = getattr(args, 'base_classifier_params', {})
+        if args.dpmm_type: base_params['dpmm_type'] = args.dpmm_type
+        if args.dpmm_mode: base_params['dpmm_mode'] = args.dpmm_mode
+        args.base_classifier_params = base_params
+
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
     # Generate a more descriptive run_id including model type/mode
-    run_id = f"SML_{args.model}"
-    
-    # Add model-specific type/mode if present
-    for attr in ['type', 'mode']:
-        # Try both generic (e.g. 'type') and specific (e.g. 'dpmm_type')
-        val = getattr(args, f"{args.model}_{attr}", getattr(args, attr, None))
-        if val:
-            run_id += f"_{val}"
-            
-    run_id += f"_{args.detector}"
-    
-    # Check for dynamic scaling in classifier params
-    base_params = getattr(args, 'base_classifier_params', {})
-    if base_params.get('dynamic_scaling', False):
-        run_id += "_ds"
+    if getattr(args, 'run_id', None):
+        run_id = args.run_id
+    else:
+        run_id = f"SML_{args.model}"
+        
+        # Add model-specific type/mode if present
+        for attr in ['type', 'mode']:
+            val = getattr(args, f"{args.model}_{attr}", getattr(args, attr, None))
+            if val: run_id += f"_{val}"
+                
+        run_id += f"_{args.detector}_w{args.window_size}_s{args.step_size}"
+        
+        # Check for dynamic scaling in classifier params
+        if getattr(args, 'base_classifier_params', {}).get('dynamic_scaling', False):
+            run_id += "_ds"
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
         data_path=args.base_dir,
@@ -183,20 +196,44 @@ def run_sml_exp():
             dataset_kwargs['use_telecommands'] = args.use_telecommands
 
         logging.info("[CLIENT] Requesting remote FIT for channel %s (via ARGS)...", channel_name)
+        start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         fitted_client, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=sml_client,
             **dataset_kwargs
         )
-        print(f"Fitting Metrics: {fitting_metrics}")
         
         logging.info("[CLIENT] Requesting remote TEST for channel %s...", channel_name)
-        results = benchmark.test_channel(
+        test_results = benchmark.test_channel(
             channel_id=channel_name,
             classifier=fitted_client,
             **dataset_kwargs
         )
-        print(f"Test Results: {results}")
+        
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Merge all metrics for the final results.csv
+        final_results = {
+            "start_date": start_date,
+            "end_date": end_date,
+            **fitting_metrics,
+            **test_results
+        }
+        
+        # Ensure fit_time is explicitly set if fitting_metrics has it
+        if "fit_time" not in final_results and "fitting_time" in final_results:
+            final_results["fit_time"] = final_results["fitting_time"]
+
+        print(f"Final Channel Results: {final_results}")
+        
+        # If the benchmark has a results list, update it (specific to some Benchmark implementations)
+        if hasattr(benchmark, 'results'):
+            # Find and update the entry for this channel
+            for i, res in enumerate(benchmark.results):
+                if res.get('channel_id') == channel_name:
+                    benchmark.results[i].update(final_results)
+                    break
 
     if isinstance(benchmark, ESABenchmark):
         results = benchmark.compute_global_event_metrics(channels=channels)

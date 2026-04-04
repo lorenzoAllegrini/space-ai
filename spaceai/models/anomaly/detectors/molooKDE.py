@@ -76,11 +76,12 @@ class MoLooKDEDetector(AnomalyDetector):
             X_scaled = self.scaler.fit_transform(X_2d) if self.unitize else X_2d
 
             # Topological Analysis (Persistence Homology) for spatial scale definition
-            print(f"Starting topological analysis on {min(len(X_scaled), 5000)} points...")
-            if len(X_scaled) > 5000:
+            topo_limit = 2000
+            print(f"Starting topological analysis on {min(len(X_scaled), topo_limit)} points...")
+            if len(X_scaled) > topo_limit:
                 # Force local seed for reproducibility in bandwidth calculation
                 rng = np.random.default_rng(42)
-                indices = rng.choice(len(X_scaled), 5000, replace=False)
+                indices = rng.choice(len(X_scaled), topo_limit, replace=False)
                 X_topo = X_scaled[indices]
             else:
                 X_topo = X_scaled
@@ -95,10 +96,13 @@ class MoLooKDEDetector(AnomalyDetector):
             h = max((d_star) ** (2.0 / self.p), 1e-4)
             print(f"Calculated bandwidth: {h:.6f}. Fitting KDE...")
             self.kde = KernelDensity(kernel='epanechnikov', bandwidth=h)
-            print(f"Calculating KDE scores for {len(X_scaled)} points...")
-            if len(X_scaled) > 10000:
+            
+            # Support set reduction for memory efficiency
+            kde_limit = 1000
+            print(f"Calculating KDE scores for {min(len(X_scaled), kde_limit)} points...")
+            if len(X_scaled) > kde_limit:
                 rng = np.random.default_rng(42)
-                indices = rng.choice(len(X_scaled), 10000, replace=False)
+                indices = rng.choice(len(X_scaled), kde_limit, replace=False)
                 self.kde.fit(X_scaled[indices])
                 log_y = self.kde.score_samples(X_scaled[indices])
             else:
@@ -153,8 +157,7 @@ class MoLooKDEDetector(AnomalyDetector):
 
             anomalies = (probs < self.alpha).astype(int)
             
-            if len(anomalies) > 0:
-                 print(f"[DIAGNOSTIC-DETECTOR] Detect Batch: Samples={len(anomalies)}, Anomalies={np.sum(anomalies)}, PotThreshold={self.pot_threshold:.4f}, GPD_params={self.gpd_params}", flush=True)
+
 
             if return_probs:
                 return probs

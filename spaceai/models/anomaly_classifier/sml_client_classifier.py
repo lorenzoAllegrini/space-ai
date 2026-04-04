@@ -9,78 +9,6 @@ import pandas as pd
 
 from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
 
-def inspect_sml_object(obj, name="classifier"):
-    """Recursively dumps interesting attributes of the SML pipeline."""
-    if obj is None: return
-    print(f"\n[DIAGNOSTIC-INSPECT-CLIENT] === Deep Inspection of {name} ({type(obj).__name__}) ===", flush=True)
-    
-    # DPMM / Selection / Detection parameters
-    interesting = [
-        'max_features', 'window_size', 'early_stop', 'patience', 
-        'alpha', 'pot_percentile', 'bandwidth_', 'prior_iqr_',
-        'K', 'alphaDP', 'alpha_dp', 'mu_prior_strength', 'var_prior_strength',
-        'num_iterations', 'lr', 'min_delta', 'p', 'unitize', 'smoothing_alpha',
-        'min_allowed_ll', 'pot_threshold'
-    ]
-    
-    for attr in interesting:
-        if hasattr(obj, attr):
-            print(f"[DIAGNOSTIC-INSPECT-CLIENT] -> {attr}: {getattr(obj, attr)}", flush=True)
-            
-    # Specific for DPMM or PyTorch models (Weights Signature)
-    # We try different ways to find parameters
-    params_to_check = []
-    
-    # 1. Standard parameters()
-    if hasattr(obj, 'parameters'):
-        try: params_to_check.extend(list(obj.parameters()))
-        except: pass
-        
-    # 2. Internal PyTorch dicts (for dynamically registered params)
-    if hasattr(obj, '_parameters'):
-        params_to_check.extend(obj._parameters.values())
-    if hasattr(obj, '_buffers'):
-        params_to_check.extend(obj._buffers.values())
-    
-    # 3. Fallback for DPMM specific internal lists
-    if hasattr(obj, 'mix_weights_var_eta'):
-        params_to_check.extend(obj.mix_weights_var_eta)
-    if hasattr(obj, 'emission_var_eta'):
-        params_to_check.extend(obj.emission_var_eta)
-
-    if params_to_check:
-        try:
-            import torch
-            valid_vals = []
-            for p in params_to_check:
-                if p is None: continue
-                # Handle both Tensors and Parameters
-                tensor_data = p.data if hasattr(p, 'data') else p
-                if isinstance(tensor_data, torch.Tensor):
-                    valid_vals.append(tensor_data.detach().cpu())
-            
-            if valid_vals:
-                total_sum = sum(t.sum().item() for t in valid_vals)
-                total_abs_mean = sum(t.abs().mean().item() for t in valid_vals) / len(valid_vals)
-                print(f"[DIAGNOSTIC-WEIGHTS-CLIENT] -> {name} Signature: Sum={total_sum:.8f}, AbsMean={total_abs_mean:.8f}", flush=True)
-        except Exception as e:
-            # print(f"[DIAGNOSTIC-DEBUG] Weights error: {e}")
-            pass
-
-    # Recursive inspection
-    if hasattr(obj, 'steps'): # scikit-learn Pipeline
-        for step_name, step_obj in obj.steps:
-            inspect_sml_object(step_obj, name=f"{name}.{step_name}")
-    elif hasattr(obj, 'transformer_list'): # scikit-learn FeatureUnion
-        for step_name, step_obj in obj.transformer_list:
-            inspect_sml_object(step_obj, name=f"{name}.{step_name}")
-    elif hasattr(obj, 'base_classifier'): # SML Wrapper / RollingWindow
-        inspect_sml_object(obj.base_classifier, name=f"{name}.base")
-        if hasattr(obj, 'feature_extractor'):
-            inspect_sml_object(obj.feature_extractor, name=f"{name}.extractor")
-        if hasattr(obj, 'detector'):
-            inspect_sml_object(obj.detector, name=f"{name}.detector")
-
 class SMLClientClassifier(AnomalyClassifier):
     """
     Client wrapper for Continual Learning (SML) backend.
@@ -133,12 +61,6 @@ class SMLClientClassifier(AnomalyClassifier):
         
         channel_bytes = self.channel_id.encode("utf-8")
         try:
-            # INSPECT LOCAL PIPELINE BEFORE SENDING (Solo se siamo in modalità legacy)
-            if "pipeline" in payload:
-                inspect_sml_object(payload["pipeline"], name="local_pipeline_PRE_PICKLE")
-            elif "args" in payload:
-                print(f"[DIAGNOSTIC-CLIENT] Sending ARGS instead of object for channel {self.channel_id}", flush=True)
-
             self.socket.send_multipart([channel_bytes, pickle.dumps(payload)])
             
             # Ripristiniamo immediatamente i callback locali (se eravamo in modalità legacy)
@@ -176,14 +98,12 @@ class SMLClientClassifier(AnomalyClassifier):
         
         # Sync local ts_splitter with server-fitted values
         if self.base_classifier is not None and hasattr(self.base_classifier, 'ts_splitter'):
-            ws = metrics.pop('_fitted_window_size', None)
-            ss = metrics.pop('_fitted_step_size', None)
+            ws = metrics.get('_fitted_window_size', None)
+            ss = metrics.get('_fitted_step_size', None)
             if ws is not None:
                 self.base_classifier.ts_splitter.window_size = ws
-                print(f"[SML-CLIENT] Synced ts_splitter.window_size = {ws}", flush=True)
             if ss is not None:
                 self.base_classifier.ts_splitter.step_size = ss
-                print(f"[SML-CLIENT] Synced ts_splitter.step_size = {ss}", flush=True)
         
         return metrics
 
@@ -203,6 +123,17 @@ class SMLClientClassifier(AnomalyClassifier):
         response = self._send_request("fit_predict", X, y, **kwargs)
         if "error" in response:
             logging.error("[SML-CLIENT] FitPredict error: %s", response["error"])
+            return np.zeros(len(X)), response
+
+        predictions = response.get("preds", [])
+        metrics = response.get("metrics", {})
+        return np.array(predictions), metrics
+
+    def step(self, X: Any, y: Optional[np.ndarray] = None, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Sends experience data to server for adaptive STEP (predict + update)."""
+        response = self._send_request("step", X, y, **kwargs)
+        if "error" in response:
+            logging.error("[SML-CLIENT] Step error: %s", response["error"])
             return np.zeros(len(X)), response
 
         predictions = response.get("preds", [])

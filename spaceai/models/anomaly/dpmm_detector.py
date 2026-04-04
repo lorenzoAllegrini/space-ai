@@ -156,24 +156,27 @@ class DPMM(BaseClassifier):
         self.dpmm_model.eval()
         with th.no_grad():
             pi_tr, _, loglike_tr = self.dpmm_model(x_t)
+            
+            if self.mode == "likelihood_threshold":
+                self.likelihood_threshold = th.quantile(loglike_tr, self.quantile).item()
+            else:  # cluster_labels
+                # assegnazione cluster hard
+                clust_assignment = pi_tr.argmax(dim=1)
 
-        if self.mode == "likelihood_threshold":
-            # salva su self
-            self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
-            print(f"likelihood threshold: {self.likelihood_threshold}")
+                # conteggi per cluster (più compatto di scatter_add)
+                tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
+                anom = th.bincount(
+                    clust_assignment, weights=y_t, minlength=self.n_clusters
+                )  # y_t è float(0/1)
 
-        else:  # cluster_labels
-            # assegnazione cluster hard
-            clust_assignment = pi_tr.argmax(dim=1)
-
-            # conteggi per cluster (più compatto di scatter_add)
-            tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
-            anom = th.bincount(
-                clust_assignment, weights=y_t, minlength=self.n_clusters
-            )  # y_t è float(0/1)
-
-            perc = anom / (tot + 1e-6)
-            self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
+                perc = anom / (tot + 1e-6)
+                self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
+            
+            # Explicit cleanup of training tensors
+            del x_t
+            del loglike_tr
+            del pi_tr
+            if 'clust_assignment' in locals(): del clust_assignment
 
         self.is_fitted_ = True
 
@@ -193,10 +196,16 @@ class DPMM(BaseClassifier):
                     "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
                 )
             if self.return_likelihood:
-                print(f"likelihood scores, max: {np.max(-loglike_te.detach().to('cpu').numpy())} min: {np.min(-loglike_te.detach().to('cpu').numpy())} mean: {np.mean(-loglike_te.detach().to('cpu').numpy())}")
-                return -loglike_te.detach().to("cpu").numpy()
+                res = -loglike_te.detach().to("cpu").numpy()
+                del x_t
+                del loglike_te
+                return res
             else:
                 y_pred = loglike_te < self.likelihood_threshold
+                res = y_pred.detach().to("cpu").numpy()
+                del x_t
+                del loglike_te
+                return res
 
         else: 
             if self.anomaly_cluster_labels is None:

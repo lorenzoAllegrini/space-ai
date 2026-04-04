@@ -1,4 +1,5 @@
-# dpmm_unit_config.yaml
+# dpmm_continual_config.yaml
+# Allineato con parametri dpmm_esa_global_config.yaml
 base_dir: "./datasets"           
 exp_dir: "experiments"
 dataset: "esa"               
@@ -9,9 +10,14 @@ dpmm_mode: "likelihood_threshold"
 detector: "molookde"
 segmentator: false
 feature_extractor: "base_statistics"
-drift_detector: false
-window_size: 100
-step_size: 100
+drift_detector: false  # Abilitato per default in modalità continual
+
+# Temporal params coordinati con i global
+window_size: null
+step_size: null
+max_window: 500
+min_window: 150
+perc_step_size: 0.5
 experience_size: "30D"
 
 channels:
@@ -22,40 +28,45 @@ channels:
   - "channel_45"
   - "channel_46"
 
+# Parametri specifici Continual (Preservati/Aggiornati)
 wrapper_params:
   eval_perc: 0.6
   alpha_buffer: 0.05
 
-
 replay_params:
   max_size: 100000
   half_life_segments: "180D"
-  min_prob: 0.000001 # 1e-6 in formato yaml esplicito per sicurezza del parser
+  min_prob: 0.000001
 
-
+# Parametri Detector allineati con ESA Global
 detector_params:
-  alpha: 0.05
+  alpha: 0.002
   p: 3.0
-  pot_percentile: 99.0
+  unitize: true
+  pot_percentile: 93.0
+  smoothing_alpha: 0.2
+  min_allowed_ll: -200.0
 
-
+# Parametri Model allineati con ESA Global
 base_classifier_params:
+  dynamic_scaling: true
+  scaler_window: 1000
   n_clusters: 100
-  num_iterations: 1000
-  lr: 0.1
-  alpha_dp: 1.0
-  var_prior: 1.0
+  num_iterations: 100
+  lr: 0.5
+  alpha_dp: 3.0
+  var_prior: 3.0
   var_prior_strength: 1.0
   mu_prior_strength: 0.001
-  quantile: 0.05
+  quantile: 0.001
+  return_likelihood: true
 
-
+# Feature extraction allineata con i top scores
 feature_extraction_params:
+  max_features: 5
   selected_features:
+    - "root_mean_square"
+    - "trend_slope"
     - "var"
-    - "std"
-    - "diff2_var"
-    - "skew"
+    - "cusum_deviation"
     - "dom_freq_energy"
-    - "dom_freq_index"
-    - "spectral_centroid"
