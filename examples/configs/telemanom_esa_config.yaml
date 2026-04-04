@@ -1,0 +1,26 @@
+# telemanom_esa_config.yaml
+# Test configuration for Telemanom integration
+
+base_dir: "./datasets"           
+exp_dir: "experiments_telemanom"
+dataset: "esa"               
+mission_id: 1
+model: "telemanom"
+feature_extractor: "none"
+use_telecommands: False
+window_size: 250
+step_size: 250
+
+base_classifier_params:
+  input_size: 1
+  hidden_sizes: [32, 32]
+  n_predictions: 1
+  dropout: 0.2
+  epochs: 2 # Very short for validation
+  batch_size: 64
+  perc_eval: 0.1
+  lr: 0.001
+  patience: 5
+
+channels:
+  - "channel_41"

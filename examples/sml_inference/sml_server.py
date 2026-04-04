@@ -28,6 +28,7 @@ if BASE_DIR not in sys.path:
 
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 from spaceai.preprocessing import get_feature_extractor
+from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
 from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
 from utils.model_creators import create_classifier
@@ -99,6 +100,17 @@ def initialize_pipeline_from_args(payload_args):
     # 3. Base Classifier
     base_classifier, is_supervised = create_classifier(args, other_args)
     
+    # Enable performance monitoring on the server/DPU
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+    
+    # Check if the returned classifier is a self-contained sequence model (like Telemanom)
+    # that shouldn't be wrapped in RollingWindowClassifier
+    from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+    if isinstance(base_classifier, SequenceModelClassifier):
+        logging.info("[SERVER-FACTORY] SequenceModelClassifier detected. Skipping RollingWindow wrapping.")
+        base_classifier.callback_handler = handler
+        return base_classifier
+
     # 4. Detector
     detector_params = getattr(args, 'detector_params', {})
     detector = None
@@ -114,6 +126,7 @@ def initialize_pipeline_from_args(payload_args):
         supervised_classifier=is_supervised,
         ts_splitter=ts_splitter,
         feature_extractor=feature_extractor,
+        callback_handler=handler,
         detector=detector,
         eval_perc=eval_perc,
     )
@@ -213,6 +226,11 @@ def main():
                 continue
             
             logging.info("[SERVER] Processing %s [Action: %s, RAM: %.1fMB]", channel_id, action, get_memory_usage())
+            # Se è un oggetto Dataset, accediamo a .data per la shape
+            d_shape = exp_np.data.shape if hasattr(exp_np, 'data') else "N/A"
+            logging.info("[SERVER] Data SHAPE: %s", str(d_shape))
+            if hasattr(exp_np, 'data') and len(exp_np.data) > 0:
+                logging.info("[SERVER] First row: %s", str(exp_np.data[0]))
             inspect_sml_object(classifier, name="active_server_classifier_START")
             response = {"preds": [], "metrics": {}}
             

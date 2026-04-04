@@ -1,0 +1,36 @@
+# iforest_esa_config.yaml
+# Configurazione per Isolation Forest su ESA tramite SML Server
+
+base_dir: "./datasets"           
+exp_dir: "experiments_iforest"
+dataset: "esa"               
+mission_id: 1
+model: "iforest"
+detector: "threshold"
+
+# Parametri di Segmentazione/Windowing
+window_size: 100
+step_size: 50
+perc_step_size: 0.5
+
+# Feature Extraction: iForest lavora meglio su statistiche aggregate
+feature_extractor: "base_statistics"
+feature_extraction_params:
+  max_features: 10
+
+channels:
+  - "channel_41"
+  - "channel_42"
+  - "channel_43"
+  - "channel_44"
+  - "channel_45"
+  - "channel_46"
+
+base_classifier_params:
+  n_estimators: 100
+  contamination: 0.05
+  max_samples: "auto"
+  random_state: 42
+  
+detector_params:
+  threshold: 0.999

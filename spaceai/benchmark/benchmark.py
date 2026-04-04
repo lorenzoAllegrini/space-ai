@@ -199,10 +199,11 @@ class Benchmark:
         self,
         channel_id: str,
         classifier: AnomalyClassifier,
+        **kwargs
     ) -> Dict[str, Any]:
         """Trains the anomaly classifier for a given channel and saves it to state."""
         
-        train_channel = self.load_channel(channel_id, mode="train")
+        train_channel = self.load_channel(channel_id, mode="train", **kwargs)
         logging.info("Fitting the anomaly classifier for channel %s...", channel_id)
         
         chan_results_dir = os.path.join(self.run_dir, channel_id)
@@ -284,6 +285,7 @@ class Benchmark:
         channel_id: str,
         pred_buffer: int = 2,
         classifier: Optional[AnomalyClassifier] = None,
+        **kwargs
     ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Tests the fitted anomaly classifier for a given channel using internal state."""
 
@@ -293,7 +295,7 @@ class Benchmark:
                 return {"channel_id": channel_id}, [], []
             classifier = self.trained_classifiers[channel_id]
         
-        test_channel = self.load_channel(channel_id, mode="test")
+        test_channel = self.load_channel(channel_id, mode="test", **kwargs)
 
         logging.info("Predicting the test data for channel %s...", channel_id)
         

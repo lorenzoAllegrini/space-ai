@@ -39,11 +39,26 @@ class SequenceModelClassifier(AnomalyClassifier):
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
         channel_labels: Optional[np.ndarray] = None,
         fit_predictor_args: Optional[Dict[str, Any]] = None,
+        results_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Fit the model on time-series data X, optionally with labels y.
         """
         results = {}
+
+        # Auto-populate from stored _fit_args if not provided
+        if fit_predictor_args is None and hasattr(self, '_fit_args'):
+            fit_predictor_args = self._fit_args.copy()
+        
+        # Extract batch_size and perc_eval for _prepare_fit_input
+        if fit_predictor_args is None:
+            fit_predictor_args = {}
+        
+        # Build optimizer from class + lr if needed
+        if 'optimizer_class' in fit_predictor_args:
+            opt_cls = fit_predictor_args.pop('optimizer_class')
+            lr = fit_predictor_args.pop('lr', 0.001)
+            fit_predictor_args['optimizer'] = opt_cls(self.predictor.model.parameters(), lr=lr)
 
         channel_loader, fit_predictor_args = self._prepare_fit_input(channel_data, fit_predictor_args)
 
@@ -56,8 +71,10 @@ class SequenceModelClassifier(AnomalyClassifier):
         return results
 
     def predict(
-        self, channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset], **test_predictor_args
-    ) -> np.ndarray:
+        self, channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
+        results_dir: Optional[str] = None,
+        **test_predictor_args
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         results = {}
 
         test_loader, test_predictor_args = self._prepare_predict_input(channel_data, test_predictor_args)
@@ -98,7 +115,7 @@ class SequenceModelClassifier(AnomalyClassifier):
 
         self.last_results = results
 
-        return anomaly_mask
+        return anomaly_mask, results
 
     def map_to_timestamps(self, channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset], anomalies: List[Tuple[int, int]]) -> List[Tuple[Any, Any]]:
         has_timestamps = hasattr(channel_data, "timestamps") and channel_data.timestamps is not None and len(channel_data.timestamps) > 0
@@ -125,6 +142,12 @@ class SequenceModelClassifier(AnomalyClassifier):
                 time_intervals.append((s + offset, e + offset))
                 
         return time_intervals
+
+    def prepare_labels(self, channel_labels: Any) -> List[Tuple[int, int]]:
+        """Prepare ground truth labels as interval tuples."""
+        if hasattr(channel_labels, 'anomaly_sequences'):
+            return channel_labels.anomaly_sequences
+        return []
 
     def save(self, path: str) -> None:
         """Save the classifier to disk."""
@@ -172,7 +195,7 @@ class SequenceModelClassifier(AnomalyClassifier):
             collate_fn=seq_collate_fn(n_inputs=2, mode="batch"),
         )
 
-        fit_predictor_args["eval_loader"] = eval_loader
+        fit_predictor_args["valid_loader"] = eval_loader
 
         return channel_loader, fit_predictor_args
 

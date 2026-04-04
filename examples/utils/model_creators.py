@@ -17,6 +17,11 @@ import pandas as pd
 from scipy.stats import iqr as scipy_iqr
 from sklearn.base import BaseEstimator, TransformerMixin
 
+# Sequence models
+from spaceai.models.predictors import LSTM
+from spaceai.models.anomaly import Telemanom
+from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+
 # PyOD models
 from pyod.models.iforest import IForest  # type: ignore
 from pyod.models.pca import PCA as PyOD_PCA  # type: ignore
@@ -150,49 +155,58 @@ def get_ridge_regression_classifier():
     return RidgeClassifier, True
 
 
-def get_iforest_classifier():
+def get_iforest_classifier(base_params=None):
     """Get Isolation Forest (IForest) classifier."""
-    return IForest, False
+    base_params = base_params if base_params else {}
+    return IForest(**base_params), False
 
 
-def get_pca_classifier():
+def get_pca_classifier(base_params=None):
     """Get PCA anomaly detector classifier."""
-    return PyOD_PCA, False
+    base_params = base_params if base_params else {}
+    return PyOD_PCA(**base_params), False
 
 
-def get_knn_classifier():
+def get_knn_classifier(base_params=None):
     """Get K-Nearest Neighbors (KNN) classifier."""
-    return KNN, False
+    base_params = base_params if base_params else {}
+    return KNN(**base_params), False
 
 
-def get_lof_classifier():
+def get_lof_classifier(base_params=None):
     """Get Local Outlier Factor (LOF) classifier."""
-    return LOF, False
+    base_params = base_params if base_params else {}
+    return LOF(**base_params), False
 
 
-def get_pyod_ocsvm_classifier():
+def get_pyod_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from PyOD."""
-    return OCSVM, False
+    base_params = base_params if base_params else {}
+    return OCSVM(**base_params), False
 
 
-def get_ecod_classifier():
+def get_ecod_classifier(base_params=None):
     """Get Empirical Cumulative Distribution (ECOD) classifier."""
-    return ECOD, False
+    base_params = base_params if base_params else {}
+    return ECOD(**base_params), False
 
 
-def get_copod_classifier():
+def get_copod_classifier(base_params=None):
     """Get Copula-Based Outlier Detection (COPOD) classifier."""
-    return COPOD, False
+    base_params = base_params if base_params else {}
+    return COPOD(**base_params), False
 
 
-def get_cblof_classifier():
+def get_cblof_classifier(base_params=None):
     """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
-    return CBLOF, False
+    base_params = base_params if base_params else {}
+    return CBLOF(**base_params), False
 
 
-def get_hbos_classifier():
+def get_hbos_classifier(base_params=None):
     """Get Histogram-based Outlier Score (HBOS) classifier."""
-    return HBOS, False
+    base_params = base_params if base_params else {}
+    return HBOS(**base_params), False
 
 
 def format_str(s):
@@ -228,26 +242,28 @@ def create_classifier(args, other_args):
     elif model_id == "ridge_regression":
         return get_ridge_regression_classifier()
     elif model_id == "iforest":
-        return get_iforest_classifier()
+        return get_iforest_classifier(base_params=base_params)
     elif model_id == "pca":
-        return get_pca_classifier()
+        return get_pca_classifier(base_params=base_params)
     elif model_id == "knn":
-        return get_knn_classifier()
+        return get_knn_classifier(base_params=base_params)
     elif model_id == "lof":
-        return get_lof_classifier()
+        return get_lof_classifier(base_params=base_params)
     elif model_id == "pyod_ocsvm":
-        return get_pyod_ocsvm_classifier()
+        return get_pyod_ocsvm_classifier(base_params=base_params)
     elif model_id == "ecod":
-        return get_ecod_classifier()
+        return get_ecod_classifier(base_params=base_params)
     elif model_id == "copod":
-        return get_copod_classifier()
+        return get_copod_classifier(base_params=base_params)
     elif model_id == "cblof":
-        return get_cblof_classifier()
+        return get_cblof_classifier(base_params=base_params)
     elif model_id == "hbos":
-        return get_hbos_classifier()
+        return get_hbos_classifier(base_params=base_params)
     elif model_id == "ndpm":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         return get_ndpm_classifier(args, device, input_dim=input_dim)
+    elif model_id == "telemanom":
+        return get_telemanom_sequence_classifier(base_params=base_params)
     else:
         raise ValueError(f"Modello {args.model} non supportato!")
 
@@ -281,6 +297,70 @@ def get_lstm_predictor(config: Config):
         reduce_out="first",
         dropout=config.dropout,
     )
+
+
+def get_telemanom_sequence_classifier(base_params=None):
+    """Get SequenceModelClassifier with LSTM predictor and Telemanom detector."""
+    base_params = base_params.copy() if base_params else {}
+    
+    # LSTM params
+    input_size = base_params.pop("input_size", 1)
+    hidden_sizes = base_params.pop("hidden_sizes", [80, 80])
+    output_size = base_params.pop("output_size", 1)
+    dropout = base_params.pop("dropout", 0.3)
+    n_predictions = base_params.pop("n_predictions", 1)
+    
+    # Training params (stored for server-side use)
+    epochs = base_params.pop("epochs", 35)
+    lr = base_params.pop("lr", 0.001)
+    patience = base_params.pop("patience", 10)
+    min_delta = base_params.pop("min_delta", 0.0003)
+    batch_size = base_params.pop("batch_size", 32)
+    perc_eval = base_params.pop("perc_eval", 0.15)
+    
+    # Telemanom detector params
+    # Map 'error_offset' from both 'error_offset' and 'error_buffer' (v32 legacy)
+    error_offset = base_params.pop("error_offset", base_params.pop("error_buffer", 100))
+    smoothing_perc = base_params.pop("smoothing_perc", 0.05)
+    pruning_factor = base_params.pop("pruning_factor", base_params.pop("p", 0.12))
+    n_eval_per_window = base_params.pop("n_eval_per_window", 70)
+    tele_window_size = base_params.pop("telemanom_window_size", 2100)
+    
+    predictor = LSTM(
+        input_size=input_size,
+        hidden_sizes=hidden_sizes,
+        output_size=n_predictions,
+        reduce_out="first",
+        dropout=dropout,
+    )
+    predictor.build()
+    
+    detector = Telemanom(
+        pruning_factor=pruning_factor,
+        error_offset=error_offset,
+        smoothing_perc=smoothing_perc,
+        n_eval_per_window=n_eval_per_window,
+        window_size=tele_window_size,
+        pred_buffer=base_params.get("l_s", 250) # Fallback if present
+    )
+    
+    import torch.nn as nn
+    classifier = SequenceModelClassifier(
+        predictor=predictor,
+        detector=detector,
+    )
+    # Store training hyperparams on the classifier for server-side access
+    classifier._fit_args = {
+        "criterion": nn.MSELoss(),
+        "optimizer_class": torch.optim.Adam,
+        "lr": lr,
+        "epochs": epochs,
+        "patience_before_stopping": patience,
+        "min_delta": min_delta,
+        "batch_size": batch_size,
+        "perc_eval": perc_eval,
+    }
+    return classifier, False
 
 
 def get_telemanom_detector(config: Config):

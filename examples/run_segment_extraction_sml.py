@@ -83,7 +83,17 @@ def run_sml_exp():
     
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
-    run_id = f"SML_{args.model}_{args.detector}"
+    # Generate a more descriptive run_id including model type/mode
+    run_id = f"SML_{args.model}"
+    
+    # Add model-specific type/mode if present
+    for attr in ['type', 'mode']:
+        # Try both generic (e.g. 'type') and specific (e.g. 'dpmm_type')
+        val = getattr(args, f"{args.model}_{attr}", getattr(args, attr, None))
+        if val:
+            run_id += f"_{val}"
+            
+    run_id += f"_{args.detector}"
     
     # Check for dynamic scaling in classifier params
     base_params = getattr(args, 'base_classifier_params', {})
@@ -140,16 +150,22 @@ def run_sml_exp():
 
         base_classifier, is_supervised = create_classifier(args, other_args)
 
-        # 1. Creiamo la pipeline locale (RollingWindowClassifier)
-        rolling_window_pipeline = RollingWindowClassifier(
-            base_classifier=base_classifier,
-            supervised_classifier=is_supervised,
-            ts_splitter=ts_splitter,
-            feature_extractor=feature_extractor,
-            callback_handler=handler,
-            detector=detector,
-            eval_perc=eval_perc,
-        )
+        # Check if the returned classifier is a self-contained sequence model (like Telemanom)
+        from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+        if isinstance(base_classifier, SequenceModelClassifier):
+            rolling_window_pipeline = base_classifier
+            logging.info("[CLIENT-FACTORY] SequenceModelClassifier detected. Bypassing RollingWindow wrapping.")
+        else:
+            # 1. Creiamo la pipeline locale (RollingWindowClassifier)
+            rolling_window_pipeline = RollingWindowClassifier(
+                base_classifier=base_classifier,
+                supervised_classifier=is_supervised,
+                ts_splitter=ts_splitter,
+                feature_extractor=feature_extractor,
+                callback_handler=handler,
+                detector=detector,
+                eval_perc=eval_perc,
+            )
 
         # 2. Avvolgiamo tutto nello SMLClientClassifier
         # Passiamo anche gli args per permettere al server di inizializzare la pipeline localmente
@@ -161,10 +177,16 @@ def run_sml_exp():
             args=(args, other_args) # Passiamo la "ricetta" completa
         )
 
+        # Check for dataset-specific flags like use_telecommands
+        dataset_kwargs = {}
+        if hasattr(args, 'use_telecommands'):
+            dataset_kwargs['use_telecommands'] = args.use_telecommands
+
         logging.info("[CLIENT] Requesting remote FIT for channel %s (via ARGS)...", channel_name)
         fitted_client, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=sml_client,
+            **dataset_kwargs
         )
         print(f"Fitting Metrics: {fitting_metrics}")
         
@@ -172,6 +194,7 @@ def run_sml_exp():
         results = benchmark.test_channel(
             channel_id=channel_name,
             classifier=fitted_client,
+            **dataset_kwargs
         )
         print(f"Test Results: {results}")
 
