@@ -12,7 +12,8 @@ import more_itertools as mit
 # import statsmodels.api as sm  <-- Spostato in find_window_size (Lazy Import)
 from scipy.signal import find_peaks, detrend
 from scipy.fft import rfft, rfftfreq
-import matplotlib.pyplot as plt
+# from .ts_splitter import ...
+
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
 

@@ -3,6 +3,7 @@
 import argparse
 import warnings
 import logging
+from datetime import datetime
 import yaml
 import numpy as np
 
@@ -52,7 +53,7 @@ def parse_sml_args(str_args=None):
 
     parser = argparse.ArgumentParser(description="SML Bridge Experiment", parents=[conf_parser])
     parser.add_argument("--base_dir", help="Base directory for the dataset")
-    parser.add_argument("--exp-dir", help="Experiments output directory")
+    parser.add_argument("--exp-dir", default="experiments", help="Experiments output directory")
     parser.add_argument("--dataset", choices=DATASET_LIST)
     parser.add_argument("--mission-id", type=int)
     parser.add_argument("--model", choices=MODEL_LIST)
@@ -64,6 +65,10 @@ def parse_sml_args(str_args=None):
     parser.add_argument("--server-ip", type=str)
     parser.add_argument("--server-port", "--port", type=int)
     parser.add_argument("--seed", type=int)
+
+    # DPMM specific
+    parser.add_argument("--dpmm-type", choices=["full", "unit", "diagonal", "single", "isotropic"], help="DPMM covariance type")
+    parser.add_argument("--dpmm-mode", choices=["likelihood_threshold", "score_threshold"], help="DPMM anomaly detection mode")
 
     parser.set_defaults(**defaults)
     return parser.parse_known_args(remaining_argv)
@@ -80,6 +85,13 @@ def run_sml_exp():
         detector = MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
     else:
         detector = None
+    
+    # Inject DPMM params into base_classifier_params if needed
+    if args.model == "dpmm":
+        base_params = getattr(args, 'base_classifier_params', {})
+        if args.dpmm_type: base_params['dpmm_type'] = args.dpmm_type
+        if args.dpmm_mode: base_params['dpmm_mode'] = args.dpmm_mode
+        args.base_classifier_params = base_params
     
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
@@ -119,18 +131,6 @@ def run_sml_exp():
         _pss = getattr(args, 'perc_step_size', None) or 1.0
         _fe_params = getattr(args, 'feature_extraction_params', getattr(args, 'fe_params', {}))
         
-        print(f"\n[SML-CLIENT-FACTORY] === Pipeline Construction Parameters ===", flush=True)
-        print(f"[SML-CLIENT-FACTORY] window_size={args.window_size}, step_size={args.step_size}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] min_window={_minw}, max_window={_maxw}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] perc_step_size={_pss}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] eval_perc={eval_perc}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] detector={args.detector}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] feature_extractor={args.feature_extractor}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] fe_params={_fe_params}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] model={args.model}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] base_classifier_params={getattr(args, 'base_classifier_params', {})}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] seed={getattr(args, 'seed', 42)}", flush=True)
-        print(f"[SML-CLIENT-FACTORY] ==========================================\n", flush=True)
 
         ts_splitter = TimeSeriesSplitter(
             window_size=args.window_size,
@@ -183,24 +183,69 @@ def run_sml_exp():
             dataset_kwargs['use_telecommands'] = args.use_telecommands
 
         logging.info("[CLIENT] Requesting remote FIT for channel %s (via ARGS)...", channel_name)
+        start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         fitted_client, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=sml_client,
             **dataset_kwargs
         )
-        print(f"Fitting Metrics: {fitting_metrics}")
         
         logging.info("[CLIENT] Requesting remote TEST for channel %s...", channel_name)
-        results = benchmark.test_channel(
+        test_results = benchmark.test_channel(
             channel_id=channel_name,
             classifier=fitted_client,
             **dataset_kwargs
         )
-        print(f"Test Results: {results}")
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if isinstance(benchmark, ESABenchmark):
+        # Merge all metrics for the final results.csv
+        final_results = {
+            "start_date": start_date,
+            "end_date": end_date,
+            **fitting_metrics,
+            **test_results[0]
+        }
+        
+        # Mapping fitting_time to fit_time if needed by the CSV writer
+        if "fit_time" not in final_results and "fitting_time" in final_results:
+            final_results["fit_time"] = final_results["fitting_time"]
+
+        
+        # 1. Aggiorna i risultati del singolo canale (questo lo facevi già)
+        for i, res in enumerate(benchmark.all_results):
+            if res.get('channel_id') == channel_name:
+                benchmark.all_results[i].update(final_results)
+                break
+                
+        # 2. INIETTA TUTTI I DATI CUSTOM NEL GLOBALE IN MODO INTELLIGENTE
+        for key, value in final_results.items():
+            # Ignoriamo le metriche che la classe globale ricalcola da sola alla fine
+            if key in ['n_anomalies', 'n_detected', 'true_positives', 'false_positives', 
+                       'false_negatives', 'precision', 'recall', 'f1', 'tnr', 
+                       'precision_corrected', 'corrected_f0.5', 'corrected_f1', 
+                       'adtqc_n_before', 'adtqc_n_after', 'adtqc_after_rate', 'adtqc_score']:
+                continue
+
+            # CASO A: Numeri (Memoria, tempi custom, ecc.) -> Li sommiamo
+            if isinstance(value, (int, float, np.number)):
+                benchmark.global_results[key] = benchmark.global_results.get(key, 0) + value
+
+            # CASO B: Date di inizio -> Vogliamo la data più vecchia in assoluto
+            elif "start_date" in key:
+                current_start = benchmark.global_results.get(key, value)
+                benchmark.global_results[key] = min(current_start, value) # Funziona anche con le stringhe ISO
+
+            # CASO C: Date di fine -> Vogliamo la data più recente in assoluto
+            elif "end_date" in key:
+                current_end = benchmark.global_results.get(key, value)
+                benchmark.global_results[key] = max(current_end, value)
+
+            # CASO D: Stringhe fisse o configurazioni (es. window_size) -> Ne basta uno
+            elif key not in benchmark.global_results:
+                benchmark.global_results[key] = value
+
+
         results = benchmark.compute_global_event_metrics(channels=channels)
-        print(f"Global ESA Metrics: {results}")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [SML-E2E] %(message)s")

@@ -33,6 +33,7 @@ class RollingWindowClassifier(AnomalyClassifier):
                 callback_handler: Optional[CallbackHandler] = None,
                 detector: Optional[AnomalyDetector] = None,
                 eval_perc: Optional[float] = None,
+                filter_valid_for_detector: bool = False,
                 ):
         super().__init__(callback_handler=callback_handler)
         self.ts_splitter = ts_splitter
@@ -41,6 +42,7 @@ class RollingWindowClassifier(AnomalyClassifier):
         self.supervised_classifier = supervised_classifier
         self.detector = detector
         self.eval_perc = eval_perc
+        self.filter_valid_for_detector = filter_valid_for_detector
     
     def fit( 
         self,
@@ -56,7 +58,6 @@ class RollingWindowClassifier(AnomalyClassifier):
         X, y, indices, dataset = self._prepare_input(
             channel_data, channel_labels, results=results, save_dir=results_dir, suffix="train"
         )
-        print(f"[DEBUG] _prepare_input (train) took {time.time() - t0:.2f}s. Segments: {len(X)}")
         results['window_size'] = getattr(self.ts_splitter, "window_size", None)
 
         if self.detector is not None and hasattr(self.detector, 'fit') and self.eval_perc is not None and 0.0 < self.eval_perc < 1.0:
@@ -66,64 +67,65 @@ class RollingWindowClassifier(AnomalyClassifier):
             idx_train = indices[:split_idx] if indices is not None else None
             idx_val = indices[split_idx:] if indices is not None else None
             y_train = y[:split_idx] if y is not None else None
+            y_val = y[split_idx:] if y is not None else None
         else:
             X_train = X
             X_val = None
             idx_train = indices
             idx_val = None
             y_train = y
+            y_val = None
 
         if self.feature_extractor is not None:
-            self.feature_extractor.set_context(dataset=dataset, indices=idx_train)
-            t0 = time.time()
-            X_train = self.feature_extractor.fit_transform(
-                X_train, y_train, results=results, save_dir=results_dir, suffix="train"
-            )
-            print(f"[DEBUG] feature_extractor.fit_transform took {time.time() - t0:.2f}s")
-            if X_val is not None:
-                self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
+            with self._callback_context("feature_extraction", results):
+                self.feature_extractor.set_context(dataset=dataset, indices=idx_train)
                 t0 = time.time()
-                X_val = self.feature_extractor.transform(
-                    X_val, results=results, save_dir=results_dir, suffix="val"
+                X_train = self.feature_extractor.fit_transform(
+                    X_train, y_train, results=results, save_dir=results_dir, suffix="train"
                 )
-                print(f"[DEBUG] feature_extractor.transform (val) took {time.time() - t0:.2f}s")
-        # Clear context after use
-        self.feature_extractor.clear_context()
+                if X_val is not None:
+                    self.feature_extractor.set_context(dataset=dataset, indices=idx_val)
+                    t0 = time.time()
+                    X_val = self.feature_extractor.transform(
+                        X_val, results=results, save_dir=results_dir, suffix="val"
+                    )
+            # Clear context after use
+            self.feature_extractor.clear_context()
 
         # Short-circuit if no features were selected
-        if self.feature_extractor.kill_switch_active:
-            print(f"[DEBUG] RollingWindowClassifier short-circuit in fit (0 features).")
+        if self.feature_extractor is not None and getattr(self.feature_extractor, "kill_switch_active", False):
+            print("[DEBUG] RollingWindowClassifier fitting short-circuit activated: no useful features extracted.")
             return results
 
-        with self._callback_context("fitting", results):
+        with self._callback_context("training", results):
             # --- DEBUG EXPORT ---
             os.makedirs("debug_exports", exist_ok=True)
             pd.DataFrame(X_train).to_csv(f"debug_exports/train_features_extracted.csv", index=False)
-            print(f"[DEBUG-EXPORT] Saved train features to debug_exports/train_features_extracted.csv")
 
             t0 = time.time()
             if self.supervised_classifier:
                 self.base_classifier.fit(X_train, y_train)
             else:
                 self.base_classifier.fit(X_train)
-            print(f"[DEBUG] base_classifier.fit took {time.time() - t0:.2f}s")
+            
+            # Extract num_epochs if available
+            epochs = getattr(self.base_classifier, "epochs_count", getattr(self.base_classifier, "n_iter_", None))
+            if epochs:
+                results["num_epochs"] = epochs
         
         if self.detector is not None and hasattr(self.detector, 'fit'):
             with self._callback_context("detector_calibration", results):
                 if X_val is not None:
-                    print(f"[DEBUG] Fitting detector on X_val (length: {len(X_val)})")
-                    t0 = time.time()
                     val_scores = self.base_classifier.predict(X_val)
+                    if self.filter_valid_for_detector and y_val is not None:
+                        val_scores = val_scores[y_val == 0]
                     self.detector.fit(val_scores)
-                    print(f"[DEBUG] detector calibration (val) took {time.time() - t0:.2f}s")
                 else:
                     # Fallback sui dati di train (attenzione all'overfitting delle soglie)
-                    print(f"[DEBUG] X_val is None. Falling back to X_train (length: {len(X_train)})")
-                    t0 = time.time()
                     train_scores = self.base_classifier.predict(X_train)
-                    print(f"[DEBUG] base_classifier.predict (train scores) took {time.time() - t0:.2f}s")
+                    if self.filter_valid_for_detector and y_train is not None:
+                        train_scores = train_scores[y_train == 0]
                     self.detector.fit(train_scores)
-                    print(f"[DEBUG] detector calibration (train) took {time.time() - t0:.2f}s")
 
         return results
 
@@ -138,22 +140,21 @@ class RollingWindowClassifier(AnomalyClassifier):
         results = {}
         t0 = time.time()
         X, _, indices, dataset = self._prepare_input(channel_data, results=results, save_dir=results_dir, suffix="test")
-        print(f"[DEBUG] _prepare_input (test) took {time.time() - t0:.2f}s. Segments: {len(X)}")
 
         if self.feature_extractor is not None:
-            self.feature_extractor.set_context(dataset=dataset, indices=indices)
-            t0 = time.time()
-            channel_data = self.feature_extractor.transform(
-                X, results=results, save_dir=results_dir, suffix="test"
-            )
-            print(f"[DEBUG] feature_extractor.transform (test) took {time.time() - t0:.2f}s")
-            self.feature_extractor.clear_context()
+            with self._callback_context("test_feature_extraction", results):
+                self.feature_extractor.set_context(dataset=dataset, indices=indices)
+                t0 = time.time()
+                channel_data = self.feature_extractor.transform(
+                    X, results=results, save_dir=results_dir, suffix="test"
+                )
+                self.feature_extractor.clear_context()
             
             # Opzione A: Kill-switch Short-circuit
             if getattr(self.feature_extractor, "kill_switch_active", False):
-                print("[DEBUG] Feature selection kill-switch is ACTIVE. Forcing zero anomalies.")
                 # Restituisce un array di zeri (nessuna anomalia)
-                return np.zeros(len(channel_data)), results
+                # Dobbiamo assicurarci che channel_data abbia la lunghezza corretta
+                return np.zeros(len(X)), results
         else:
             channel_data = X
 
@@ -161,7 +162,6 @@ class RollingWindowClassifier(AnomalyClassifier):
             # --- DEBUG EXPORT ---
             os.makedirs("debug_exports", exist_ok=True)
             pd.DataFrame(channel_data).to_csv(f"debug_exports/test_features_PRE_SCALE.csv", index=False)
-            print(f"[DEBUG-EXPORT] Saved test features to debug_exports/test_features_PRE_SCALE.csv")
 
             t0 = time.time()
             if hasattr(self.base_classifier, "predict_proba"):
@@ -170,13 +170,11 @@ class RollingWindowClassifier(AnomalyClassifier):
                     y_pred = y_pred[:, 1]
             else:
                 y_pred = self.base_classifier.predict(channel_data)
-            print(f"[DEBUG] base_classifier.predict took {time.time() - t0:.2f}s")
 
         if self.detector is not None:
             with self._callback_context("detection", results):
                 t0 = time.time()
                 y_pred = self.detector.detect(y_pred)
-                print(f"[DEBUG] detector.detect took {time.time() - t0:.2f}s")
 
         return y_pred, results
 

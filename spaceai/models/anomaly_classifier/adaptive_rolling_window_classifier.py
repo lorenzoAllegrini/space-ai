@@ -48,6 +48,7 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         callback_handler: Optional[CallbackHandler] = None,
         detector: Optional[AnomalyDetector] = None,
         alpha_buffer: float = 0.25,
+        filter_valid_for_detector: bool = False,
     ) -> None:
         super().__init__(
             ts_splitter=ts_splitter,
@@ -56,6 +57,8 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             feature_extractor=feature_extractor,
             callback_handler=callback_handler,
             detector=detector,
+            eval_perc=eval_perc,
+            filter_valid_for_detector=filter_valid_for_detector,
         )
         self.drift_detector = drift_detector
         self.eval_perc = eval_perc 
@@ -99,11 +102,19 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             X_train_raw = prepared_data[:split_idx]
             X_val_raw = prepared_data[split_idx:]
             y_train = prepared_labels[:split_idx] if prepared_labels is not None else None
+            y_val = prepared_labels[split_idx:] if prepared_labels is not None else None
 
             if self.feature_extractor is not None:
-                X_train = self.feature_extractor.fit_transform(X_train_raw, results=results, save_dir=results_dir, suffix="train")
-                X_val = self.feature_extractor.transform(X_val_raw, results=results, save_dir=results_dir, suffix="val")
+                with self._callback_context("feature_extraction", results):
+                    X_train = self.feature_extractor.fit_transform(X_train_raw, results=results, save_dir=results_dir, suffix="train")
+                    X_val = self.feature_extractor.transform(X_val_raw, results=results, save_dir=results_dir, suffix="val")
                 buffer_data = np.vstack((X_train, X_val))
+                
+                if getattr(self.feature_extractor, "kill_switch_active", False):
+                    print("[DEBUG] AdaptiveRollingWindowClassifier fitting short-circuit activated: no useful features extracted.")
+                    self.replay_buffer.add(buffer_data, prepared_labels, timestamps=timestamps, results=results)
+                    self.initial_train_size = len(buffer_data)
+                    return results
             else:
                 X_train, X_val = X_train_raw, X_val_raw
                 buffer_data = prepared_data
@@ -112,7 +123,8 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 data=X_train, 
                 labels=y_train,
                 results=results, 
-                X_val=X_val, 
+                X_val=X_val,
+                y_val=y_val, 
                 is_retraining=False
             )
         else:
@@ -120,6 +132,11 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             if self.feature_extractor is not None:
                 # results is already updated by super().fit
                 buffer_data = self.feature_extractor.transform(prepared_data, results=results, save_dir=results_dir, suffix="train")
+                if getattr(self.feature_extractor, "kill_switch_active", False):
+                    print("[DEBUG] AdaptiveRollingWindowClassifier fitting short-circuit activated (fallback): no useful features extracted.")
+                    self.replay_buffer.add(buffer_data, prepared_labels, timestamps=timestamps, results=results)
+                    self.initial_train_size = len(buffer_data)
+                    return results
             else:
                 buffer_data = prepared_data
             
@@ -162,9 +179,12 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         timestamps = np.asarray(self._get_timesteps(channel_data, results=results)).ravel()
 
         if self.feature_extractor is not None:
-            prepared_data = self.feature_extractor.transform(
-                prepared_data, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
-            )
+            with self._callback_context("feature_extraction", results):
+                prepared_data = self.feature_extractor.transform(
+                    prepared_data, results=results, save_dir=results_dir, suffix=f"step_{self.global_steps}"
+                )
+            if getattr(self.feature_extractor, "kill_switch_active", False):
+                return np.zeros(len(prepared_data)), results
 
         with self._callback_context("prediction", results):
             y_pred = self.base_classifier.predict(prepared_data)
@@ -202,15 +222,17 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             print("-------------------------")
             print(f"\n total_steps: {self.global_steps}")
 
-            retrain_data, calib_X = self._prepare_retraining_data(width, results=results)
+            retrain_data, retrain_labels, calib_X, calib_y = self._prepare_retraining_data(width, results=results)
             
             if retrain_data is None:
                 print("Skipping retraining: No valid data in buffer (too many anomalies filtered?).")
             else:
                 self._run_training_cycle(
                     data=retrain_data, 
+                    labels=retrain_labels,
                     results=results, 
                     X_val=calib_X, 
+                    y_val=calib_y,
                     is_retraining=True
                 )
 
@@ -223,26 +245,31 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
 
         return y_pred, results
 
-    def _prepare_retraining_data(self, width: int, results: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def _prepare_retraining_data(self, width: int, results: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """Consolida il buffer a breve termine, estrae i dati di replay e costruisce il set di retraining."""
     
         old_items = list(self.short_term_buffer)[:-width]
         if old_items:
             old_X = np.concatenate([it[0] for it in old_items], axis=0)
+            old_y = np.concatenate([it[1] for it in old_items], axis=0) if old_items[0][1] is not None else None
             old_ts = np.concatenate([it[2] for it in old_items], axis=0) if old_items[0][2] is not None else None
-            self.replay_buffer.add(old_X, None, timestamps=old_ts, results=results)
+            self.replay_buffer.add(old_X, old_y, timestamps=old_ts, results=results)
         
         recent_items = list(self.short_term_buffer)[-width:]
         if not recent_items:
-            return None, None
+            return None, None, None, None
             
         recent_samples_X = np.concatenate([it[0] for it in recent_items], axis=0)
+        recent_samples_y = np.concatenate([it[1] for it in recent_items], axis=0) if recent_items[0][1] is not None else None
 
         # Campioniamo i dati storici PRIMA dello split
-        replay_data_X, _ = self.replay_buffer.sample(sample_size=min(len(recent_samples_X)*2, 100000), results=results)
+        replay_data_X, replay_data_Y = self.replay_buffer.sample(sample_size=min(len(recent_samples_X)*2, 100000), results=results)
         replay_X = np.vstack(replay_data_X) if replay_data_X else np.empty((0, recent_samples_X.shape[1]))
+        replay_y = np.concatenate(replay_data_Y) if replay_data_Y and replay_data_Y[0] is not None else None
 
         calib_X = None
+        calib_y = None
+        retrain_labels = None
         
         # Split per calibrazione detector se richiesto e se il detector può essere fittato
         if self.detector is not None and hasattr(self.detector, 'fit') and self.eval_perc is not None and 0.0 < self.eval_perc < 1.0:
@@ -250,28 +277,47 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
             split_idx_recent = int(len(recent_samples_X) * (1 - self.eval_perc))
             recent_train_X = recent_samples_X[:split_idx_recent]
             recent_calib_X = recent_samples_X[split_idx_recent:]
+            recent_train_y = recent_samples_y[:split_idx_recent] if recent_samples_y is not None else None
+            recent_calib_y = recent_samples_y[split_idx_recent:] if recent_samples_y is not None else None
             
             # 2. Split dei dati storici (Cruciale per fermare il collasso della bandwidth!)
             if len(replay_X) > 0:
                 split_idx_replay = int(len(replay_X) * (1 - self.eval_perc))
                 replay_train_X = replay_X[:split_idx_replay]
                 replay_calib_X = replay_X[split_idx_replay:]
+                replay_train_y = replay_y[:split_idx_replay] if replay_y is not None else None
+                replay_calib_y = replay_y[split_idx_replay:] if replay_y is not None else None
                 
                 # Uniamo i pezzi
                 retrain_data = np.concatenate((recent_train_X, replay_train_X), axis=0)
                 calib_X = np.concatenate((recent_calib_X, replay_calib_X), axis=0)
+                if recent_train_y is not None and replay_train_y is not None:
+                    retrain_labels = np.concatenate((recent_train_y, replay_train_y), axis=0)
+                else:
+                    retrain_labels = recent_train_y if recent_train_y is not None else replay_train_y
+                if recent_calib_y is not None and replay_calib_y is not None:
+                    calib_y = np.concatenate((recent_calib_y, replay_calib_y), axis=0)
+                else:
+                    calib_y = recent_calib_y if recent_calib_y is not None else replay_calib_y
             else:
                 retrain_data = recent_train_X
                 calib_X = recent_calib_X
+                retrain_labels = recent_train_y
+                calib_y = recent_calib_y
         else:
             retrain_data = np.concatenate((recent_samples_X, replay_X), axis=0) if len(replay_X) > 0 else recent_samples_X
             calib_X = None
+            if recent_samples_y is not None and replay_y is not None:
+                retrain_labels = np.concatenate((recent_samples_y, replay_y), axis=0)
+            else:
+                retrain_labels = recent_samples_y if recent_samples_y is not None else replay_y
+            calib_y = None
 
         self.short_term_buffer.clear()
         if self.drift_detector is not None:    
             self.drift_detector.reset()
             
-        return retrain_data, calib_X
+        return retrain_data, retrain_labels, calib_X, calib_y
 
     def _run_training_cycle(
         self,
@@ -279,10 +325,11 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
         results: Dict[str, Any],
         labels: Optional[np.ndarray] = None,
         X_val: Optional[np.ndarray] = None,
+        y_val: Optional[np.ndarray] = None,
         is_retraining: bool = False
     ) -> None:
         """Core logic for fitting base classifier and calibrating the detector."""
-        X_train, y_train, X_calib = data, labels, X_val
+        X_train, y_train, X_calib, y_calib = data, labels, X_val, y_val
 
         with self._callback_context("training" if not is_retraining else "retraining", results):
             if self.supervised_classifier:
@@ -295,6 +342,11 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                     self.base_classifier.fit(X_train, results=results)
                 except (TypeError, ValueError):
                     self.base_classifier.fit(X_train)
+            
+            # Extract num_epochs if available
+            epochs = getattr(self.base_classifier, "epochs_count", getattr(self.base_classifier, "n_iter_", None))
+            if epochs:
+                results["num_epochs"] = epochs
 
         if X_calib is not None and self.detector is not None and hasattr(self.detector, 'fit'):
             with self._callback_context("validation_prediction", results):
@@ -303,13 +355,19 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 except (TypeError, ValueError):
                     y_pred_val = self.base_classifier.predict(X_calib)
             
+            if self.filter_valid_for_detector and y_calib is not None:
+                y_pred_val = y_pred_val[y_calib == 0]
+
             msg = "Ricalibrazione dinamica del Detector post-drift..." if is_retraining else \
                   f"Calibrazione Anomaly Detector su {len(y_pred_val)} predizioni di validation..."
             print(msg)
-            self.detector.fit(y_pred_val)
+            with self._callback_context("detector_calibration", results):
+                self.detector.fit(y_pred_val)
             
         elif self.detector is not None and hasattr(self.detector, 'fit') and is_retraining:
             # Fallback di emergenza se eval_perc è None
             logging.warning("Calibrazione su dati di addestramento! Rischio code piatte nella GPD.")
             y_pred_train = self.base_classifier.predict(X_train)
+            if self.filter_valid_for_detector and y_train is not None:
+                y_pred_train = y_pred_train[y_train == 0]
             self.detector.fit(y_pred_train)

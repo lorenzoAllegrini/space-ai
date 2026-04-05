@@ -11,7 +11,7 @@ class CallbackMixin:
     def __init__(self, callback_handler: Optional[CallbackHandler] = None, **kwargs):
         self.callback_handler = callback_handler
         self._kill_switch_active = False
-        super().__init__(**kwargs)
+        super().__init__()
 
     @property
     def kill_switch_active(self) -> bool:

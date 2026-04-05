@@ -22,6 +22,8 @@ from spaceai.models.anomaly_classifier import AnomalyClassifier
 from spaceai.preprocessing import TimeSeriesSplitter
 from .callbacks import CallbackHandler
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
@@ -52,6 +54,7 @@ class Benchmark:
         self.data_root: str = data_root
         self.all_results: List[Dict[str, Any]] = []
         self.processed_channels: set[str] = set()
+        self.channel_fit_metrics: Dict[str, Dict[str, Any]] = {}
         
         self.trained_classifiers: Dict[str, Any] = {}
         self.global_results: Dict[str, Any] = {"channel_id": "GLOBAL_EVENT_LEVEL"}
@@ -137,16 +140,12 @@ class Benchmark:
         if len(self.processed_channels) < len(channels):
             self.recover_global_state()
             
-        for metric in [m for m in self.global_results.keys() if m.endswith("cpu")]:
+        for metric in [m for m in self.global_results.keys() if m.endswith(("cpu", "mem"))]:
             self.global_results[metric] /= max(len(channels), 1)
 
         event_labels = Benchmark.merge_intervals(self.event_labels_global)
         predicted_events = Benchmark.merge_intervals(self.predicted_events_global)
         
-        print(f"\n \n predicted_events: {predicted_events} \n \n ")
-
-        print(f"\n \n event labels: {event_labels} \n \n")
-
         adtqc_metrics = Benchmark.adtqc_score(event_labels, predicted_events)
         self.global_results.update(adtqc_metrics)
         
@@ -160,7 +159,6 @@ class Benchmark:
                 ) for s, e in event_labels
             ]
 
-            print(f"\n \n event labels: {sorted(event_labels)} \n \n")
            
             predicted_events = [
                 (
@@ -168,7 +166,6 @@ class Benchmark:
                     int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
                 ) for s, e in predicted_events
             ]
-            print(f"\n \n predicted_events: {sorted(predicted_events)} \n \n ")
         self.global_results.update(
             Benchmark.compute_metrics(event_labels, predicted_events)
         )
@@ -209,6 +206,7 @@ class Benchmark:
         chan_results_dir = os.path.join(self.run_dir, channel_id)
         os.makedirs(chan_results_dir, exist_ok=True)
         metrics = classifier.fit(train_channel, results_dir=chan_results_dir)
+        self.channel_fit_metrics[channel_id] = metrics
 
         self.trained_classifiers[channel_id] = classifier
 
@@ -234,6 +232,11 @@ class Benchmark:
         Used by both ``test_channel`` and ``test_continual``.
         """
         results: Dict[str, Any] = {"channel_id": channel_id}
+        
+        # Merge metrics from fit phase if available
+        if channel_id in self.channel_fit_metrics:
+            results.update(self.channel_fit_metrics[channel_id])
+            
         if extra_metrics:
             results.update(extra_metrics)
 
@@ -249,9 +252,6 @@ class Benchmark:
         )
         
         # --- DIAGNOSTIC INTERVAL LOGS ---
-        print(f"\n[DIAGNOSTIC-BENCHMARK] === Intervals for {channel_id} ===", flush=True)
-        print(f"[DIAGNOSTIC-BENCHMARK] -> True Intervals ({len(true_anomaly_intervals_ts)}): {true_anomaly_intervals_ts}", flush=True)
-        print(f"[DIAGNOSTIC-BENCHMARK] -> Pred Intervals ({len(pred_intervals_ts)}): {pred_intervals_ts}", flush=True)
         
         results.update(all_metrics)
         self.processed_channels.add(channel_id)
@@ -259,6 +259,7 @@ class Benchmark:
         logging.info("Results for channel %s: %s", channel_id, results)
 
         self.all_results.append(results)
+
         os.makedirs(self.run_dir, exist_ok=True)
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
@@ -382,8 +383,14 @@ class Benchmark:
     def _update_global_state(self, channel_id, metrics, true_intervals=None, pred_intervals=None):
         """Helper to accumulate global metrics and save interval logs."""
         for k, v in metrics.items():
-            if k.endswith(("time", "cpu")):
+            if k.endswith(("time", "cpu", "mem")):
                 self.global_results[k] = self.global_results.get(k, 0) + v
+            elif "start_date" in k:
+                self.global_results[k] = min(self.global_results.get(k, v), v)
+            elif "end_date" in k:
+                self.global_results[k] = max(self.global_results.get(k, v), v)
+            elif k not in self.global_results and not isinstance(v, (list, tuple, dict)):
+                self.global_results[k] = v
                 
         if true_intervals is not None and pred_intervals is not None:
             self.event_labels_global.extend(true_intervals)

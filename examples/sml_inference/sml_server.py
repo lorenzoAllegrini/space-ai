@@ -250,7 +250,7 @@ def main():
                     if hasattr(classifier, 'predict'):
                         predictions, metrics = classifier.predict(exp_np)
                         response["preds"] = predictions.tolist() if hasattr(predictions, 'tolist') else predictions
-                        response.update(metrics)
+                        response["metrics"] = metrics
             except Exception as e:
                 import traceback
                 err_trace = traceback.format_exc()
@@ -258,6 +258,18 @@ def main():
                 response["error"] = str(e)
             
             data_socket.send_multipart([frames[0], json.dumps(convert_numpy(response)).encode("utf-8")])
+
+            # --- AGGRESSIVE GARBAGE COLLECTION ---
+            del payload
+            del response
+            if 'experience_data' in locals(): del experience_data
+            if 'exp_np' in locals(): del exp_np
+            
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch, 'cpu'):
+                pass
     finally:
         data_socket.close()
         context.term()

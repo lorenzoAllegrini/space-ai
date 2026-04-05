@@ -80,6 +80,7 @@ class DPMM(BaseClassifier):
         self.likelihood_threshold: Optional[th.Tensor] = None
         self.anomaly_cluster_labels: Optional[th.Tensor] = None
         self.return_likelihood = return_likelihood
+        self.epochs_count = 0
 
         # Device selection: cuda > cpu (MPS excluded: missing aten::digamma)
         if device:
@@ -135,7 +136,8 @@ class DPMM(BaseClassifier):
             desc=f"Fitting {self.model_type} DPMM",
             unit="epoch")
 
-        for _ in pbar:
+        for i in pbar:
+            self.epochs_count = i + 1
             optimizer.zero_grad()
             # Assumo che il forward ritorni (pi, elbo_loss, extra)
             _, elbo_loss, _ = self.dpmm_model(x_t)
@@ -160,7 +162,6 @@ class DPMM(BaseClassifier):
         if self.mode == "likelihood_threshold":
             # salva su self
             self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
-            print(f"likelihood threshold: {self.likelihood_threshold}")
 
         else:  # cluster_labels
             # assegnazione cluster hard
@@ -193,7 +194,6 @@ class DPMM(BaseClassifier):
                     "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
                 )
             if self.return_likelihood:
-                print(f"likelihood scores, max: {np.max(-loglike_te.detach().to('cpu').numpy())} min: {np.min(-loglike_te.detach().to('cpu').numpy())} mean: {np.mean(-loglike_te.detach().to('cpu').numpy())}")
                 return -loglike_te.detach().to("cpu").numpy()
             else:
                 y_pred = loglike_te < self.likelihood_threshold
@@ -232,7 +232,7 @@ class DPMM(BaseClassifier):
                 var_prior=self.var_prior,
                 var_prior_strength=self.var_prior_strength,
             )
-        if self.model_type == "single":
+        if self.model_type in ["single", "isotropic"]:
             return IsotropicGaussianDPMM(
                 self.n_clusters,
                 d_dim,

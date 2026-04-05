@@ -155,58 +155,102 @@ def get_ridge_regression_classifier():
     return RidgeClassifier, True
 
 
+class PyODWrapper(BaseEstimator):
+    """Wrapper for PyOD models to return decision_function as scores."""
+    def __init__(self, model):
+        self.model = model
+    
+    def fit(self, X, y=None, **kwargs):
+        # Many PyOD models don't use y but accept it, we just pass X safely
+        self.model.fit(X)
+        return self
+        
+    def predict(self, X, **kwargs):
+        # We return the continuous outlier scores instead of binary 0/1 labels
+        return self.model.decision_function(X)
+
+
 def get_iforest_classifier(base_params=None):
     """Get Isolation Forest (IForest) classifier."""
-    base_params = base_params if base_params else {}
-    return IForest(**base_params), False
+    base_params = base_params.copy() if base_params else {}
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 10)
+    scaler = (
+        RollingRobustScalerWithPrior(window=scaler_window)
+        if dynamic_scaling
+        else RobustScaler(with_centering=False)
+    )
+
+    pipeline = Pipeline(
+        [
+            ("scaler", scaler),
+            ("iforest", PyODWrapper(IForest(**base_params))),
+        ]
+    )
+    return pipeline, False
 
 
 def get_pca_classifier(base_params=None):
     """Get PCA anomaly detector classifier."""
     base_params = base_params if base_params else {}
-    return PyOD_PCA(**base_params), False
+    return PyODWrapper(PyOD_PCA(**base_params)), False
 
 
 def get_knn_classifier(base_params=None):
     """Get K-Nearest Neighbors (KNN) classifier."""
     base_params = base_params if base_params else {}
-    return KNN(**base_params), False
+    return PyODWrapper(KNN(**base_params)), False
 
 
 def get_lof_classifier(base_params=None):
     """Get Local Outlier Factor (LOF) classifier."""
     base_params = base_params if base_params else {}
-    return LOF(**base_params), False
+    return PyODWrapper(LOF(**base_params)), False
 
 
 def get_pyod_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from PyOD."""
-    base_params = base_params if base_params else {}
-    return OCSVM(**base_params), False
+    base_params = base_params.copy() if base_params else {}
+    dynamic_scaling = base_params.pop("dynamic_scaling", False)
+    scaler_window = base_params.pop("scaler_window", 10)
+    base_params.pop("random_state", None)  # OCSVM doesn't support random_state
+    scaler = (
+        RollingRobustScalerWithPrior(window=scaler_window)
+        if dynamic_scaling
+        else RobustScaler(with_centering=False)
+    )
+
+    pipeline = Pipeline(
+        [
+            ("scaler", scaler),
+            ("ocsvm", PyODWrapper(OCSVM(**base_params))),
+        ]
+    )
+    return pipeline, False
 
 
 def get_ecod_classifier(base_params=None):
     """Get Empirical Cumulative Distribution (ECOD) classifier."""
     base_params = base_params if base_params else {}
-    return ECOD(**base_params), False
+    return PyODWrapper(ECOD(**base_params)), False
 
 
 def get_copod_classifier(base_params=None):
     """Get Copula-Based Outlier Detection (COPOD) classifier."""
     base_params = base_params if base_params else {}
-    return COPOD(**base_params), False
+    return PyODWrapper(COPOD(**base_params)), False
 
 
 def get_cblof_classifier(base_params=None):
     """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
     base_params = base_params if base_params else {}
-    return CBLOF(**base_params), False
+    return PyODWrapper(CBLOF(**base_params)), False
 
 
 def get_hbos_classifier(base_params=None):
     """Get Histogram-based Outlier Score (HBOS) classifier."""
     base_params = base_params if base_params else {}
-    return HBOS(**base_params), False
+    return PyODWrapper(HBOS(**base_params)), False
 
 
 def format_str(s):
@@ -239,7 +283,7 @@ def create_classifier(args, other_args):
         return get_rockad_classifier(args.n_kernel)
     elif model_id == "xgboost":
         return get_xgboost_classifier(base_params=base_params)
-    elif model_id == "ridge_regression":
+    elif model_id == "ridgeRegression":
         return get_ridge_regression_classifier()
     elif model_id == "iforest":
         return get_iforest_classifier(base_params=base_params)
@@ -249,7 +293,7 @@ def create_classifier(args, other_args):
         return get_knn_classifier(base_params=base_params)
     elif model_id == "lof":
         return get_lof_classifier(base_params=base_params)
-    elif model_id == "pyod_ocsvm":
+    elif model_id == "pyodOcsvm":
         return get_pyod_ocsvm_classifier(base_params=base_params)
     elif model_id == "ecod":
         return get_ecod_classifier(base_params=base_params)

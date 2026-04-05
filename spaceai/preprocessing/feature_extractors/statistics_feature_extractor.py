@@ -122,7 +122,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                     filename += f"_{suffix}"
                 save_path = os.path.join(save_dir, f"{filename}.csv")
                 df.to_csv(save_path, index=False)
-                print(f"[DEBUG] Features saved to {save_path}")
 
         return df
     
@@ -143,7 +142,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         precision_selector.fit(X_clean.values, y)
 
         feature_scores = sorted(zip(X_features.columns, precision_selector.scores_), key=lambda x: x[1], reverse=True)
-        print(f"[DEBUG] Feature scores: {feature_scores}")
         
         correlation_threshold = 0.8
         corr_matrix = X_clean.corr().abs()
@@ -185,7 +183,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             if name in selected_feature_names
         }
 
-        print(f"[DEBUG] Selected features ({len(selected_feature_names)}): {selected_feature_names}")
         X_train_selected = X_features[selected_feature_names].copy()
 
         return X_train_selected
