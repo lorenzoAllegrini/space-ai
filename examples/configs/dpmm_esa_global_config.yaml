@@ -6,14 +6,15 @@ exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"
-dpmm_type: "full"            
+dpmm_type: "diagonal"            
 dpmm_mode: "likelihood_threshold"
 detector: "threshold"
 segmentator: false
+challenge: false
 
 detector_params:
   quantile: 2.0
-  smoothing_alpha: 0.4
+  smoothing_alpha: 0.2
 
 eval_perc: 0.4
 filter_valid: true

@@ -26,26 +26,14 @@ class NASABenchmark(Benchmark):
         return None, None
 
     def load_channel(
-        self, channel_id: str, mode: str = "train", overlapping_train: bool = True, **kwargs
+        self, channel_id: str, train: bool = True, overlapping_train: bool = True, **kwargs
     ) -> NASA:
         """Load the training or testing dataset for a given channel."""
-        if mode == "train":
-            return NASA(
-                root=self.data_root,
-                channel_id=channel_id,
-                mode="prediction",
-                overlapping=overlapping_train,
-                **kwargs
-            )
-        elif mode == "test":
-            return NASA(
-                root=self.data_root,
-                channel_id=channel_id,
-                mode="anomaly",
-                overlapping=False,
-                train=False,
-                drop_last=False,
-                **kwargs
-            )
-        else:
-            raise ValueError(f"Invalid mode {mode}. Expected 'train' or 'test'.")
+        return NASA(
+            root=self.data_root,
+            channel_id=channel_id,
+            overlapping=overlapping_train if train else False,
+            train=train,
+            drop_last=train,
+            **kwargs
+        )

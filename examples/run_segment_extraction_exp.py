@@ -20,7 +20,8 @@ from utils.model_creators import (
 from utils.reproducibility import set_seed
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.anomaly_pipeline.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.detectors import ThresholdDetector, MoLooKDEDetector
 from spaceai.benchmark import Benchmark, ESABenchmark
 warnings.simplefilter("ignore", FutureWarning)
 import torch
@@ -100,6 +101,8 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--ndpm_config", type=str, help="Path to NDPM config")
     parser.add_argument("--detector", choices=["threshold", "molookde", "none"], default="threshold")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
+    parser.add_argument("--challenge", action="store_true", help="Enable challenge mode")
+    parser.add_argument("--run-id", type=str, help="Experiment run ID")
 
     parser.set_defaults(**defaults)
     parsed_args, extra_argv = parser.parse_known_args(remaining_argv)
@@ -118,7 +121,6 @@ def run_exp(args, other_args=None, _suppress_output=False):
     """Run experiment."""
     set_seed(getattr(args, 'seed', 40))
 
-    from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
     detector_params = getattr(args, 'detector_params', {})
     detector = None
     if args.detector == "threshold":
@@ -131,21 +133,33 @@ def run_exp(args, other_args=None, _suppress_output=False):
     
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
-    run_id = f"{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}"
-    if args.model == "dpmm":
-        run_id += f"{args.dpmm_type}_{args.dpmm_mode}"
-    
-    # Check for dynamic scaling in classifier params
-    base_params = getattr(args, 'base_classifier_params', {})
-    if base_params.get('dynamic_scaling', False):
-        run_id += "_ds"
-    
+    # -------------------------------------------------------------------------
+    # RUN ID GENERATION
+    # -------------------------------------------------------------------------
     wrapper_params = getattr(args, 'wrapper_params', {})
     eval_perc = getattr(args, 'eval_perc', wrapper_params.get('eval_perc', None))
     filter_valid = getattr(args, 'filter_valid', wrapper_params.get('filter_valid', wrapper_params.get('filter_valid_for_detector', False)))
 
-    if filter_valid:
-        run_id += "_fv"
+    if getattr(args, 'run_id', None) is not None:
+        run_id = args.run_id
+    else:
+        run_id = f"{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}"
+        if args.model == "dpmm":
+            run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
+        
+        # Add eval_perc if present
+        if eval_perc is not None:
+            run_id += f"_ep{eval_perc}"
+        
+        # Add dynamic scaling indicator
+        base_params = getattr(args, 'base_classifier_params', {})
+        ds = base_params.get('dynamic_scaling', False)
+        run_id += f"_ds{'T' if ds else 'F'}"
+        
+        # Add filter_valid indicator
+        if filter_valid:
+            run_id += "_fv"
+    # -------------------------------------------------------------------------
 
     benchmark = get_dataset_benchmark(
         dataset_name=args.dataset,
@@ -153,6 +167,7 @@ def run_exp(args, other_args=None, _suppress_output=False):
         exp_dir=args.exp_dir,
         run_id=run_id,
         mission_id=args.mission_id,
+        save_metadata=getattr(args, 'save_metadata', True),
     )
     channels = benchmark.channels if args.channels is None else args.channels
      
@@ -194,14 +209,19 @@ def run_exp(args, other_args=None, _suppress_output=False):
             filter_valid_for_detector=filter_valid,
         )
 
+        dataset_kwargs = {}
+        if hasattr(args, 'challenge'):
+            dataset_kwargs["challenge"] = getattr(args, 'challenge')
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=rolling_window_classifier,
+            **dataset_kwargs
         )
         
         results = benchmark.test_channel(
             channel_id=channel_name,
             classifier=fitted_classifier,
+            **dataset_kwargs
         )
 
     if isinstance(benchmark, ESABenchmark):

@@ -29,6 +29,7 @@ def get_dataset_benchmark(
     run_id: str = "exp",
     exp_dir: str = "experiments",
     mission_id: int = 1,
+    save_metadata: bool = True,
 ):
     """Get the benchmark object for the dataset."""
     if dataset_name == "esa":
@@ -39,18 +40,21 @@ def get_dataset_benchmark(
             run_id=run_id,
             exp_dir=exp_dir,
             mission=mission,
+            save_metadata=save_metadata,
         )
     elif dataset_name == "nasa":
         return NASABenchmark(
             data_root=data_path,
             run_id=run_id,
             exp_dir=exp_dir,
+            save_metadata=save_metadata,
         )
     elif dataset_name == "ops":
         return OPSSATBenchmark(
             data_root=data_path,
             run_id=run_id,
             exp_dir=exp_dir,
+            save_metadata=save_metadata,
         )
     else:
         raise ValueError(f"Dataset {dataset_name} not supported.")

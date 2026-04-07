@@ -10,7 +10,7 @@ from typing import (
 import more_itertools as mit
 import numpy as np
 
-from .detectors.error_based_detector import ErrorBasedDetector
+from .error_based_detector import ErrorBasedDetector
 
 logger = logging.getLogger("telemanom")
 

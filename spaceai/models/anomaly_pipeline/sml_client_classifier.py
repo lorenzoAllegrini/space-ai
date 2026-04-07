@@ -7,7 +7,7 @@ import numpy as np
 import zmq
 import pandas as pd
 
-from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
+from .anomaly_classifier import AnomalyClassifier
 
 def inspect_sml_object(obj, name="classifier"):
     """Recursively dumps interesting attributes of the SML pipeline."""

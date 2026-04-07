@@ -32,9 +32,10 @@ class MoLooKDEDetector(AnomalyDetector):
         pot_percentile: float = 99.0,
         smoothing_alpha: float = 0.4,
         min_allowed_ll: float = -200.0,
+        filter_valid: bool = False,
         callback_handler: Optional[Any] = None,
     ):
-        super().__init__(callback_handler=callback_handler)
+        super().__init__(callback_handler=callback_handler, filter_valid=filter_valid)
         """
         Args:
             alpha (float): Confidence level for anomaly alarm (e.g., 0.01 = 1% probability of false positive).
@@ -65,7 +66,6 @@ class MoLooKDEDetector(AnomalyDetector):
 
     def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> MoLooKDEDetector:
         """Trains the spatial KDE and calculates GPD parameters for adaptive thresholding."""
-        print(f"[DEBUG] MoLooKDE.fit received X of length: {len(X)}")
         with self._callback_context("detector_fit", results):
             # Preprocessing: clipping and EWMA smoothing
             X_clipped = np.clip(X, a_min=self.min_allowed_ll, a_max=None)
@@ -76,7 +76,6 @@ class MoLooKDEDetector(AnomalyDetector):
             X_scaled = self.scaler.fit_transform(X_2d) if self.unitize else X_2d
 
             # Topological Analysis (Persistence Homology) for spatial scale definition
-            print(f"Starting topological analysis on {min(len(X_scaled), 5000)} points...")
             if len(X_scaled) > 5000:
                 # Force local seed for reproducibility in bandwidth calculation
                 rng = np.random.default_rng(42)
@@ -87,15 +86,12 @@ class MoLooKDEDetector(AnomalyDetector):
 
             diagrams = ripser(X_topo)['dgms']
             h0 = diagrams[0]  # Connected components (0-dimensional homology)
-            print("Topological analysis completed.")
             
             h0_finite = h0[h0[:, 1] != np.inf]
             d_star = np.max(h0_finite[:, 1] - h0_finite[:, 0]) if len(h0_finite) > 0 else 0.1
 
             h = max((d_star) ** (2.0 / self.p), 1e-4)
-            print(f"Calculated bandwidth: {h:.6f}. Fitting KDE...")
             self.kde = KernelDensity(kernel='epanechnikov', bandwidth=h)
-            print(f"Calculating KDE scores for {len(X_scaled)} points...")
             if len(X_scaled) > 10000:
                 rng = np.random.default_rng(42)
                 indices = rng.choice(len(X_scaled), 10000, replace=False)

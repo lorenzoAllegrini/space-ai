@@ -12,7 +12,7 @@ import pandas as pd
 
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.data import AnomalyDataset
-from spaceai.models.anomaly import AnomalyDetector
+from spaceai.models.detectors import AnomalyDetector
 from spaceai.models.drift_detectors.drift_detector import DriftDetector
 from spaceai.models.drift_detectors.utils import ReplayBuffer
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor

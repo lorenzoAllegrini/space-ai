@@ -53,14 +53,14 @@ class AnomalyDatasetSubset(AnomalyDataset):
     @property
     def data(self):
         if hasattr(self.parent, "data"):
-            return self.parent.data[self.start_idx : self.end_idx + 1]
+            return self.parent.data[self.start_idx : self.end_idx]
         return None
 
     @property
     def timestamps(self):
         ts = getattr(self.parent, "timestamps", None)
         if ts is not None and len(ts) > 0:
-            return ts[self.start_idx : self.end_idx + 1]
+            return ts[self.start_idx : self.end_idx]
         return None
 
     @property
@@ -71,17 +71,27 @@ class AnomalyDatasetSubset(AnomalyDataset):
             for s, e in parent_anom:
                 ov_s = max(s, self.start_idx)
                 ov_e = min(e, self.end_idx)
-                if ov_s <= ov_e:
+                if ov_s < ov_e:
                     new_anom.append((ov_s - self.start_idx, ov_e - self.start_idx))
             return new_anom
         return None
 
     @property
     def block_intervals(self) -> List[Tuple[int, int]]:
+        parent_blocks = getattr(self.parent, "block_intervals", None)
+        if parent_blocks is not None:
+            new_blocks = []
+            for s, e in parent_blocks:
+                ov_s = max(s, self.start_idx)
+                ov_e = min(e, self.end_idx)
+                if ov_s < ov_e:
+                    new_blocks.append((ov_s - self.start_idx, ov_e - self.start_idx))
+            if new_blocks:
+                return new_blocks
         return [(0, len(self))]
 
     def __getitem__(self, idx):
         return self.parent[self.start_idx + idx]
 
     def __len__(self):
-        return self.end_idx - self.start_idx + 1
+        return self.end_idx - self.start_idx

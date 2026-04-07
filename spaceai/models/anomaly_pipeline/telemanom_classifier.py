@@ -13,10 +13,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
+from .anomaly_classifier import AnomalyClassifier
 from spaceai.models.predictors.seq_model import SequenceModel
 from spaceai.benchmark.callbacks import CallbackHandler
-from spaceai.models.anomaly import AnomalyDetector
+from spaceai.models.detectors import AnomalyDetector
 
 from torch.utils.data import TensorDataset, DataLoader, Subset
 from spaceai.data.utils import seq_collate_fn
@@ -38,78 +38,69 @@ class SequenceModelClassifier(AnomalyClassifier):
         self,
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
         channel_labels: Optional[np.ndarray] = None,
+        results: Optional[Dict[str, Any]] = None,
         fit_predictor_args: Optional[Dict[str, Any]] = None,
         results_dir: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Fit the model on time-series data X, optionally with labels y.
         """
-        results = {}
+        results = results if results is not None else {}
+        with self._callback_context("classifier_fit", results):
+            channel_loader, fit_predictor_args = self._prepare_fit_input(channel_data, fit_predictor_args)
 
-        # Auto-populate from stored _fit_args if not provided
-        if fit_predictor_args is None and hasattr(self, '_fit_args'):
-            fit_predictor_args = self._fit_args.copy()
-        
-        # Extract batch_size and perc_eval for _prepare_fit_input
-        if fit_predictor_args is None:
-            fit_predictor_args = {}
-        
-        # Build optimizer from class + lr if needed
-        if 'optimizer_class' in fit_predictor_args:
-            opt_cls = fit_predictor_args.pop('optimizer_class')
-            lr = fit_predictor_args.pop('lr', 0.001)
-            fit_predictor_args['optimizer'] = opt_cls(self.predictor.model.parameters(), lr=lr)
+            with self._callback_context("train_", results):
+                self.predictor.fit(
+                    train_loader=channel_loader,
+                    **fit_predictor_args,
+                )
 
-        channel_loader, fit_predictor_args = self._prepare_fit_input(channel_data, fit_predictor_args)
-
-        with self._callback_context("train_", results):
-            self.predictor.fit(
-                train_loader=channel_loader,
-                **fit_predictor_args,
-            )
-
-        return results
+            return results
 
     def predict(
-        self, channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
+        self, 
+        channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
+        results: Optional[Dict[str, Any]] = None,
         results_dir: Optional[str] = None,
         **test_predictor_args
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        results = {}
+        results = results if results is not None else {}
+        
+        with self._callback_context("classifier_predict", results):
+            test_loader, test_predictor_args = self._prepare_predict_input(channel_data, test_predictor_args)
 
-        test_loader, test_predictor_args = self._prepare_predict_input(channel_data, test_predictor_args)
+            window_size = getattr(channel_data, "window_size", 250) 
 
-        window_size = getattr(channel_data, "window_size", 250) 
+            with self._callback_context("predict_", results):
+                self.predictor.model.eval()
+                self.predictor.stateful = True
 
-        with self._callback_context("predict_", results):
-            self.predictor.model.eval()
-            self.predictor.stateful = True
-
-            all_y_pred = []
-            all_y_trg = []
-            
-            with torch.no_grad():
-                for x, y in test_loader:
-                    x = x.to(self.predictor.device)
-                    pred = self.predictor(x).detach().cpu().squeeze().numpy()
-                    trg = y.detach().cpu().squeeze().numpy()
-                    
-                    all_y_pred.append(pred)
-                    all_y_trg.append(trg)
-
-            y_pred_arr = np.concatenate(all_y_pred)[window_size - 1 :]
-            y_trg_arr = np.concatenate(all_y_trg)[window_size - 1 :]
-
-        with self._callback_context("detect_", results):
-            if len(y_trg_arr) < 2500:
-                self.detector.ignore_first_n_factor = 1
-            if len(y_trg_arr) < 1800:
-                self.detector.ignore_first_n_factor = 0
+                all_y_pred = []
+                all_y_trg = []
                 
-            pred_anomalies_intervals = self.detector.detect_anomalies(y_pred_arr, y_trg_arr)
-            pred_anomalies_intervals += self.detector.flush_detector()
+                with torch.no_grad():
+                    for x, y in test_loader:
+                        x = x.to(self.predictor.device)
+                        pred = self.predictor(x).detach().cpu().squeeze().numpy()
+                        trg = y.detach().cpu().squeeze().numpy()
+                        
+                        all_y_pred.append(pred)
+                        all_y_trg.append(trg)
 
-        anomaly_mask = np.zeros(len(y_pred_arr), dtype=int)
+                y_pred_arr = np.concatenate(all_y_pred)[window_size - 1 :]
+                y_trg_arr = np.concatenate(all_y_trg)[window_size - 1 :]
+
+            with self._callback_context("detect_", results):
+                if len(y_trg_arr) < 2500:
+                    self.detector.ignore_first_n_factor = 1
+                if len(y_trg_arr) < 1800:
+                    self.detector.ignore_first_n_factor = 0
+                    
+                pred_anomalies_intervals = self.detector.detect_anomalies(y_pred_arr, y_trg_arr)
+                pred_anomalies_intervals += self.detector.flush_detector()
+
+            anomaly_mask = np.zeros(len(y_pred_arr), dtype=int)
         for start, end in pred_anomalies_intervals:
             anomaly_mask[int(start) : int(end) + 1] = 1
 

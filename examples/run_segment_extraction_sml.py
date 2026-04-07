@@ -62,11 +62,10 @@ def parse_sml_args(str_args=None):
     parser.add_argument("--window-size", type=int)
     parser.add_argument("--step-size", type=int)
     parser.add_argument("--detector", choices=["threshold", "molookde", "none"], default="threshold")
-    parser.add_argument("--server-ip", type=str)
     parser.add_argument("--server-port", "--port", type=int)
     parser.add_argument("--seed", type=int)
-
-    # DPMM specific
+    parser.add_argument("--challenge", action="store_true", help="Enable challenge mode")
+    parser.add_argument("--run-id", type=str, help="Experiment run ID")
     parser.add_argument("--dpmm-type", choices=["full", "unit", "diagonal", "single", "isotropic"], help="DPMM covariance type")
     parser.add_argument("--dpmm-mode", choices=["likelihood_threshold", "score_threshold"], help="DPMM anomaly detection mode")
 
@@ -117,6 +116,7 @@ def run_sml_exp():
         exp_dir=args.exp_dir,
         run_id=run_id,
         mission_id=args.mission_id,
+        save_metadata=getattr(args, 'save_metadata', True),
     )
     
     channels = benchmark.channels if args.channels is None else args.channels
@@ -151,7 +151,7 @@ def run_sml_exp():
         base_classifier, is_supervised = create_classifier(args, other_args)
 
         # Check if the returned classifier is a self-contained sequence model (like Telemanom)
-        from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+        from spaceai.models.anomaly_pipeline.telemanom_classifier import SequenceModelClassifier
         if isinstance(base_classifier, SequenceModelClassifier):
             rolling_window_pipeline = base_classifier
             logging.info("[CLIENT-FACTORY] SequenceModelClassifier detected. Bypassing RollingWindow wrapping.")
@@ -181,7 +181,8 @@ def run_sml_exp():
         dataset_kwargs = {}
         if hasattr(args, 'use_telecommands'):
             dataset_kwargs['use_telecommands'] = args.use_telecommands
-
+        if hasattr(args, 'challenge'):
+            dataset_kwargs["challenge"] = getattr(args, 'challenge')
         logging.info("[CLIENT] Requesting remote FIT for channel %s (via ARGS)...", channel_name)
         start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         fitted_client, fitting_metrics = benchmark.fit_channel(

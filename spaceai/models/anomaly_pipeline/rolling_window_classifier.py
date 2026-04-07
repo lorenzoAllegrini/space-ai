@@ -15,10 +15,10 @@ import pandas as pd
 import os
 
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-from spaceai.models.anomaly_classifier.anomaly_classifier import AnomalyClassifier
+from .anomaly_classifier import AnomalyClassifier
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor
 from spaceai.benchmark.callbacks import CallbackHandler
-from spaceai.models.anomaly import AnomalyDetector
+from spaceai.models.detectors import AnomalyDetector
 from spaceai.data import AnomalyDataset
 
 class RollingWindowClassifier(AnomalyClassifier):
@@ -118,14 +118,18 @@ class RollingWindowClassifier(AnomalyClassifier):
                 if X_val is not None:
                     val_scores = self.base_classifier.predict(X_val)
                     if self.filter_valid_for_detector and y_val is not None:
-                        val_scores = val_scores[y_val == 0]
-                    self.detector.fit(val_scores)
+                        val_scores_filtered = val_scores[y_val == 0]
+                        self.detector.fit(val_scores_filtered, results=results)
+                    else:
+                        self.detector.fit(val_scores, y=y_val, results=results)
                 else:
                     # Fallback sui dati di train (attenzione all'overfitting delle soglie)
                     train_scores = self.base_classifier.predict(X_train)
                     if self.filter_valid_for_detector and y_train is not None:
-                        train_scores = train_scores[y_train == 0]
-                    self.detector.fit(train_scores)
+                        train_scores_filtered = train_scores[y_train == 0]
+                        self.detector.fit(train_scores_filtered, results=results)
+                    else:
+                        self.detector.fit(train_scores, y=y_train, results=results)
 
         return results
 
@@ -187,7 +191,7 @@ class RollingWindowClassifier(AnomalyClassifier):
         Prepare labels for training.
         """
         if isinstance(channel_data, AnomalyDataset):
-            splitted_channel = self.ts_splitter.segment_dataset(channel_data, mode="anomaly", results=results)
+            splitted_channel = self.ts_splitter.segment_dataset(channel_data, results=results)
             return splitted_channel.intervals
         elif isinstance(channel_data, np.ndarray):
             window_labels = self.ts_splitter.split_labels(channel_data, results=results)

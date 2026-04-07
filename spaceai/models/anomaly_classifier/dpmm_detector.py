@@ -97,118 +97,116 @@ class DPMM(BaseClassifier):
     ) -> np.ndarray:
         return self.predict(input_data)
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> None:  # pylint: disable=invalid-name
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None, **kwargs) -> None:  # pylint: disable=invalid-name
         """Fit the DPMM model.
 
         In 'cluster_labels' mode, requires y to derive cluster labels.
         """
-        # Validazioni
-        if self.mode == "cluster_labels" and y is None:
-            raise ValueError(
-                "In 'cluster_labels' mode, 'y' (0/1) is required to label clusters."
+        with self._callback_context("classifier_fit", results):
+            # Validazioni
+            if self.mode == "cluster_labels" and y is None:
+                raise ValueError(
+                    "In 'cluster_labels' mode, 'y' (0/1) is required to label clusters."
+                )
+
+            # Filtra anomalie solo per stima della soglia
+            if self.mode == "likelihood_threshold" and (y is not None):
+                X = X[y == 0]
+
+            # Tensori
+            x_t = th.as_tensor(X, dtype=th.float32, device=self.device)
+            y_t = (
+                None if y is None else th.as_tensor(y, dtype=th.float32, device=self.device)
             )
 
-        # Filtra anomalie solo per stima della soglia
-        if self.mode == "likelihood_threshold" and (y is not None):
-            X = X[y == 0]
+            # Modello
+            d_dim = x_t.shape[1]
+            self.dpmm_model = self._init_model(d_dim).to(self.device)
+            if self.dpmm_model is None:
+                raise RuntimeError("Failed to initialize DPMM model")
 
-        # Tensori
-        x_t = th.as_tensor(X, dtype=th.float32, device=self.device)
-        y_t = (
-            None if y is None else th.as_tensor(y, dtype=th.float32, device=self.device)
-        )
+            self.dpmm_model.train()
+            self.dpmm_model.init_var_params(x_t)
 
-        # Modello
-        d_dim = x_t.shape[1]
-        self.dpmm_model = self._init_model(d_dim).to(self.device)
-        if self.dpmm_model is None:
-            raise RuntimeError("Failed to initialize DPMM model")
+            optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
+            best_loss = float("inf")
+            patience = 0
 
-        self.dpmm_model.train()
-        self.dpmm_model.init_var_params(x_t)
+            pbar = tqdm(
+                range(self.num_iterations),
+                desc=f"Fitting {self.model_type} DPMM",
+                unit="epoch")
 
-        optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
-        best_loss = float("inf")
-        patience = 0
+            for i in pbar:
+                self.epochs_count = i + 1
+                optimizer.zero_grad()
+                # Assumo che il forward ritorni (pi, elbo_loss, extra)
+                _, elbo_loss, _ = self.dpmm_model(x_t)
+                elbo_loss.backward()
+                optimizer.step()
 
-        pbar = tqdm(
-            range(self.num_iterations),
-            desc=f"Fitting {self.model_type} DPMM",
-            unit="epoch")
+                new_loss = elbo_loss.detach().cpu().item()
+                pbar.set_description(f"Loss: {new_loss:.4f}")
+                if best_loss-new_loss > self.early_stopping_tolerance:
+                    best_loss = new_loss
+                    patience = 0
+                else:
+                    patience += 1
 
-        for i in pbar:
-            self.epochs_count = i + 1
-            optimizer.zero_grad()
-            # Assumo che il forward ritorni (pi, elbo_loss, extra)
-            _, elbo_loss, _ = self.dpmm_model(x_t)
-            elbo_loss.backward()
-            optimizer.step()
+                if patience >= self.early_stopping_patience:
+                    break
 
-            new_loss = elbo_loss.detach().cpu().item()
-            pbar.set_description(f"Loss: {new_loss:.4f}")
-            if best_loss-new_loss > self.early_stopping_tolerance:
-                best_loss = new_loss
-                patience = 0
-            else:
-                patience += 1
+            self.dpmm_model.eval()
+            with th.no_grad():
+                pi_tr, _, loglike_tr = self.dpmm_model(x_t)
 
-            if patience >= self.early_stopping_patience:
-                break
+            if self.mode == "likelihood_threshold":
+                self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
 
-        self.dpmm_model.eval()
-        with th.no_grad():
-            pi_tr, _, loglike_tr = self.dpmm_model(x_t)
+            else:  # cluster_labels
+                clust_assignment = pi_tr.argmax(dim=1)
+                tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
+                anom = th.bincount(
+                    clust_assignment, weights=y_t, minlength=self.n_clusters
+                )  # y_t è float(0/1)
 
-        if self.mode == "likelihood_threshold":
-            # salva su self
-            self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
+                perc = anom / (tot + 1e-6)
+                self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
 
-        else:  # cluster_labels
-            # assegnazione cluster hard
-            clust_assignment = pi_tr.argmax(dim=1)
+            self.is_fitted_ = True
 
-            # conteggi per cluster (più compatto di scatter_add)
-            tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
-            anom = th.bincount(
-                clust_assignment, weights=y_t, minlength=self.n_clusters
-            )  # y_t è float(0/1)
-
-            perc = anom / (tot + 1e-6)
-            self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
-
-        self.is_fitted_ = True
-
-    def predict(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:  # pylint: disable=invalid-name, unused-argument
+    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:  # pylint: disable=invalid-name, unused-argument
         """Predice etichetta anomalia per ciascun punto (bool) usando il modello fit-tato."""
-        if self.dpmm_model is None:
-            raise RuntimeError("Model not fitted. Call fit() first.")
+        with self._callback_context("classifier_predict", results):
+            if self.dpmm_model is None:
+                raise RuntimeError("Model not fitted. Call fit() first.")
 
-        x_t = th.as_tensor(X, dtype=th.float32, device=self.device)
-        self.dpmm_model.eval()
-        with th.no_grad():
-            pi_te, _, loglike_te = self.dpmm_model(x_t)
+            x_t = th.as_tensor(X, dtype=th.float32, device=self.device)
+            self.dpmm_model.eval()
+            with th.no_grad():
+                pi_te, _, loglike_te = self.dpmm_model(x_t)
 
-        if self.mode == "likelihood_threshold":
-            if self.likelihood_threshold is None:
-                raise RuntimeError(
-                    "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
-                )
-            if self.return_likelihood:
-                return -loglike_te.detach().to("cpu").numpy()
-            else:
-                y_pred = loglike_te < self.likelihood_threshold
+            if self.mode == "likelihood_threshold":
+                if self.likelihood_threshold is None:
+                    raise RuntimeError(
+                        "likelihood_threshold not set. Fit with 'likelihood_threshold' first."
+                    )
+                if self.return_likelihood:
+                    return -loglike_te.detach().to("cpu").numpy()
+                else:
+                    y_pred = loglike_te < self.likelihood_threshold
 
-        else: 
-            if self.anomaly_cluster_labels is None:
-                raise RuntimeError(
-                    "Cluster labels not set. Fit with 'cluster_labels' first."
-                )
-            cl = pi_te.argmax(dim=1)
-            is_anom = self.anomaly_cluster_labels.to(self.device)
-            y_pred = is_anom[cl]
+            else: 
+                if self.anomaly_cluster_labels is None:
+                    raise RuntimeError(
+                        "Cluster labels not set. Fit with 'cluster_labels' first."
+                    )
+                cl = pi_te.argmax(dim=1)
+                is_anom = self.anomaly_cluster_labels.to(self.device)
+                y_pred = is_anom[cl]
 
-        # Ritorna ndarray booleano
-        return y_pred.detach().to("cpu").numpy().astype(bool)
+            # Ritorna ndarray booleano
+            return y_pred.detach().to("cpu").numpy().astype(bool)
 
     # ---- helpers ----
     def _init_model(self, d_dim: int):

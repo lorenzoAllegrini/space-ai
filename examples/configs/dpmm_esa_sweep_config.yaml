@@ -6,12 +6,19 @@ exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"
-dpmm_type: "full"            
+dpmm_type: ["diagonal", "unit", "single"]            
 dpmm_mode: "likelihood_threshold"
-detector: "molookde"
+detector: "threshold"
 segmentator: false
+challenge: false
+save_metadata: false
 
-perc_eval: 0.3
+detector_params:
+  quantile: [1.5, 2.0]
+  smoothing_alpha: [0.1, 0.4, 1.0]
+
+eval_perc: 0.4
+filter_valid: true
 # Modular Feature Extraction
 feature_extractor: 
   - "base_statistics"
@@ -28,9 +35,8 @@ perc_step_size: 0.5
 
 channels: null
 
-
 base_classifier_params:
-  dynamic_scaling: true
+  dynamic_scaling: [true, false]
   scaler_window: 1000
   n_clusters: 100
   num_iterations: 100
@@ -41,11 +47,11 @@ base_classifier_params:
   mu_prior_strength: 0.001
   quantile: 0.001
   return_likelihood: true
-
-detector_params:
-  alpha: 0.005
-  p: 3.0
-  unitize: true
-  pot_percentile: 93.0
-  smoothing_alpha: 0.2
-  min_allowed_ll: -200.0
+ 
+#detector_params:
+  #alpha: 0.002
+  #p: 3.0
+  #unitize: true
+  #pot_percentile: 93.0
+  #smoothing_alpha: 0.2
+  #min_allowed_ll: -200.0

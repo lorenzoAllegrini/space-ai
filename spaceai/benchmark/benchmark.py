@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm  # type: ignore
 
 from spaceai.data.utils import seq_collate_fn
-from spaceai.models.anomaly_classifier import AnomalyClassifier
+from spaceai.models.anomaly_pipeline.anomaly_classifier import AnomalyClassifier
 from spaceai.preprocessing import TimeSeriesSplitter
 from .callbacks import CallbackHandler
 
@@ -27,7 +27,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
-    from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.detectors.base import AnomalyDetector
     from spaceai.models.predictors import SequenceModel
     from .callbacks import Callback
 
@@ -40,18 +40,20 @@ class Benchmark:
         run_id: str,
         exp_dir: str,
         data_root: str = "datasets",
+        save_metadata: bool = True,
     ):
-        """Initializes a new benchmark run.
+        """Initialize the benchmark.
 
         Args:
-            run_id (str): A unique identifier for this run.
-            exp_dir (str): The directory where the results of this run are stored.
-            seq_length (int): The length of the sequences used for training and testing.
+            run_id (str): The ID of the run.
+            exp_dir (str): The directory where experiments are stored.
             data_root (str): The root directory of the dataset.
+            save_metadata (bool): If False, stops saving degradation plots, intervals JSON and feature CSVs.
         """
         self.run_id = run_id
         self.exp_dir = exp_dir
         self.data_root: str = data_root
+        self.save_metadata: bool = save_metadata
         self.all_results: List[Dict[str, Any]] = []
         self.processed_channels: set[str] = set()
         self.channel_fit_metrics: Dict[str, Dict[str, Any]] = {}
@@ -60,6 +62,7 @@ class Benchmark:
         self.global_results: Dict[str, Any] = {"channel_id": "GLOBAL_EVENT_LEVEL"}
         self.event_labels_global: List[Any] = []
         self.predicted_events_global: List[Any] = []
+        self.global_y_pred: Optional[np.ndarray] = None
 
     def set_classifier(self, channel_id: str, classifier: Any):
         """Manually inject a pre-trained classifier into the benchmark state.
@@ -177,6 +180,12 @@ class Benchmark:
             os.path.join(self.run_dir, "results.csv"), index=False
         )
 
+        if getattr(self, "global_y_pred", None) is not None:
+            import numpy as np
+            ids = np.arange(14728321, 14728321 + len(self.global_y_pred))
+            submission_df = pd.DataFrame({'id': ids, 'is_anomaly': self.global_y_pred})
+            submission_df.to_csv(os.path.join(self.run_dir, "global_submission.csv"), index=False)
+
         return self.global_results
 
     @staticmethod
@@ -200,11 +209,12 @@ class Benchmark:
     ) -> Dict[str, Any]:
         """Trains the anomaly classifier for a given channel and saves it to state."""
         
-        train_channel = self.load_channel(channel_id, mode="train", **kwargs)
+        train_channel = self.load_channel(channel_id, train=True, **kwargs)
         logging.info("Fitting the anomaly classifier for channel %s...", channel_id)
         
-        chan_results_dir = os.path.join(self.run_dir, channel_id)
-        os.makedirs(chan_results_dir, exist_ok=True)
+        chan_results_dir = os.path.join(self.run_dir, channel_id) if self.save_metadata else None
+        if chan_results_dir:
+            os.makedirs(chan_results_dir, exist_ok=True)
         metrics = classifier.fit(train_channel, results_dir=chan_results_dir)
         self.channel_fit_metrics[channel_id] = metrics
 
@@ -226,6 +236,7 @@ class Benchmark:
         y_pred: np.ndarray,
         extra_metrics: Optional[Dict[str, Any]] = None,
         pred_buffer: int = 1,
+        challenge: bool = False,
     ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Shared logic for computing metrics, saving results, and updating global state.
 
@@ -265,16 +276,36 @@ class Benchmark:
             os.path.join(self.run_dir, "results.csv"), index=False
         )
 
-        try:
-            y_true_pointwise = np.zeros(len(y_pred), dtype=int)
-            for start, end in test_anomalies:
-                y_true_pointwise[max(0, int(start)):min(len(y_pred), int(end) + 1)] = 1
-            
-            plot_path = os.path.join(self.run_dir, f"{channel_id}_degradation.png")
-            window_size = max(min(len(y_pred) // 10, 2000), 100)
-            Benchmark.save_degradation_plot(channel_id, y_true_pointwise, y_pred, plot_path, window_size)
-        except Exception as e:
-            logging.warning("Could not save degradation plot for %s: %s", channel_id, e)
+        if challenge:
+            # Map intervals back to exact point-wise array (e.g. 521280 points)
+            y_pred_pointwise = np.zeros(len(test_dataset.data), dtype=int)
+            for s, e in pred_intervals_ts:
+                # pred_intervals_ts contains absolute physical indices
+                y_pred_pointwise[max(0, int(s)):min(len(y_pred_pointwise), int(e) + 1)] = 1
+                
+            ids = np.arange(14728321, 14728321 + len(y_pred_pointwise))
+            submission_df = pd.DataFrame({'id': ids, 'is_anomaly': y_pred_pointwise})
+            chan_results_dir = os.path.join(self.run_dir, channel_id)
+            os.makedirs(chan_results_dir, exist_ok=True)
+            submission_df.to_csv(os.path.join(chan_results_dir, "submission.csv"), index=False)
+
+            if self.global_y_pred is None:
+                self.global_y_pred = y_pred_pointwise.copy()
+            else:
+                self.global_y_pred = np.maximum(self.global_y_pred, y_pred_pointwise)
+
+        if self.save_metadata:
+
+            try:
+                y_true_pointwise = np.zeros(len(y_pred), dtype=int)
+                for start, end in test_anomalies:
+                    y_true_pointwise[max(0, int(start)):min(len(y_pred), int(end) + 1)] = 1
+                
+                plot_path = os.path.join(self.run_dir, f"{channel_id}_degradation.png")
+                window_size = max(min(len(y_pred) // 10, 2000), 100)
+                Benchmark.save_degradation_plot(channel_id, y_true_pointwise, y_pred, plot_path, window_size)
+            except Exception as e:
+                logging.warning("Could not save degradation plot for %s: %s", channel_id, e)
 
         if true_anomaly_intervals_ts or pred_intervals_ts:
             self._update_global_state(channel_id, results, true_anomaly_intervals_ts, pred_intervals_ts)
@@ -296,17 +327,22 @@ class Benchmark:
                 return {"channel_id": channel_id}, [], []
             classifier = self.trained_classifiers[channel_id]
         
-        test_channel = self.load_channel(channel_id, mode="test", **kwargs)
+        challenge = kwargs.get("challenge", False)
+        continual = kwargs.get("continual", False)
+        
+        test_channel = self.load_channel(channel_id, train=False, **kwargs)
 
         logging.info("Predicting the test data for channel %s...", channel_id)
         
-        chan_results_dir = os.path.join(self.run_dir, channel_id)
-        os.makedirs(chan_results_dir, exist_ok=True)
+        chan_results_dir = os.path.join(self.run_dir, channel_id) if self.save_metadata else None
+        if chan_results_dir:
+            os.makedirs(chan_results_dir, exist_ok=True)
         y_pred, metrics = classifier.predict(test_channel, results_dir=chan_results_dir)
 
         return self._finalize_channel_results(
             channel_id, classifier, test_channel, y_pred,
             extra_metrics=metrics, pred_buffer=pred_buffer,
+            challenge=challenge,
         )
 
     def test_continual(
@@ -328,10 +364,10 @@ class Benchmark:
                 return {"channel_id": channel_id}
             classifier = self.trained_classifiers[channel_id]
             
-        test_dataset = self.load_channel(channel_id, mode="test", overlapping_train=False)
+        test_dataset = self.load_channel(channel_id, train=False, overlapping_train=False)
         
         experience_splitter = TimeSeriesSplitter(window_size=experience_size, step_size=experience_size)
-        splitted = experience_splitter.segment_dataset(test_dataset, mode="experience")
+        splitted = experience_splitter.segment_dataset(test_dataset, return_subsets=True)
 
         logging.info("Streaming dataset for channel %s experience by experience...", channel_id)
 
@@ -396,11 +432,12 @@ class Benchmark:
             self.event_labels_global.extend(true_intervals)
             self.predicted_events_global.extend(pred_intervals)
 
-            with open(os.path.join(self.run_dir, f"{channel_id}_intervals.json"), "w") as f:
-                json.dump({
-                    "pred_intervals": [[str(s), str(e)] for s, e in pred_intervals],
-                    "true_intervals": [[str(s), str(e)] for s, e in true_intervals],
-                }, f, indent=2)
+            if self.save_metadata:
+                with open(os.path.join(self.run_dir, f"{channel_id}_intervals.json"), "w") as f:
+                    json.dump({
+                        "pred_intervals": [[str(s), str(e)] for s, e in pred_intervals],
+                        "true_intervals": [[str(s), str(e)] for s, e in true_intervals],
+                    }, f, indent=2)
 
     @staticmethod
     def save_degradation_plot(

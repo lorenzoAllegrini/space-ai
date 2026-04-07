@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 if TYPE_CHECKING:
     from .handler import CallbackHandler
+    from spaceai.models.anomaly_pipeline.anomaly_classifier import PipelineState
 
 class CallbackMixin:
     """Mixin to provide callback handling and monitoring context to classes."""
@@ -49,3 +50,43 @@ class CallbackMixin:
                     results.update(
                         {f"{phase_name}_{k}": v for k, v in metrics.items()}
                     )
+
+    def pipeline_step(self, state: "PipelineState", is_fit: bool = False, **kwargs) -> "PipelineState":
+        """
+        Adapter method that dynamically routes execution to the correct step implementation
+        and updates the PipelineState accordingly.
+        """
+        result = None
+
+        if is_fit:
+            if hasattr(self, 'fit_transform'):
+                result = self.fit_transform(state.data, y=state.labels, **kwargs)
+            elif hasattr(self, 'fit'):
+                self.fit(state.data, y=state.labels, **kwargs)
+                if hasattr(self, 'transform'):
+                    result = self.transform(state.data, **kwargs)
+                elif hasattr(self, 'predict'):
+                    result = self.predict(state.data, **kwargs)
+        else:
+            if hasattr(self, 'predict'):
+                result = self.predict(state.data, **kwargs)
+            elif hasattr(self, 'detect'):
+                result = self.detect(state.data, **kwargs)
+            elif hasattr(self, 'transform'):
+                result = self.transform(state.data, **kwargs)
+
+        if result is None:
+            return state
+            
+        if type(result).__name__ == "PipelineState":
+            state = result
+        elif isinstance(result, tuple) and len(result) == 2:
+            state.data, state.labels = result
+        else:
+            state.data = result
+            
+        # Propagate kill-switch status via metadata
+        if self.kill_switch_active:
+            state.metadata["kill_switch_active"] = True
+
+        return state

@@ -1,18 +1,14 @@
-"""Anomaly classifier module."""
-
-from .anomaly_classifier import AnomalyClassifier
-from spaceai.models.anomaly.dpmm_detector import DPMM, DPMMDetector
-from spaceai.models.anomaly.rockad import RockadClassifier, NearestNeighborOCC
-from spaceai.models.anomaly.ndpm_detector import NDPMDetector
-from .adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
+from .base import BaseClassifier, SklearnClassifier
+from .dpmm_detector import DPMM, DPMMDetector
+from .ndpm_detector import NDPMDetector
+from .rockad import RockadClassifier, NearestNeighborOCC
 
 __all__ = [
-    "AnomalyClassifier",
+    "BaseClassifier",
+    "SklearnClassifier",
     "DPMM",
     "DPMMDetector",
+    "NDPMDetector",
     "RockadClassifier",
     "NearestNeighborOCC",
-    "NDPMDetector",
-    "AdaptiveRollingWindowClassifier",
 ]
-

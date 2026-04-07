@@ -24,13 +24,7 @@ def linear_detrend_func(x: np.ndarray) -> np.ndarray:
     """Named function for linear detrending (pickleable)."""
     return detrend(x, type='linear', axis=-1)
 
-@dataclass
-class SegmentationResult:
-    """Packaging for segmentation results."""
-    segments: Union[np.ndarray, List[AnomalyDatasetSubset]]
-    labels: np.ndarray
-    segment_indices: np.ndarray
-    intervals: List[List[int]]
+from spaceai.models.anomaly_pipeline.anomaly_classifier import PipelineState
 
 
 class TimeSeriesSplitter(CallbackMixin):
@@ -70,7 +64,7 @@ class TimeSeriesSplitter(CallbackMixin):
         y: Optional[np.ndarray] = None, 
         sampling_period: Optional[float] = None, 
         results: Optional[Dict[str, Any]] = None,
-        mode: str = "anomaly",
+        return_subsets: bool = False,
         save_dir: Optional[str] = None,
         suffix: str = "",
         **kwargs
@@ -81,7 +75,7 @@ class TimeSeriesSplitter(CallbackMixin):
         if hasattr(X, "data") and not isinstance(X, (np.ndarray, AnomalyDataset)):
             msg = X
             if isinstance(msg.data, AnomalyDataset):
-                res = self.segment_dataset(msg.data, mode=mode, results=results, save_dir=save_dir, suffix=suffix)
+                res = self.segment_dataset(msg.data, return_subsets=return_subsets, results=results, save_dir=save_dir, suffix=suffix)
                 msg.data, msg.labels = res.segments, res.labels
                 msg.original_indices, msg.true_intervals = res.segment_indices, res.intervals
             else:
@@ -93,7 +87,7 @@ class TimeSeriesSplitter(CallbackMixin):
             return msg
 
         if isinstance(X, AnomalyDataset):
-            return self.segment_dataset(X, mode=mode, results=results, save_dir=save_dir, suffix=suffix)
+            return self.segment_dataset(X, return_subsets=return_subsets, results=results, save_dir=save_dir, suffix=suffix)
         
         segments = self.split(X, sampling_period=sampling_period, results=results)
         if y is not None:
@@ -148,7 +142,7 @@ class TimeSeriesSplitter(CallbackMixin):
             windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size)[starts]
             return (np.max(windows, axis=1) > 0).astype(int)
 
-    def segment_dataset(self, dataset_channel: AnomalyDataset, mode: str = "anomaly", results: Optional[Dict[str, Any]] = None, save_dir: Optional[str] = None, suffix: str = "") -> SegmentationResult:
+    def segment_dataset(self, dataset_channel: AnomalyDataset, return_subsets: bool = False, results: Optional[Dict[str, Any]] = None, save_dir: Optional[str] = None, suffix: str = "") -> PipelineState:
         """Segment an AnomalyDataset channel into windows or sub-datasets."""
         with self._callback_context("segmentation", results):
             sampling_period = getattr(dataset_channel, "sampling_period", None)
@@ -170,35 +164,36 @@ class TimeSeriesSplitter(CallbackMixin):
                 segs = self.split(b_data, sampling_period, results=results)
                 if not len(segs):
                     continue
-                lbls = self.split(p_labels[s:e], sampling_period, results=results) if mode == "experience" else self.split_labels(p_labels[s:e], sampling_period, results=results)
+                lbls = self.split(p_labels[s:e], sampling_period, results=results) if return_subsets else self.split_labels(p_labels[s:e], sampling_period, results=results)
                 all_segments.append(segs)
                 all_labels.append(lbls)
                 idxs = np.arange(len(segs)) * self.step_size + s
                 all_indices.append(np.column_stack((idxs, idxs + self.window_size - 1)))
 
             if not all_segments:
-                return SegmentationResult(np.empty((0, self.window_size)), np.array([]), np.empty((0, 2)), [])
+                return PipelineState(data=np.empty((0, self.window_size)), labels=np.array([]), indices=np.empty((0, 2)), intervals=[])
 
             final_segs, final_indices = np.vstack(all_segments), np.vstack(all_indices)
-            if mode == "experience":
-                return SegmentationResult([AnomalyDatasetSubset(dataset_channel, int(s), int(e)) for s, e in final_indices], np.vstack(all_labels), final_indices, [])
+            if return_subsets:
+                subsets = [AnomalyDatasetSubset(dataset_channel, int(s), int(e)) for s, e in final_indices]
+                return PipelineState(data=subsets, labels=np.vstack(all_labels), indices=final_indices, intervals=[])
             
             f_labels = np.concatenate(all_labels)
             idx = np.where(f_labels == 1)[0]
             intervals = [[g[0], g[-1]] for g in [list(group) for group in mit.consecutive_groups(idx)]] if idx.size > 0 else []
-            return SegmentationResult(final_segs, f_labels, final_indices, intervals)
+            return PipelineState(data=final_segs, labels=f_labels, indices=final_indices, intervals=intervals)
 
     def get_timestamp_intervals(self, dataset_channel: AnomalyDataset, window_intervals: List[Tuple[int, int]]) -> List[Tuple[Any, Any]]:
         """Map window anomaly intervals back to timestamps or absolute indices."""
-        res = self.segment_dataset(dataset_channel, mode="experience")
+        res_state = self.segment_dataset(dataset_channel, return_subsets=True)
         timestamps = getattr(dataset_channel, "timestamps", None)
         limit = len(timestamps) if timestamps is not None else len(dataset_channel.data)
         
         intervals = []
         for ws, we in window_intervals:
-            if ws >= len(res.segment_indices):
+            if ws >= len(res_state.indices):
                 continue
-            s, e = res.segment_indices[ws][0], res.segment_indices[min(we, len(res.segment_indices)-1)][1]
+            s, e = res_state.indices[ws][0], res_state.indices[min(we, len(res_state.indices)-1)][1]
             if s >= limit:
                 continue
             e = min(e, limit - 1)

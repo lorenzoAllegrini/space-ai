@@ -18,12 +18,12 @@ from utils.model_creators import (
 )
 from utils.reproducibility import set_seed
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.models.anomaly_classifier.adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
+from spaceai.models.anomaly_pipeline.adaptive_rolling_window_classifier import AdaptiveRollingWindowClassifier
 from spaceai.models.drift_detectors.adwin_detector import ADWINDetector
 from spaceai.models.drift_detectors.utils.replay_buffers import TimeDecayReplayBuffer
 from spaceai.models.drift_detectors.utils.filters import SafeRampUpFilter
 from spaceai.benchmark import ESABenchmark
-from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
+from spaceai.models.detectors import ThresholdDetector, MoLooKDEDetector
 
 warnings.simplefilter("ignore", FutureWarning)
 warnings.simplefilter("ignore", RuntimeWarning)

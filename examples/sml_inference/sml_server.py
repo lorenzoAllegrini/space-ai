@@ -105,7 +105,7 @@ def initialize_pipeline_from_args(payload_args):
     
     # Check if the returned classifier is a self-contained sequence model (like Telemanom)
     # that shouldn't be wrapped in RollingWindowClassifier
-    from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+    from spaceai.models.anomaly_pipeline.telemanom_classifier import SequenceModelClassifier
     if isinstance(base_classifier, SequenceModelClassifier):
         logging.info("[SERVER-FACTORY] SequenceModelClassifier detected. Skipping RollingWindow wrapping.")
         base_classifier.callback_handler = handler

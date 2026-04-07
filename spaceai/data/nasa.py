@@ -6,7 +6,6 @@ import math
 import os
 import tarfile
 from typing import (
-    Literal,
     Optional,
     Tuple,
     Union,
@@ -120,7 +119,6 @@ class NASA(AnomalyDataset):
         self,
         root: str,
         channel_id: str,
-        mode: Literal["prediction", "anomaly"],
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
@@ -143,7 +141,6 @@ class NASA(AnomalyDataset):
         if seq_length is None or seq_length < 1:
             raise ValueError(f"Invalid window size: {seq_length}")
         self.channel_id: str = channel_id
-        self._mode: Literal["prediction", "anomaly"] = mode
         self.overlapping: bool = overlapping
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
@@ -161,7 +158,7 @@ class NASA(AnomalyDataset):
                 "Dataset not found. You can use download=True to download it"
             )
 
-        if self._mode == "anomaly" and self.overlapping:
+        if not self.train and self.overlapping:
             logging.warning(
                 "Channel %s is in anomaly mode and overlapping is set to True."
                 " Anomalies will be repeated in the dataset.",
@@ -244,7 +241,7 @@ class NASA(AnomalyDataset):
         data = np.load(
             os.path.join(self.split_folder, f"{self.channel_id}.npy")
         ).astype(np.float32)
-        if self._mode == "prediction":
+        if self.train:
             return data, None
 
         anomalies: list[list[int]] = []  # Normal by default (train)
@@ -270,16 +267,3 @@ class NASA(AnomalyDataset):
     def in_features_size(self) -> int:
         """Return the size of the input features."""
         return self.data.shape[-1]
-
-    @property
-    def mode(self) -> str:
-        """Return the mode of the dataset."""
-        return self._mode
-
-    @mode.setter
-    def mode(self, mode: Literal["prediction", "anomaly"]):
-        """Set the mode of the dataset."""
-        if mode not in ["prediction", "anomaly"]:
-            raise ValueError(f"Invalid mode {mode}")
-        self._mode = mode
-        self.data, self.anomalies = self.load_and_preprocess()

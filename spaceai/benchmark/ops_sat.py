@@ -28,28 +28,15 @@ class OPSSATBenchmark(Benchmark):
         return min_start_time, min_period
 
     def load_channel(
-        self, channel_id: str, mode: str = "train", overlapping_train: bool = True, **kwargs
+        self, channel_id: str, train: bool = True, overlapping_train: bool = True, **kwargs
     ) -> OPSSAT:
         """Load the training or testing dataset for a given channel."""
-        if mode == "train":
-            return OPSSAT(
-                root=self.data_root,
-                channel_id=channel_id,
-                mode="anomaly",
-                overlapping=overlapping_train,
-                split_percentage=self.split_percentage,
-                **kwargs
-            )
-        elif mode == "test":
-            return OPSSAT(
-                root=self.data_root,
-                channel_id=channel_id,
-                mode="anomaly",
-                overlapping=False,
-                train=False,
-                drop_last=False,
-                split_percentage=self.split_percentage,
-                **kwargs
-            )
-        else:
-            raise ValueError(f"Invalid mode {mode}. Expected 'train' or 'test'.")
+        return OPSSAT(
+            root=self.data_root,
+            channel_id=channel_id,
+            overlapping=overlapping_train if train else False,
+            train=train,
+            drop_last=train,
+            split_percentage=self.split_percentage,
+            **kwargs
+        )

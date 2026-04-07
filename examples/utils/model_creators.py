@@ -1,7 +1,7 @@
 """Model creators module."""
 import torch
 
-from spaceai.models.anomaly import Telemanom
+from spaceai.models.detectors.telemanom import Telemanom
 from spaceai.models.predictors import (
     ESN,
     LSTM,
@@ -19,8 +19,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 # Sequence models
 from spaceai.models.predictors import LSTM
-from spaceai.models.anomaly import Telemanom
-from spaceai.models.anomaly_classifier.telemanom_classifier import SequenceModelClassifier
+from spaceai.models.detectors import Telemanom
+from spaceai.models.anomaly_pipeline import SequenceModelClassifier
 
 # PyOD models
 from pyod.models.iforest import IForest  # type: ignore
@@ -34,12 +34,12 @@ from pyod.models.cblof import CBLOF  # type: ignore
 from pyod.models.hbos import HBOS  # type: ignore
 
 # from spaceai.models.anomaly_classifier import RockadClassifier
-from spaceai.models.anomaly.dpmm_detector import (
+from spaceai.models.anomaly_classifier.dpmm_detector import (
     DPMM,
     get_dpmm_argparser,
 )
-from spaceai.models.anomaly.ndpm_detector import NDPMDetector
-from spaceai.models.anomaly.ndpm_internal import Config as NdpmConfig
+from spaceai.models.anomaly_classifier.ndpm_detector import NDPMDetector
+from spaceai.models.anomaly_classifier.ndpm_internal import Config as NdpmConfig
 import os
 import logging
 import torch
@@ -47,16 +47,15 @@ import torch
 from .config import Config
 
 
+from spaceai.models.anomaly_classifier.base import SklearnClassifier
 from spaceai.models.utils.scalers import RollingRobustScalerWithPrior
     
 
 
 def get_rockad_classifier(_num_kernels):
     """Get ROCKAD classifier."""
-    return (
-        DummyClassifier(strategy="constant", constant=0),
-        False,
-    )  # RockadClassifier(num_kernels=num_kernels), False
+    from spaceai.models.anomaly_classifier.rockad import RockadClassifier
+    return RockadClassifier(num_kernels=_num_kernels), False
 
 
 def get_xgboost_classifier(base_params=None):
@@ -74,7 +73,7 @@ def get_xgboost_classifier(base_params=None):
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("xgb", XGBClassifier(**params)),
+            ("xgb", SklearnClassifier(XGBClassifier(**params), supervised=True)),
         ]
     )
     return pipeline, True
@@ -82,6 +81,10 @@ def get_xgboost_classifier(base_params=None):
 
 def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     """Get DPMM classifier."""
+    # Ensure defaults if None
+    model_type = model_type if model_type is not None else "full"
+    mode = mode if mode is not None else "likelihood_threshold"
+    
     parser = get_dpmm_argparser()
     config, _ = parser.parse_known_args(other_dpmm_args)
     config_dict = vars(config)
@@ -99,13 +102,16 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     if base_params:
         config_dict.update(base_params)
 
+    config_dict["return_likelihood"] = True
+
     pipeline = Pipeline(
         [
             ("scaler", scaler),
             ("dpmm", DPMM(mode=mode, model_type=model_type, **config_dict)),
         ]
     )
-    return pipeline, mode != "likelihood_threshold"
+    supervised = base_params.pop("supervised", mode != "likelihood_threshold")
+    return SklearnClassifier(pipeline, supervised=supervised), supervised
 
 
 def get_ndpm_classifier(args, device="cpu", input_dim=None):
@@ -150,24 +156,10 @@ def get_ndpm_classifier(args, device="cpu", input_dim=None):
     return factory, False
 
 
-def get_ridge_regression_classifier():
+def get_ridge_regression_classifier(base_params=None):
     """Get Ridge Regression classifier."""
-    return RidgeClassifier, True
-
-
-class PyODWrapper(BaseEstimator):
-    """Wrapper for PyOD models to return decision_function as scores."""
-    def __init__(self, model):
-        self.model = model
-    
-    def fit(self, X, y=None, **kwargs):
-        # Many PyOD models don't use y but accept it, we just pass X safely
-        self.model.fit(X)
-        return self
-        
-    def predict(self, X, **kwargs):
-        # We return the continuous outlier scores instead of binary 0/1 labels
-        return self.model.decision_function(X)
+    base_params = base_params if base_params else {}
+    return SklearnClassifier(RidgeClassifier(**base_params), supervised=True), True
 
 
 def get_iforest_classifier(base_params=None):
@@ -181,31 +173,32 @@ def get_iforest_classifier(base_params=None):
         else RobustScaler(with_centering=False)
     )
 
+    supervised = base_params.pop("supervised", False)
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("iforest", PyODWrapper(IForest(**base_params))),
+            ("iforest", SklearnClassifier(IForest(**base_params), supervised=supervised)),
         ]
     )
-    return pipeline, False
+    return pipeline, supervised
 
 
 def get_pca_classifier(base_params=None):
     """Get PCA anomaly detector classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(PyOD_PCA(**base_params)), False
+    return SklearnClassifier(PyOD_PCA(**base_params)), False
 
 
 def get_knn_classifier(base_params=None):
     """Get K-Nearest Neighbors (KNN) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(KNN(**base_params)), False
+    return SklearnClassifier(KNN(**base_params)), False
 
 
 def get_lof_classifier(base_params=None):
     """Get Local Outlier Factor (LOF) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(LOF(**base_params)), False
+    return SklearnClassifier(LOF(**base_params)), False
 
 
 def get_pyod_ocsvm_classifier(base_params=None):
@@ -223,7 +216,7 @@ def get_pyod_ocsvm_classifier(base_params=None):
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("ocsvm", PyODWrapper(OCSVM(**base_params))),
+            ("ocsvm", SklearnClassifier(OCSVM(**base_params))),
         ]
     )
     return pipeline, False
@@ -232,25 +225,25 @@ def get_pyod_ocsvm_classifier(base_params=None):
 def get_ecod_classifier(base_params=None):
     """Get Empirical Cumulative Distribution (ECOD) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(ECOD(**base_params)), False
+    return SklearnClassifier(ECOD(**base_params)), False
 
 
 def get_copod_classifier(base_params=None):
     """Get Copula-Based Outlier Detection (COPOD) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(COPOD(**base_params)), False
+    return SklearnClassifier(COPOD(**base_params)), False
 
 
 def get_cblof_classifier(base_params=None):
     """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(CBLOF(**base_params)), False
+    return SklearnClassifier(CBLOF(**base_params)), False
 
 
 def get_hbos_classifier(base_params=None):
     """Get Histogram-based Outlier Score (HBOS) classifier."""
     base_params = base_params if base_params else {}
-    return PyODWrapper(HBOS(**base_params)), False
+    return SklearnClassifier(HBOS(**base_params)), False
 
 
 def format_str(s):
@@ -262,9 +255,10 @@ def format_str(s):
     return "".join([parts[0].lower()] + [x.capitalize() for x in parts[1:]])
 
 
-def get_ocsvm_classifier():
+def get_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from sklearn."""
-    return OneClassSVM, False
+    base_params = base_params if base_params else {}
+    return SklearnClassifier(OneClassSVM(**base_params)), False
 
 
 def create_classifier(args, other_args):
@@ -278,13 +272,13 @@ def create_classifier(args, other_args):
             args.dpmm_type, args.dpmm_mode, other_args, base_params=base_params
         )
     elif model_id == "ocsvm":
-        return get_ocsvm_classifier()
+        return get_ocsvm_classifier(base_params=base_params)
     elif model_id == "rockad":
         return get_rockad_classifier(args.n_kernel)
     elif model_id == "xgboost":
         return get_xgboost_classifier(base_params=base_params)
     elif model_id == "ridgeRegression":
-        return get_ridge_regression_classifier()
+        return get_ridge_regression_classifier(base_params=base_params)
     elif model_id == "iforest":
         return get_iforest_classifier(base_params=base_params)
     elif model_id == "pca":
@@ -305,7 +299,7 @@ def create_classifier(args, other_args):
         return get_hbos_classifier(base_params=base_params)
     elif model_id == "ndpm":
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        return get_ndpm_classifier(args, device, input_dim=input_dim)
+        return get_ndpm_classifier(args, device, input_dim=None)
     elif model_id == "telemanom":
         return get_telemanom_sequence_classifier(base_params=base_params)
     else:

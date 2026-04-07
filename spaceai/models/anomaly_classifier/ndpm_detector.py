@@ -57,7 +57,7 @@ class NDPMDetector(BaseClassifier):
             # Update the underlying model's writer too
             self.model.writer = self.writer
 
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> None:
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         with self._callback_context("model_fit", results):
             if hasattr(X, "values"):
                 X = X.values  # Handle pd.DataFrame
@@ -100,7 +100,7 @@ class NDPMDetector(BaseClassifier):
             logging.info("Updated adaptive threshold for NDPM: %.4f (buffer size: %d, percentile: %.2f)", 
                          self.threshold, len(self.ll_buffer), self.percentile)
 
-    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
+    def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:
         with self._callback_context("model_predict", results):
             if hasattr(X, "values"):
                 X = X.values  # Handle pd.DataFrame
