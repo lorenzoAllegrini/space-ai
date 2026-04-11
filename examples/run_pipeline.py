@@ -151,16 +151,12 @@ def run_exp(args, other_args=None):
         dataset_kwargs = {}
         if hasattr(args, 'challenge'):
             dataset_kwargs["challenge"] = getattr(args, 'challenge')
-            
-        logging.info("--- Fitting Channel %s with Decoupled Pipeline ---", channel_name)
 
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=pipeline,
             **dataset_kwargs
         )
-
-        logging.info("--- Testing Channel %s with Decoupled Pipeline ---", channel_name)
 
         results = benchmark.test_channel(
             channel_id=channel_name,
