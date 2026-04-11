@@ -1,4 +1,3 @@
-#
 import logging
 import math
 import os
@@ -132,7 +131,11 @@ class ESA(
         download: bool = True,
         uniform_start_end_date: bool = True,
         drop_last: bool = True,
-        use_telecommands: bool = True,
+        use_telecommands: bool = False,
+        train_start_date: Optional[Union[str, pd.Timestamp]] = None,
+        train_end_date: Optional[Union[str, pd.Timestamp]] = None,
+        test_start_date: Optional[Union[str, pd.Timestamp]] = None,
+        test_end_date: Optional[Union[str, pd.Timestamp]] = None,
     ):
         """ESABenchmark class that preprocesses and loads ESA dataset for training and
         testing.
@@ -169,6 +172,12 @@ class ESA(
         self.drop_last: bool = drop_last
         self.n_predictions: int = n_predictions
         self.use_telecommands: bool = use_telecommands
+        
+        # Date overrides
+        self.train_start_date = pd.to_datetime(train_start_date) if train_start_date else None
+        self.train_end_date = pd.to_datetime(train_end_date) if train_end_date else None
+        self.test_start_date = pd.to_datetime(test_start_date) if test_start_date else None
+        self.test_end_date = pd.to_datetime(test_end_date) if test_end_date else None
 
         if not channel_id in self.mission.all_channels:
             raise ValueError(f"Channel ID {channel_id} is not valid")
@@ -229,28 +238,8 @@ class ESA(
         gap_intervals: List[Tuple[pd.Timestamp, pd.Timestamp]] = None
     ) -> Tuple[pd.DataFrame, List[Tuple[int, int]]]:
         """Resample the dataframe using zero order hold, respecting official gaps.
-
-        Args:
-            channel_df (pd.DataFrame): The dataframe to resample.
-            start_date (pd.Timestamp): The start date.
-            end_date (pd.Timestamp): The end date.
-            gap_intervals (List[Tuple[pd.Timestamp, pd.Timestamp]]): Official communication gaps.
-
-        Returns:
-            Tuple[pd.DataFrame, List[Tuple[int, int]]]: The resampled dataframe and block intervals.
         """
-        # Resample using zero order hold
-        if self.challenge or self.continual:
-            end_date = self.mission.end_date
-            start_date = self.mission.start_date
-        elif self.train:
-            if end_date > self.mission.train_test_split:
-                end_date = self.mission.train_test_split
-        else:
-            if start_date < self.mission.train_test_split:
-                start_date = self.mission.train_test_split
-        
-        # Filter by adjusted bounds
+        # Filter by bounds
         channel_df = channel_df[(channel_df.index >= start_date) & (channel_df.index <= end_date)].copy()
         
         if len(channel_df) == 0:
@@ -278,7 +267,24 @@ class ESA(
             is_gap = np.array([], dtype=bool)
 
         if len(is_gap) > 0:
+            # We only want to split when is_gap transitions, or correctly:
+            # every True in is_gap represents a boundary where we must REFRESH the timeline.
+            # However, consecutive True's mean consecutive individual points.
+            # We want to find contiguous ranges of False (real blocks) and skip True.
+            
+            # Find indices where is_gap is True.
+            gap_indices = np.where(is_gap)[0]
+            
+            # We split the data into blocks. A block is a range of consecutive False.
+            # The indices in block_boundaries should represent the start/end of these False ranges.
             split_indices = np.where(is_gap)[0] + 1
+            # Optimization: merge consecutive split indices to avoid many 1-sample blocks
+            if len(split_indices) > 1:
+                # Keep only indices that are NOT consecutive
+                diffs = np.diff(split_indices)
+                mask = np.concatenate(([True], diffs > 1))
+                split_indices = split_indices[mask]
+
             block_boundaries = np.concatenate(([0], split_indices, [len(timestamps)]))
         else:
             block_boundaries = np.array([0, len(timestamps)])
@@ -314,14 +320,18 @@ class ESA(
 
             resampled_blocks.append(block_resampled)
             
-        if resampled_blocks:
-            final_df = pd.concat(resampled_blocks)
-            block_intervals = []
-            curr_idx = 0
-            for block in resampled_blocks:
-                block_intervals.append((curr_idx, curr_idx + len(block)))
-                curr_idx += len(block)
-            return final_df, block_intervals
+        if not resampled_blocks:
+            return pd.DataFrame(), []
+
+        
+        final_df = pd.concat(resampled_blocks)
+        block_intervals = []
+        curr_idx = 0
+        for block in resampled_blocks:
+            block_intervals.append((curr_idx, curr_idx + len(block)))
+            curr_idx += len(block)
+            
+        return final_df, block_intervals
         
         return pd.DataFrame(), []
 
@@ -354,22 +364,26 @@ class ESA(
         gap_intervals = [(row["StartTime"], row["EndTime"]) for _, row in gaps.iterrows()]
 
         # 3. Determine Global Temporal Bounds
-        global_start = self.mission.start_date
-        global_end = self.mission.end_date
+        if self.train:
+            global_start = self.train_start_date or self.mission.start_date
+            global_end = self.train_end_date or self.mission.train_test_split
+        else:
+            global_start = self.test_start_date or self.mission.train_test_split
+            global_end = self.test_end_date or self.mission.end_date
 
         if not self.challenge and not self.continual:
+            # Legacy handling if specifically requested, but overrides take precedence
             if self.train:
-                if global_end > self.mission.train_test_split:
+                if global_end > self.mission.train_test_split and self.train_end_date is None:
                     global_end = self.mission.train_test_split
             else:
-                if global_start < self.mission.train_test_split:
+                if global_start < self.mission.train_test_split and self.test_start_date is None:
                     global_start = self.mission.train_test_split
         
         # Override with data-specific bounds if not using uniform_start_end_date
         if not self.uniform_start_end_date:
             global_start = max(global_start, channel_df.index[0])
             global_end = min(global_end, channel_df.index[-1])
-
 
         # 4. Apply resampling (Single pass)
         channel_df, block_intervals = self._apply_resampling_rule_(
@@ -384,11 +398,11 @@ class ESA(
             prioritized_tcs = telecommands_csv.loc[telecommands_csv["Priority"] >= 3, "Telecommand"].to_numpy().flatten()
 
             telecommand_dfs = []
-            for tc in prioritized_tcs:
+            for i, tc in enumerate(prioritized_tcs):
                 tc_file = os.path.join(source_folder, "telecommands", f"{tc}.zip")
                 if os.path.exists(tc_file):
                     df_tc = pd.read_pickle(tc_file)
-                    df_tc_bool = pd.Series(0, index=channel_df.index, name=tc)
+                    df_tc_bool = pd.Series(0, index=channel_df.index, name=tc, dtype=np.int8)
                     for ts in df_tc.index:
                         pos = channel_df.index.searchsorted(ts, side="left")
                         if pos < len(channel_df.index):
@@ -402,22 +416,21 @@ class ESA(
                 channel_df = channel_df.join(tele_df.fillna(0), how="left")
 
         # 6. Map labels
-        map_dt = pd.DataFrame(range(len(channel_df)), index=channel_df.index, columns=["value"])
         anomalies = []
-        communication_gaps_idx = [] # Optional, for backward compatibility return
+        communication_gaps_idx = [] 
 
         for _, row in chan_labels.iterrows():
             start_t = row["StartTime"].floor(freq=self.mission.resampling_rule)
             end_t = row["EndTime"].ceil(freq=self.mission.resampling_rule)
             
-            mask = (map_dt.index >= start_t) & (map_dt.index <= end_t)
-            range_df = map_dt[mask]
-            if not range_df.empty:
-                s_idx, e_idx = int(range_df.iloc[0]["value"]), int(range_df.iloc[-1]["value"])
+            s_idx = channel_df.index.searchsorted(start_t, side="left")
+            e_idx = channel_df.index.searchsorted(end_t, side="right") - 1
+            
+            if s_idx < len(channel_df) and e_idx >= 0 and s_idx <= e_idx:
                 if row["Category"] in ["Anomaly", "Rare Event"]:
-                    anomalies.append((s_idx, e_idx))
+                    anomalies.append((int(s_idx), int(e_idx)))
                 elif row["Category"] == "Communication Gap":
-                    communication_gaps_idx.append((s_idx, e_idx))
+                    communication_gaps_idx.append((int(s_idx), int(e_idx)))
 
         self.timestamps = channel_df.index.values
         return channel_df.values.astype(np.float32), sorted(anomalies), sorted(communication_gaps_idx), block_intervals
@@ -431,7 +444,6 @@ class ESA(
         table = pq.read_table(os.path.join(source_folder, "test.parquet"))
         df = table.to_pandas()
 
-        # Seleziona le colonne che iniziano con "telecommand_" e ordinali per numero crescente
         telecommand_cols = [col for col in df.columns if col.startswith("telecommand_")]
         telecommand_cols = sorted(
             telecommand_cols, key=lambda col: int(col.split("_")[1])

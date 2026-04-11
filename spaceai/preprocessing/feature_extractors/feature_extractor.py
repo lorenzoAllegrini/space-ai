@@ -27,7 +27,6 @@ class FeatureExtractor(CallbackMixin):
         self._stride = stride
         self._current_dataset: Optional[AnomalyDataset] = None
         self._current_indices: Optional[np.ndarray] = None
-        # Do not pass extra kwargs to CallbackMixin to avoid TypeError: object.__init__()
         super().__init__(callback_handler=callback_handler)
 
     @property

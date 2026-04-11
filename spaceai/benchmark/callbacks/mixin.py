@@ -5,26 +5,16 @@ from contextlib import contextmanager
 if TYPE_CHECKING:
     from .handler import CallbackHandler
     from spaceai.models.anomaly_pipeline.anomaly_classifier import PipelineState
+from contextlib import contextmanager
+from typing import Optional, Dict, Any
 
 class CallbackMixin:
     """Mixin to provide callback handling and monitoring context to classes."""
     
-    def __init__(self, callback_handler: Optional[CallbackHandler] = None, **kwargs):
+    def __init__(self, callback_handler: Optional["CallbackHandler"] = None, **kwargs):
         self.callback_handler = callback_handler
-        self._kill_switch_active = False
         super().__init__()
 
-    @property
-    def kill_switch_active(self) -> bool:
-        """
-        Flag checking if the processor is in 'kill-switch' mode.
-        Default is False for all processors via CallbackMixin.
-        """
-        return self._kill_switch_active
-
-    @kill_switch_active.setter
-    def kill_switch_active(self, value: bool):
-        self._kill_switch_active = value
 
     @contextmanager
     def _callback_context(self, phase_name: str, results: Optional[Dict[str, Any]] = None):
@@ -51,42 +41,68 @@ class CallbackMixin:
                         {f"{phase_name}_{k}": v for k, v in metrics.items()}
                     )
 
-    def pipeline_step(self, state: "PipelineState", is_fit: bool = False, **kwargs) -> "PipelineState":
+    def pipeline_step(
+        self, 
+        state: "PipelineState", 
+        is_fit: bool = False, 
+        results: Optional[Dict[str, Any]] = None, 
+        method_name: Optional[str] = None, 
+        **kwargs
+    ) -> "PipelineState":
         """
         Adapter method that dynamically routes execution to the correct step implementation
         and updates the PipelineState accordingly.
         """
+
         result = None
+        if results is not None and "results" not in kwargs:
+            kwargs["results"] = results
 
-        if is_fit:
-            if hasattr(self, 'fit_transform'):
-                result = self.fit_transform(state.data, y=state.labels, **kwargs)
-            elif hasattr(self, 'fit'):
-                self.fit(state.data, y=state.labels, **kwargs)
-                if hasattr(self, 'transform'):
-                    result = self.transform(state.data, **kwargs)
-                elif hasattr(self, 'predict'):
-                    result = self.predict(state.data, **kwargs)
+        if method_name is not None and hasattr(self, method_name):
+            X = state.data
+            y = state.labels
+            
+            try:
+                result = getattr(self, method_name)(X, y=y, **kwargs)
+            except TypeError:
+                result = getattr(self, method_name)(X, **kwargs)
         else:
-            if hasattr(self, 'predict'):
-                result = self.predict(state.data, **kwargs)
-            elif hasattr(self, 'detect'):
-                result = self.detect(state.data, **kwargs)
-            elif hasattr(self, 'transform'):
-                result = self.transform(state.data, **kwargs)
+            X = state.data
+            y = state.labels
+            if is_fit:
+                if hasattr(self, 'fit_transform'):
+                    result = self.fit_transform(X, y=y, **kwargs)
+                elif hasattr(self, 'fit'):
+                    self.fit(X, y=y, **kwargs)
+                    if hasattr(self, 'transform'):
+                        result = self.transform(X, y=y, **kwargs)
+                    elif hasattr(self, 'predict'):
+                        result = self.predict(X, **kwargs)
+            else:
+                if hasattr(self, 'predict'):
+                    result = self.predict(X, **kwargs)
+                elif hasattr(self, 'detect'):
+                    result = self.detect(X, **kwargs)
+                elif hasattr(self, 'transform'):
+                    result = self.transform(X, y=y, **kwargs)
 
-        if result is None:
+        if result is None or result is self:
             return state
             
         if type(result).__name__ == "PipelineState":
             state = result
+        elif isinstance(result, tuple) and len(result) == 3:
+            state.data, state.labels, mask = result
+            if state.indices is not None and len(state.indices) == len(mask):
+                state.indices = state.indices[mask]
+            if state.intervals is not None and len(state.intervals) == len(mask):
+                state.intervals = [state.intervals[i] for i, m in enumerate(mask) if m]
         elif isinstance(result, tuple) and len(result) == 2:
             state.data, state.labels = result
         else:
             state.data = result
-            
-        # Propagate kill-switch status via metadata
-        if self.kill_switch_active:
-            state.metadata["kill_switch_active"] = True
+
+        if results is not None:
+            state.metrics.update(results)
 
         return state

@@ -36,7 +36,6 @@ class CallbackHandler:
     def start(self):
         """Start the execution of the handler's thread."""
         self.start_time = time.time()
-        # Ensure at least one sample is taken even if the operation is very fast
         for callback in self.callbacks:
             callback()
             

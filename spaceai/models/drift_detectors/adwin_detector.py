@@ -1,4 +1,3 @@
-# from river import drift  <-- Spostato in __init__ e reset (Lazy Import)
 from .drift_detector import DriftDetector
 
 

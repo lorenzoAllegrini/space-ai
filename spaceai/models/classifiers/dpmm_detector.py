@@ -12,7 +12,6 @@ from torch_dpmm.models import (  # type: ignore # pylint: disable=import-error
     IsotropicGaussianDPMM,
     UnitGaussianDPMM,
 )
-# TODO: rename single to isotropic
 from tqdm import tqdm  # type: ignore
 
 from .base import BaseClassifier
@@ -21,9 +20,6 @@ from .base import BaseClassifier
 def get_dpmm_argparser():
     """Get DPMM argument parser."""
     parser = argparse.ArgumentParser()
-    # TODO: uniform with command line args
-    # parser.add_argument("--prediction_type", choices=["likelihood_threshold", "cluster_labels"])
-    # parser.add_argument("--model_type", choices=["full", "diagonal", "single", "unit"])
     parser.add_argument("--n-clusters", type=int, default=100)
     parser.add_argument("--num-iterations", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.1)
@@ -43,8 +39,8 @@ class DPMM(BaseClassifier):
     # pylint: disable=too-many-instance-attributes
     def __init__(
         self,
-        mode: str = "likelihood_threshold",  # "likelihood_threshold" | "cluster_labels"
-        model_type: str = "full",  # "full" | "diagonal" | "single" | "unit"
+        mode: str = "likelihood_threshold",
+        model_type: str = "full",
         n_clusters: int = 100,
         num_iterations: int = 500,
         lr: float = 0.8,
@@ -53,7 +49,7 @@ class DPMM(BaseClassifier):
         var_prior_strength: float = 3.0,
         mu_prior_strength: float = 0.001,
         quantile: float = 0.0001,
-        device: Optional[str] = None,  # "cpu" / "cuda" / "mps" o None -> auto
+        device: Optional[str] = None,
         return_likelihood: bool = False,
         early_stopping_patience: int = 5,
         early_stopping_tolerance: float = 1e-4,
@@ -82,15 +78,12 @@ class DPMM(BaseClassifier):
         self.return_likelihood = return_likelihood
         self.epochs_count = 0
 
-        # Device selection: cuda > cpu (MPS excluded: missing aten::digamma)
         if device:
             self.device = th.device(device)
         elif th.cuda.is_available():
             self.device = th.device("cuda")
         else:
             self.device = th.device("cpu")
-        
-        # print(f"[DEBUG-DPMM] Selected device: {self.device}")
 
     def __call__(
         self, input_data: np.ndarray, y_true: Optional[np.ndarray] = None, **kwargs
@@ -103,23 +96,19 @@ class DPMM(BaseClassifier):
         In 'cluster_labels' mode, requires y to derive cluster labels.
         """
         with self._callback_context("classifier_fit", results):
-            # Validazioni
             if self.mode == "cluster_labels" and y is None:
                 raise ValueError(
                     "In 'cluster_labels' mode, 'y' (0/1) is required to label clusters."
                 )
 
-            # Filtra anomalie solo per stima della soglia
             if self.mode == "likelihood_threshold" and (y is not None):
                 X = X[y == 0]
 
-            # Tensori
             x_t = th.as_tensor(X, dtype=th.float32, device=self.device)
             y_t = (
                 None if y is None else th.as_tensor(y, dtype=th.float32, device=self.device)
             )
 
-            # Modello
             d_dim = x_t.shape[1]
             self.dpmm_model = self._init_model(d_dim).to(self.device)
             if self.dpmm_model is None:
@@ -140,7 +129,6 @@ class DPMM(BaseClassifier):
             for i in pbar:
                 self.epochs_count = i + 1
                 optimizer.zero_grad()
-                # Assumo che il forward ritorni (pi, elbo_loss, extra)
                 _, elbo_loss, _ = self.dpmm_model(x_t)
                 elbo_loss.backward()
                 optimizer.step()
@@ -163,12 +151,12 @@ class DPMM(BaseClassifier):
             if self.mode == "likelihood_threshold":
                 self.likelihood_threshold = th.quantile(loglike_tr, self.quantile)
 
-            else:  # cluster_labels
+            else:
                 clust_assignment = pi_tr.argmax(dim=1)
                 tot = th.bincount(clust_assignment, minlength=self.n_clusters).to(self.device)
                 anom = th.bincount(
                     clust_assignment, weights=y_t, minlength=self.n_clusters
-                )  # y_t è float(0/1)
+                )
 
                 perc = anom / (tot + 1e-6)
                 self.anomaly_cluster_labels = (perc > 0.5) | (tot == 0)
@@ -176,7 +164,7 @@ class DPMM(BaseClassifier):
             self.is_fitted_ = True
 
     def predict(self, X: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs) -> np.ndarray:  # pylint: disable=invalid-name, unused-argument
-        """Predice etichetta anomalia per ciascun punto (bool) usando il modello fit-tato."""
+        """Predict anomaly labels for each point using the fitted model."""
         with self._callback_context("classifier_predict", results):
             if self.dpmm_model is None:
                 raise RuntimeError("Model not fitted. Call fit() first.")
@@ -196,7 +184,7 @@ class DPMM(BaseClassifier):
                 else:
                     y_pred = loglike_te < self.likelihood_threshold
 
-            else: 
+            else:
                 if self.anomaly_cluster_labels is None:
                     raise RuntimeError(
                         "Cluster labels not set. Fit with 'cluster_labels' first."
@@ -205,10 +193,8 @@ class DPMM(BaseClassifier):
                 is_anom = self.anomaly_cluster_labels.to(self.device)
                 y_pred = is_anom[cl]
 
-            # Ritorna ndarray booleano
             return y_pred.detach().to("cpu").numpy().astype(bool)
 
-    # ---- helpers ----
     def _init_model(self, d_dim: int):
         if self.model_type == "full":
             return FullGaussianDPMM(

@@ -22,7 +22,6 @@ class FeatureUnion(FeatureExtractor):
         if not extractors:
             raise ValueError("FeatureUnion requires at least one extractor.")
             
-        # All extractors must share the same window/stride for alignment
         super().__init__(
             window_size=extractors[0].window_size, 
             stride=extractors[0].stride, 
@@ -38,7 +37,7 @@ class FeatureUnion(FeatureExtractor):
     def window_size(self, value: int):
         self._window_size = value
         for e in self.extractors:
-            if hasattr(e, "window_size"): # Propagate to property setter if exists
+            if hasattr(e, "window_size"):
                 try: e.window_size = value
                 except AttributeError: e._window_size = value
             else:
@@ -58,13 +57,6 @@ class FeatureUnion(FeatureExtractor):
             else:
                 e._stride = value
 
-    @property
-    def kill_switch_active(self) -> bool:
-        """
-        FeatureUnion is in kill-switch mode ONLY if ALL sub-extractors are.
-        If even one extractor has informative features, the union is active.
-        """
-        return all(getattr(e, "kill_switch_active", False) for e in self.extractors)
 
     @property
     def output_dim(self) -> int:

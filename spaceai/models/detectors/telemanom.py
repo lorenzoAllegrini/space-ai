@@ -129,9 +129,7 @@ class Telemanom(ErrorBasedDetector):
         Returns:
             np.ndarray: prediction errors
         """
-        # Compute the errors and update the window
         err = self.compute_error(y_pred, y_true)
-        # Ensure err is an ndarray for ewma
         if isinstance(err, float):
             err = np.array([err])
         err_s = self.ewma(err)
@@ -143,8 +141,6 @@ class Telemanom(ErrorBasedDetector):
         self.y_true_buffer = np.concatenate([self.y_true_buffer, y_true])
         i_anom = np.array([])
         while len(self.eval_buffer) >= self.n_eval:
-            moved = False
-            # The window is not at its capacity yet
             if len(self.window) < self.window_size:
                 missing = self.window_size - len(self.window)
                 self.window = np.append(self.window, self.eval_buffer[:missing])
@@ -159,7 +155,6 @@ class Telemanom(ErrorBasedDetector):
                     self.y_true_buffer = self.y_true_buffer[missing:]
                 moved = True
 
-            # The window is at its capacity and we have sufficient errors to evaluate
             elif len(self.eval_buffer) >= self.n_eval:
                 self.window = np.append(self.window, self.eval_buffer[: self.n_eval])[
                     -self.window_size :
@@ -171,7 +166,6 @@ class Telemanom(ErrorBasedDetector):
                 self.y_true_buffer = self.y_true_buffer[self.n_eval :]
                 moved = True
 
-            # We updated the window and it is at its capacity
             if len(self.window) == self.window_size and moved:
                 window_i_anom = self.process_window(i_anom)
                 i_anom = np.concatenate(
@@ -222,16 +216,13 @@ class Telemanom(ErrorBasedDetector):
         Returns:
             np.ndarray: anomaly scores within the evaluated portion of the window
         """
-        # Computing the statistics on the window and the inverted errors
         e_s = self.window
         mean_e_s, sd_e_s = np.mean(e_s), np.std(e_s)
-        e_s_inv = 2 * np.mean(e_s) - e_s  # Inverted errors
+        e_s_inv = 2 * np.mean(e_s) - e_s
 
-        # Finding the epsilon value for the errors and the inverted errors
         _, epsilon = self.find_epsilon(e_s, mean_e_s, sd_e_s)
         _, epsilon_inv = self.find_epsilon(e_s_inv, mean_e_s, sd_e_s)
 
-        # Finding the anomalies by comparing the optimal epsilon found
         max_error = max(e_s)
         y_test = self.y_true_window
         low_perc, high_perc = np.percentile(y_test, [5, 95])
@@ -258,15 +249,12 @@ class Telemanom(ErrorBasedDetector):
         if len(i_anom) == 0 and len(i_anom_inv) == 0:
             return np.array([])
 
-        # Pruning the anomalies that don't meet the minimum separation according to the
-        # p-value
         i_anom = self.prune_anomalies(e_s, e_seq, i_anom, non_anom_max)
         i_anom_inv = self.prune_anomalies(
             e_s_inv, e_seq_inv, i_anom_inv, non_anom_max_inv
         )
         if len(i_anom) == 0 and len(i_anom_inv) == 0:
             return np.array([])
-        # Merging the anomalies in regular and inverted errors
         i_anom = np.sort(np.unique(np.append(i_anom, i_anom_inv))).astype("int")
 
         return i_anom
@@ -274,22 +262,6 @@ class Telemanom(ErrorBasedDetector):
     def find_epsilon(
         self, e_s: np.ndarray, mean_e_s: float, sd_e_s: float
     ) -> Tuple[float, float]:
-        """
-        Find the anomaly threshold that maximizes function representing
-        tradeoff between:
-            a) number of anomalies and anomalous ranges
-            b) the reduction in mean and st dev if anomalous points are removed
-            from errors
-        (see https://arxiv.org/pdf/1802.04431.pdf)
-
-        Args:
-            e_s (np.ndarray): errors
-            mean_e_s (float): mean of the errors
-            sd_e_s (float): standard deviation of the errors
-
-        Returns:
-            Tuple[float, float]: anomaly threshold and epsilon
-        """
         sd_threshold = self.SD_LIM
         epsilon = float(mean_e_s + self.SD_LIM * sd_e_s)
 
@@ -308,7 +280,6 @@ class Telemanom(ErrorBasedDetector):
                 i_anom = i_anom[(i_anom < len(e_s)) & (i_anom >= 0)]
                 i_anom = np.sort(np.unique(i_anom))
 
-                # group anomalous indices into continuous sequences
                 groups = [list(group) for group in mit.consecutive_groups(i_anom)]
                 e_seq = [(g[0], g[-1]) for g in groups if not g[0] == g[-1]]
 
@@ -318,7 +289,6 @@ class Telemanom(ErrorBasedDetector):
                     len(e_seq) ** 2 + len(i_anom)
                 )
 
-                # sanity checks / guardrails
                 if (
                     score >= max_score
                     and len(e_seq) <= 5
@@ -347,7 +317,6 @@ class Telemanom(ErrorBasedDetector):
                 sequences of anomalies, and the maximum error among non-anomalous values
         """
 
-        # Check: scale of errors compared to values too small?
         i_anom = np.argwhere((e_s >= epsilon) & (e_s > 0.05 * inter_range)).flatten()
 
         if len(i_anom) == 0:
@@ -357,7 +326,6 @@ class Telemanom(ErrorBasedDetector):
         i_anom = i_anom[(i_anom < len(e_s)) & (i_anom >= 0)]
         i_anom = np.sort(np.unique(i_anom))
 
-        # if it is first window, ignore initial errors (need some history)
         if self.n_window == 0 and self.num_to_ignore > 0:
             i_anom = i_anom[i_anom >= self.num_to_ignore]
         else:
@@ -373,7 +341,6 @@ class Telemanom(ErrorBasedDetector):
         candidate_indices = np.unique(window_indices - batch_position)
         non_anom_max = np.amax(np.take(e_s, candidate_indices))
 
-        # group anomalous indices into continuous sequences
         groups: List[List[int]] = [
             list(map(int, group)) for group in mit.consecutive_groups(i_anom)
         ]
@@ -440,8 +407,6 @@ class Telemanom(ErrorBasedDetector):
         self.window = np.array([])
         self.eval_buffer = np.array([])
         self.n_window = 0
-        # self._predictor.reset_state()
-
     @property
     def n_eval(self) -> int:
         if self.n_window == 0:

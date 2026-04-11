@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm  # type: ignore
 
 from spaceai.data.utils import seq_collate_fn
-from spaceai.models.anomaly_pipeline.anomaly_classifier import AnomalyClassifier
+from spaceai.models.classifiers import DPMMDetector, NDPMDetector
 from spaceai.preprocessing import TimeSeriesSplitter
 from .callbacks import CallbackHandler
 
@@ -77,6 +77,9 @@ class Benchmark:
         """Recover global state from experiment directory."""
         if os.path.exists(self.run_dir):
             for channel_id in self.get_default_channels():
+                if channel_id in self.processed_channels:
+                    continue
+
                 json_path = os.path.join(self.run_dir, f"{channel_id}_intervals.json")
                 if not os.path.exists(json_path):
                     continue
@@ -100,7 +103,7 @@ class Benchmark:
 
         events = []
         for interval in intervals: 
-            events.extend([(interval[0], 1), (interval[1], -1)]) # +1 for start, -1 for end of an interval
+            events.extend([(interval[0], 1), (interval[1], -1)]) 
         
         events.sort(key=lambda e: (e[0], -e[1]))
         current_depth = 0
@@ -143,14 +146,15 @@ class Benchmark:
         if len(self.processed_channels) < len(channels):
             self.recover_global_state()
             
-        for metric in [m for m in self.global_results.keys() if m.endswith(("cpu", "mem"))]:
-            self.global_results[metric] /= max(len(channels), 1)
+        report_results = self.global_results.copy()
+        for metric in [m for m in report_results.keys() if m.endswith(("cpu", "mem"))]:
+            report_results[metric] /= max(len(channels), 1)
 
         event_labels = Benchmark.merge_intervals(self.event_labels_global)
         predicted_events = Benchmark.merge_intervals(self.predicted_events_global)
         
         adtqc_metrics = Benchmark.adtqc_score(event_labels, predicted_events)
-        self.global_results.update(adtqc_metrics)
+        report_results.update(adtqc_metrics)
         
         min_start_time, min_period = self.get_global_temporal_params(channels)
 
@@ -169,13 +173,12 @@ class Benchmark:
                     int((pd.Timestamp(e) - min_start_time).total_seconds() / min_period)
                 ) for s, e in predicted_events
             ]
-        self.global_results.update(
-            Benchmark.compute_metrics(event_labels, predicted_events)
-        )
+        efficacy_metrics = Benchmark.compute_metrics(event_labels, predicted_events)
+        report_results.update(efficacy_metrics)
         
-        logging.info("Global Event-Level Results: %s", self.global_results)
+        logging.info("Global Event-Level Results: %s", report_results)
 
-        self.all_results.append(self.global_results)
+        self.all_results.append(report_results)
         pd.DataFrame.from_records(self.all_results).to_csv(
             os.path.join(self.run_dir, "results.csv"), index=False
         )
@@ -215,6 +218,7 @@ class Benchmark:
         chan_results_dir = os.path.join(self.run_dir, channel_id) if self.save_metadata else None
         if chan_results_dir:
             os.makedirs(chan_results_dir, exist_ok=True)
+        
         metrics = classifier.fit(train_channel, results_dir=chan_results_dir)
         self.channel_fit_metrics[channel_id] = metrics
 
@@ -234,6 +238,7 @@ class Benchmark:
         classifier: AnomalyClassifier,
         test_dataset: Any,
         y_pred: np.ndarray,
+        y_true: Optional[np.ndarray] = None,
         extra_metrics: Optional[Dict[str, Any]] = None,
         pred_buffer: int = 1,
         challenge: bool = False,
@@ -242,17 +247,16 @@ class Benchmark:
 
         Used by both ``test_channel`` and ``test_continual``.
         """
-        results: Dict[str, Any] = {"channel_id": channel_id}
-        
-        # Merge metrics from fit phase if available
-        if channel_id in self.channel_fit_metrics:
-            results.update(self.channel_fit_metrics[channel_id])
-            
-        if extra_metrics:
-            results.update(extra_metrics)
-
         pred_anomalies = Benchmark.process_pred_anomalies(y_pred, pred_buffer)
-        test_anomalies = classifier.prepare_labels(test_dataset)
+        
+        if y_true is not None:
+            # Use provided aligned labels
+            idx_true = np.where(y_true == 1)[0]
+            test_anomalies = [[int(g[0]), int(g[-1])] for g in [list(group) for group in mit.consecutive_groups(idx_true)]] if idx_true.size > 0 else []
+        else:
+            # Fallback to dataset labels (legacy or test_channel without explicit y)
+            test_anomalies = classifier.prepare_labels(test_dataset)
+
 
         true_anomaly_intervals_ts = classifier.map_to_timestamps(test_dataset, test_anomalies)
         pred_intervals_ts = classifier.map_to_timestamps(test_dataset, pred_anomalies)
@@ -261,10 +265,15 @@ class Benchmark:
             test_anomalies, pred_anomalies, total_length=len(y_pred),
             true_anomalies_ts=true_anomaly_intervals_ts, pred_anomalies_ts=pred_intervals_ts
         )
+
+        results: Dict[str, Any] = {"channel_id": channel_id, **all_metrics}
         
-        # --- DIAGNOSTIC INTERVAL LOGS ---
+        if channel_id in self.channel_fit_metrics:
+            results.update(self.channel_fit_metrics[channel_id])
+            
+        if extra_metrics:
+            results.update(extra_metrics)
         
-        results.update(all_metrics)
         self.processed_channels.add(channel_id)
 
         logging.info("Results for channel %s: %s", channel_id, results)
@@ -277,10 +286,8 @@ class Benchmark:
         )
 
         if challenge:
-            # Map intervals back to exact point-wise array (e.g. 521280 points)
             y_pred_pointwise = np.zeros(len(test_dataset.data), dtype=int)
             for s, e in pred_intervals_ts:
-                # pred_intervals_ts contains absolute physical indices
                 y_pred_pointwise[max(0, int(s)):min(len(y_pred_pointwise), int(e) + 1)] = 1
                 
             ids = np.arange(14728321, 14728321 + len(y_pred_pointwise))
@@ -337,10 +344,11 @@ class Benchmark:
         chan_results_dir = os.path.join(self.run_dir, channel_id) if self.save_metadata else None
         if chan_results_dir:
             os.makedirs(chan_results_dir, exist_ok=True)
-        y_pred, metrics = classifier.predict(test_channel, results_dir=chan_results_dir)
-
+        
+        y_pred, y_true_aligned, metrics = classifier.predict(test_channel, y=getattr(test_channel, "labels", None), results_dir=chan_results_dir)
+        
         return self._finalize_channel_results(
-            channel_id, classifier, test_channel, y_pred,
+            channel_id, classifier, test_channel, y_pred, y_true=y_true_aligned,
             extra_metrics=metrics, pred_buffer=pred_buffer,
             challenge=challenge,
         )
@@ -374,16 +382,15 @@ class Benchmark:
         experience_log = {}
         all_predictions = []
         all_point_labels = []
-        
         for i, (data, point_labels, (start_idx, end_idx)) in enumerate(zip(splitted.segments, splitted.labels, splitted.segment_indices)):
-            logging.info("experience %d/%d", i+1, len(splitted.segments))
-            
+
             if hasattr(classifier, "step"):
                 experience_predictions, metrics = classifier.step(data, point_labels)
             else:
-                experience_predictions, test_metrics = classifier.predict(data)
+                experience_predictions, experience_true, test_metrics = classifier.predict(data)
                 train_metrics = classifier.fit(data)
                 metrics = {**test_metrics, **train_metrics}
+            
 
             all_predictions.extend(experience_predictions)
             all_point_labels.extend(point_labels)
@@ -406,8 +413,10 @@ class Benchmark:
         logging.info("Streaming for channel %s completed.", channel_id)
 
         y_pred_all = np.array(all_predictions)
+        y_true_all = np.array(all_point_labels)
+        
         results, _, _ = self._finalize_channel_results(
-            channel_id, classifier, test_dataset, y_pred_all,
+            channel_id, classifier, test_dataset, y_pred_all, y_true=y_true_all,
         )
 
         with open(os.path.join(self.run_dir, f"{channel_id}_stream_history.json"), "w") as f:
@@ -417,7 +426,6 @@ class Benchmark:
 
 
     def _update_global_state(self, channel_id, metrics, true_intervals=None, pred_intervals=None):
-        """Helper to accumulate global metrics and save interval logs."""
         for k, v in metrics.items():
             if k.endswith(("time", "cpu", "mem")):
                 self.global_results[k] = self.global_results.get(k, 0) + v
@@ -426,7 +434,11 @@ class Benchmark:
             elif "end_date" in k:
                 self.global_results[k] = max(self.global_results.get(k, v), v)
             elif k not in self.global_results and not isinstance(v, (list, tuple, dict)):
-                self.global_results[k] = v
+                if k not in ["precision", "recall", "f1", "true_positives", "false_positives", 
+                           "false_negatives", "n_anomalies", "n_detected", "tnr", 
+                           "test_length", "test_negatives", "detected_negatives", 
+                           "precision_corrected", "corrected_f0.5", "corrected_f1"]:
+                    self.global_results[k] = v
                 
         if true_intervals is not None and pred_intervals is not None:
             self.event_labels_global.extend(true_intervals)
@@ -447,17 +459,9 @@ class Benchmark:
         save_path: str,
         window_size: int = 2000,
     ):
-        """Generates and saves a degradation plot (cumulative errors and rolling FPR)."""
         
-        # Take the first 50,000 points as requested to keep the plot manageable but high resolution
-        max_plot_len = 50000
-        y_true = y_true[:max_plot_len]
-        y_pred = y_pred[:max_plot_len]
-        
-        false_positives = (y_pred == 1) & (y_true == 0)
         false_negatives = (y_pred == 0) & (y_true == 1)
         
-        # Calculate full series
         cum_fp = np.cumsum(false_positives)
         cum_fn = np.cumsum(false_negatives)
         fp_rolling_rate = pd.Series(false_positives).rolling(window=window_size).mean() * 100
@@ -543,7 +547,6 @@ class Benchmark:
             "false_negatives": 0,
         }
 
-        # --- Base classification metrics ---
         matched_true_seqs = []
         true_indices_grouped = [list(range(int(e[0]), int(e[1]) + 1)) for e in true_anomalies]
         true_indices_flat = set(i for group in true_indices_grouped for i in group)
@@ -578,7 +581,6 @@ class Benchmark:
             else 0
         )
 
-        # --- TNR-corrected metrics ---
         if total_length is None:
             total_length = 0
             if true_anomalies:
@@ -667,7 +669,6 @@ class Benchmark:
             gt_end = pd.Timestamp(gt_end)
             anomaly_length = gt_end - gt_start
 
-            # Alpha: min(anomaly_length, distance to previous anomaly start)
             if i > 0:
                 prev_start = pd.Timestamp(label_intervals[i - 1][0])
                 alpha = min(anomaly_length, gt_start - prev_start)

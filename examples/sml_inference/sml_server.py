@@ -30,7 +30,7 @@ from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 from spaceai.preprocessing import get_feature_extractor
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
-from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.legacy.rolling_window_classifier import RollingWindowClassifier
 from utils.model_creators import create_classifier
 from utils.reproducibility import set_seed
 
@@ -66,18 +66,6 @@ def initialize_pipeline_from_args(payload_args):
     detector_type = getattr(args, 'detector', 'threshold')
     fe_params = getattr(args, 'feature_extraction_params', getattr(args, 'fe_params', {}))
     
-    print(f"\n[SERVER-FACTORY] === Pipeline Construction Parameters ===", flush=True)
-    print(f"[SERVER-FACTORY] window_size={window_size}, step_size={step_size}", flush=True)
-    print(f"[SERVER-FACTORY] min_window={min_window}, max_window={max_window}", flush=True)
-    print(f"[SERVER-FACTORY] perc_step_size={perc_step_size}", flush=True)
-    print(f"[SERVER-FACTORY] eval_perc={eval_perc}", flush=True)
-    print(f"[SERVER-FACTORY] detector={detector_type}", flush=True)
-    print(f"[SERVER-FACTORY] feature_extractor={args.feature_extractor}", flush=True)
-    print(f"[SERVER-FACTORY] fe_params={fe_params}", flush=True)
-    print(f"[SERVER-FACTORY] model={getattr(args, 'model', '?')}", flush=True)
-    print(f"[SERVER-FACTORY] base_classifier_params={getattr(args, 'base_classifier_params', {})}", flush=True)
-    print(f"[SERVER-FACTORY] seed={getattr(args, 'seed', 42)}", flush=True)
-    print(f"[SERVER-FACTORY] ==========================================\n", flush=True)
 
     # 1. Splitter
     ts_splitter = TimeSeriesSplitter(
@@ -105,7 +93,7 @@ def initialize_pipeline_from_args(payload_args):
     
     # Check if the returned classifier is a self-contained sequence model (like Telemanom)
     # that shouldn't be wrapped in RollingWindowClassifier
-    from spaceai.models.anomaly_pipeline.telemanom_classifier import SequenceModelClassifier
+    from spaceai.models.legacy import SequenceModelClassifier
     if isinstance(base_classifier, SequenceModelClassifier):
         logging.info("[SERVER-FACTORY] SequenceModelClassifier detected. Skipping RollingWindow wrapping.")
         base_classifier.callback_handler = handler
@@ -160,21 +148,6 @@ def get_memory_usage():
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / (1024 * 1024)
 
-def inspect_sml_object(obj, name="classifier"):
-    """Recursively dumps interesting attributes of the SML pipeline."""
-    if obj is None: return
-    print(f"\n[DIAGNOSTIC-INSPECT] === Deep Inspection of {name} ({type(obj).__name__}) [ID: {id(obj)}] ===", flush=True)
-    attrs = ['window_size', 'step_size', 'alpha', 'p', 'unitize', 'smoothing_alpha', 'min_allowed_ll', 'pot_threshold', 
-             'alpha_dp', 'mu_prior_strength', 'var_prior_strength', 'num_iterations', 'lr']
-    for attr in attrs:
-        if hasattr(obj, attr):
-            print(f"[DIAGNOSTIC-INSPECT] -> {attr}: {getattr(obj, attr)}", flush=True)
-    if hasattr(obj, 'steps'): # Pipeline
-        for s_name, s_obj in obj.steps: inspect_sml_object(s_obj, name=f"{name}.{s_name}")
-    elif hasattr(obj, 'base_classifier'):
-        inspect_sml_object(obj.base_classifier, name=f"{name}.base")
-    elif hasattr(obj, 'detector'):
-        inspect_sml_object(obj.detector, name=f"{name}.detector")
 
 def main():
     args, _other_args = parse_exp_args()
@@ -183,7 +156,7 @@ def main():
     data_socket = context.socket(zmq.REP)
     data_socket.setsockopt(zmq.LINGER, 0)
     data_socket.bind(f"tcp://0.0.0.0:{args.port}")
-    print(f"Server started on port {args.port}. Waiting for experiences...", flush=True)
+    logging.info("Server started on port %d. Waiting for experiences...", args.port)
     
     try:
         while True:
@@ -231,7 +204,6 @@ def main():
             logging.info("[SERVER] Data SHAPE: %s", str(d_shape))
             if hasattr(exp_np, 'data') and len(exp_np.data) > 0:
                 logging.info("[SERVER] First row: %s", str(exp_np.data[0]))
-            inspect_sml_object(classifier, name="active_server_classifier_START")
             response = {"preds": [], "metrics": {}}
             
             try:
@@ -244,7 +216,6 @@ def main():
                             metrics['_fitted_window_size'] = classifier.ts_splitter.window_size
                             metrics['_fitted_step_size'] = classifier.ts_splitter.step_size
                         response["metrics"] = metrics
-                        inspect_sml_object(classifier, name="post_fit_classifier")
                 
                 if action == "predict":
                     if hasattr(classifier, 'predict'):
@@ -254,7 +225,7 @@ def main():
             except Exception as e:
                 import traceback
                 err_trace = traceback.format_exc()
-                print(f"ERROR: {e}\n{err_trace}", flush=True)
+                logging.error("ERROR: %s\n%s", e, err_trace)
                 response["error"] = str(e)
             
             data_socket.send_multipart([frames[0], json.dumps(convert_numpy(response)).encode("utf-8")])

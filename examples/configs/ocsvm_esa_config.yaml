@@ -1,12 +1,10 @@
-# ocsvm_esa_config.yaml
-# Configurazione per One-Class SVM via PyOD su dati ESA
 
 base_dir: "./datasets"
 exp_dir: "experiments_ocsvm"
 dataset: "esa"
 mission_id: 1
-model: "pyod_ocsvm"          # Utilizziamo la versione PyOD per supporto parametri YAML
-detector: "threshold"        # OCSVM gestisce internamente lo scoring
+model: "pyod_ocsvm"
+detector: "threshold"
 segmentator: false
 
 detector_params:
@@ -35,7 +33,4 @@ channels: null
 base_classifier_params:
   dynamic_scaling: true
   scaler_window: 1000
-  kernel: "rbf"              # Kernel radiale (più flessibile)
-  nu: 0.001                 # Proporzione stimata di outliers
-  gamma: "scale"             # Coefficiente kernel
-  cache_size: 500            # RAM in MB per il calcolo del kernel
+  cache_size: 500

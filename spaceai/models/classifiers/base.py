@@ -63,7 +63,6 @@ class SklearnClassifier(BaseClassifier):
         results: Optional[Dict[str, Any]] = None, 
         **kwargs
     ) -> "SklearnClassifier":
-        # Usiamo il context manager per tracciare automaticamente i tempi di addestramento
         with self._callback_context("classifier_fit", results):
             if self.supervised and y is not None:
                 self.model.fit(X, y)
@@ -77,23 +76,18 @@ class SklearnClassifier(BaseClassifier):
         results: Optional[Dict[str, Any]] = None, 
         **kwargs
     ) -> np.ndarray:
-        # Usiamo il context manager per tracciare automaticamente i tempi di inferenza
         with self._callback_context("classifier_predict", results):
             
-            # 1. Ritorno etichette binarie dirette (se richiesto)
             if self.return_labels:
                 return self.model.predict(X)
 
-            # 2. Ritorno score di anomalia continui (Preferito per ThresholdDetector)
             if hasattr(self.model, "decision_function"):
                 return self.model.decision_function(X)
                 
-            # 3. Fallback sulle probabilità (es. RandomForestClassifier)
             if hasattr(self.model, "predict_proba"):
                 probs = self.model.predict_proba(X)
                 if probs.ndim > 1 and probs.shape[1] == 2:
-                    return probs[:, 1] # Ritorna la probabilità della classe positiva (anomalia)
+                    return probs[:, 1]
                 return probs
                 
-            # 4. Ultimo fallback
             return self.model.predict(X)

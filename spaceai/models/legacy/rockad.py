@@ -17,7 +17,8 @@ from sklearn.preprocessing import (  # type: ignore
 from sklearn.utils import resample  # type: ignore
 from sktime.transformations.panel.rocket import Rocket  # type: ignore
 
-from .base import BaseClassifier
+class BaseClassifier:
+    pass
 
 
 class NearestNeighborOCC:

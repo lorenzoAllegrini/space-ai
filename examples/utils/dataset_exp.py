@@ -30,6 +30,7 @@ def get_dataset_benchmark(
     exp_dir: str = "experiments",
     mission_id: int = 1,
     save_metadata: bool = True,
+    **kwargs,
 ):
     """Get the benchmark object for the dataset."""
     if dataset_name == "esa":
@@ -41,6 +42,7 @@ def get_dataset_benchmark(
             exp_dir=exp_dir,
             mission=mission,
             save_metadata=save_metadata,
+            **kwargs,
         )
     elif dataset_name == "nasa":
         return NASABenchmark(

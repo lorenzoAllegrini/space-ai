@@ -1,7 +1,5 @@
 from __future__ import annotations
-"""Abstract base class for anomaly classifiers."""
 
-from abc import abstractmethod
 from typing import Optional, List, Tuple, Any, Union, Dict, TYPE_CHECKING
 import numpy as np
 import pandas as pd
@@ -11,72 +9,6 @@ from spaceai.benchmark.callbacks.mixin import CallbackMixin
 
 from spaceai.benchmark.callbacks.handler import CallbackHandler
 from spaceai.data import AnomalyDataset, AnomalyDatasetSubset
-import joblib
-
-class AnomalyClassifier(CallbackMixin):
-    """
-    Abstract base for time-series wrappers: defines common interface and input preparation.
-    """
-    
-    def __init__(self, callback_handler: Optional[CallbackHandler] = None, **kwargs):
-        super().__init__(callback_handler=callback_handler, **kwargs)
-
-    @abstractmethod
-    def fit(  # pylint: disable=invalid-name
-        self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> None:
-        """
-        Fit the model on time-series data X, optionally with labels y.
-        """
-
-    @abstractmethod
-    def predict(self, X: Any, results: Optional[Dict[str, Any]] = None, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:  # pylint: disable=invalid-name
-        """
-        Predict on time-series data X, returning a tuple of (predictions, metrics).
-        """
-
-    def fit_predict(self, X: Any, y: Optional[np.ndarray] = None, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Convenience method for continual learning. Predicts on X, then fits on (X, y).
-        Streaming wrappers can override this to optimize the roundtrip.
-        """
-        preds, metrics = self.predict(X)
-        self.fit(X, y)
-        return preds, metrics
-
-    def map_to_timestamps(
-        self, channel_data: Any, anomalies: List[Tuple[int, int]]
-    ) -> List[Tuple[pd.Timestamp, pd.Timestamp]]:
-        """
-        Map a list of predicted or ground-truth anomaly indices to global timestamps.
-        Must be implemented by child classes according to their prediction domains (window vs sample level).
-        """
-        return []
-
-    @abstractmethod
-    def prepare_labels(self, channel_labels: Any) -> List[Tuple[int, int]]:
-        """ Prepare the ground truth to uniform with the predicted labels"""
-
-    def save(self, path: str) -> None:
-        """Save the classifier to disk."""
-        joblib.dump(self, path)
-
-    @staticmethod
-    def load(path: str) -> "AnomalyClassifier":
-        """Load a classifier from disk."""
-        return joblib.load(path)
-
-    @staticmethod
-    def _prepare_input(X: np.ndarray) -> np.ndarray:  # pylint: disable=invalid-name
-        """
-        Ensure X is 3D with shape (n_samples, n_channels=1, n_timestamps).
-        """
-        X = np.asarray(X)
-        if X.ndim != 2:
-            raise ValueError("Input X must be 2D (n_samples, n_timestamps)")
-        return X.reshape(X.shape[0], 1, X.shape[1])
-
-
 
 @dataclass
 class PipelineState:
@@ -87,112 +19,179 @@ class PipelineState:
     metrics: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def segments(self) -> Union[np.ndarray, List[Any], Any]:
+        """Backward compatibility alias for data."""
+        return self.data
+
+    @property
+    def segment_indices(self) -> Optional[np.ndarray]:
+        """Backward compatibility alias for indices."""
+        return self.indices
+
+@dataclass
+class PhaseConfig:
+    method: str
+    supervised: bool = False
+
+@dataclass
+class PipelineStep:
+    name: str
+    processor: CallbackMixin    
+    phases: Dict[str, Union[str, PhaseConfig]] = field(
+        default_factory=lambda: {"train": None, "val": None, "predict": None}
+    )
+
 class AnomalyDetectionPipeline:
     """
     Abstract base for time-series wrappers: defines common interface and input preparation.
     """
     def __init__(self,
-                steps: List[Tuple[str, Union[Any, Any]]],
-                callback_handler: Optional[CallbackHandler] = None,
+                steps: List[PipelineStep],
                 eval_perc: Optional[float] = None,
+                phase_map: Optional[Dict[str, List[str]]] = None
                 ):
-        self.callback_handler = callback_handler
         self.steps = steps
-        self.named_steps = dict(steps)
         self.eval_perc = eval_perc
         
-    def _prepare_flows(
-        self, 
-        channel_data: Any, 
-        channel_labels: Optional[Any], 
-        results_dir: Optional[str]
-    ) -> Tuple[list, list, list, bool]:
-        """
-        Prepara gli stati (PipelineState) e divide gli step della pipeline 
-        tra quelli di base e quelli che richiedono calibrazione su validazione.
-        """
-        needs_calib = bool(self.eval_perc and self.eval_perc > 0.0 and len(self.steps) > 1)
+        # Default phase map if none provided
+        self.phase_map = phase_map or {
+            "fit": ["train", "val"],
+            "predict": ["predict"]
+        }
+
+    def _get_steps_for_phase(self, phase: str) -> List[Tuple[str, Any, Union[str, PhaseConfig]]]:
+        """Filter and return: (name, processor, phase_config)"""
+        phase_steps = []
+        for step in self.steps:
+            if hasattr(step, "phases"):
+                if phase in step.phases:
+                    config = step.phases[phase]
+                    phase_steps.append((step.name, step.processor, config))
+                
+        return phase_steps
         
-        base_steps = []
-        calib_steps = []
-        
-        for name, processor in self.steps:
-            if not hasattr(processor, "pipeline_step"):
-                continue
-            if getattr(processor, "requires_calibration", False) and needs_calib:
-                calib_steps.append(processor)
-            else:
-                base_steps.append(processor)
-
-        flows = []
-        if needs_calib:
-            d_tr, d_vl, l_tr, l_vl = self._split_timeseries(channel_data, channel_labels, self.eval_perc)
-            flows.append((PipelineState(data=d_tr, labels=l_tr, metadata={"save_dir": results_dir}), True))
-            flows.append((PipelineState(data=d_vl, labels=l_vl, metadata={"save_dir": results_dir}), False))
-        else:
-            flows.append((PipelineState(data=channel_data, labels=channel_labels, metadata={"save_dir": results_dir}), True))
-
-        return base_steps, calib_steps, flows, needs_calib
-
-
     def fit(
         self, 
         channel_data: Any, 
         channel_labels: Optional[Any] = None, 
         results_dir: Optional[str] = None, 
+        phase: str = "fit",
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Esegue l'addestramento della pipeline, gestendo dinamicamente i flussi 
-        di Train ed eventuale Validazione (per calibrazione nodi finali).
+        Execute training by separating execution into phases defined in phase_map[phase].
         """
-        # 1. Setup delegato al metodo helper
-        base_steps, calib_steps, flows, needs_calib = self._prepare_flows(
-            channel_data, channel_labels, results_dir
-        )
-
-        # 2. Addestramento Base (es. Splitter, Extractor, Classifier...)
-        for processor in base_steps:
-            # Check for short-circuit (kill-switch activated in previous steps)
-            if any(state.metadata.get("kill_switch_active", False) for state, _ in flows):
-                continue
-
-            flows = [
-                (processor.pipeline_step(state, is_fit=is_fit, **kwargs), is_fit) 
-                for state, is_fit in flows
-            ]
-
-        # 3. Addestramento Nodi di Calibrazione (es. ThresholdDetector...)
-        if needs_calib:
-            for processor in calib_steps:
-                # Si addestrano SOLO sull'ultimo flusso (il Validation Set)
-                val_state = flows[-1][0]
-                val_state = processor.pipeline_step(val_state, is_fit=True, **kwargs)
-                flows[-1] = (val_state, False)
-
-        # 4. Raccolta metriche
+        d_tr, d_vl, l_tr, l_vl = self._split_timeseries(channel_data, channel_labels, self.eval_perc)
         metrics = {}
-        for state, _ in flows:
-            metrics.update(state.metrics)
+
+        fit_phases = self.phase_map.get(phase, ["train", "val"])
+        
+        for i, p_name in enumerate(fit_phases):
             
+            if i == 0 or d_vl is None or len(d_vl) == 0:
+                current_data, current_labels = d_tr, l_tr
+            else:
+                current_data, current_labels = d_vl, l_vl
+                
+            state = PipelineState(data=current_data, labels=current_labels, metadata={"save_dir": results_dir})
+            
+            for name, processor, config in self._get_steps_for_phase(p_name):
+                if hasattr(processor, "pipeline_step"):
+                    is_node_fit = True if i == 0 else getattr(processor, "requires_calibration", False)
+                    
+                    state = self._run_and_log_step(
+                        processor, state, is_fit=is_node_fit, results=metrics, phase_config=config, **kwargs
+                    )
+
         return metrics
         
     def predict(
         self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
-        results_dir: Optional[str] = None
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        y: Optional[np.ndarray] = None,
+        results_dir: Optional[str] = None,
+        phase: str = "predict",
+        **kwargs
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]]:
         """
-        Predict via the modular pipeline.
+        Global predict. Executes the phases defined in phase_map[phase].
         """
-        state = PipelineState(data=channel_data, metadata={"save_dir": results_dir})
-
-        for name, processor in self.steps:
-            if hasattr(processor, "pipeline_step"):
-                state = processor.pipeline_step(state, is_fit=False)
+        state = PipelineState(data=channel_data, labels=y, metadata={"save_dir": results_dir})
+        metrics = {}
+        
+        predict_phases = self.phase_map.get(phase, ["predict"])
+        
+        for p_pred in predict_phases:
             
-        return state.data, state.metrics
+            for name, processor, config in self._get_steps_for_phase(p_pred):
+                if hasattr(processor, "pipeline_step"):
+                    state = self._run_and_log_step(
+                        processor, state, is_fit=False, results=metrics, phase_config=config, **kwargs
+                    )
+            
+        if state.indices is not None:
+            total_len = len(channel_data) if hasattr(channel_data, "__len__") else 0
+            if total_len > 0:
+                point_data = np.zeros(total_len)
+                point_labels = np.zeros(total_len, dtype=int) if state.labels is not None else None
+                
+                for i, (start, end) in enumerate(state.indices):
+                    point_data[int(start):int(end)+1] = np.maximum(point_data[int(start):int(end)+1], state.data[i])
+                    if point_labels is not None:
+                        point_labels[int(start):int(end)+1] = np.maximum(point_labels[int(start):int(end)+1], state.labels[i])
+                
+                state.data = point_data
+                state.labels = point_labels
 
+        return state.data, state.labels, state.metrics
+
+    def _run_and_log_step(self, processor, state, is_fit, results, phase_config, **kwargs):
+        """Execute a step, managing supervision and injecting the correct method."""
+        proc_name = type(processor).__name__
+        
+        if isinstance(phase_config, PhaseConfig):
+            method_name = phase_config.method
+            supervised = phase_config.supervised
+        else:
+            method_name = phase_config
+            supervised = False
+            
+        effective_state = state
+        if not supervised and state.labels is not None:
+            effective_state = PipelineState(
+                data=state.data,
+                labels=None,
+                indices=state.indices,
+                intervals=state.intervals,
+                metrics=state.metrics,
+                metadata=state.metadata
+            )
+
+        in_shape = self._get_shape(effective_state.data)
+        in_labels_shape = self._get_shape(effective_state.labels) if effective_state.labels is not None else "None"
+        
+        step_kwargs = kwargs.copy()
+        step_kwargs.pop("method_name", None)
+        
+        new_state = processor.pipeline_step(effective_state, is_fit=is_fit, results=results, method_name=method_name, **step_kwargs)
+        
+        if not supervised and state.labels is not None and new_state.labels is None:
+            new_state.labels = state.labels
+
+        out_shape = self._get_shape(new_state.data)
+        out_labels_shape = self._get_shape(new_state.labels) if new_state.labels is not None else "None"
+        
+        method_str = f"[{method_name}]" if method_name else "[default]"
+        
+        return new_state
+
+    def _get_shape(self, data):
+        if hasattr(data, "shape"):
+            return data.shape
+        if isinstance(data, list):
+            return f"list(len={len(data)})"
+        return "scalar/unknown"
     
     def prepare_labels(
         self, 
@@ -200,31 +199,44 @@ class AnomalyDetectionPipeline:
         results: Optional[Dict[str, Any]] = None
     ) -> List[Tuple[int, int]]:
         """
-        Prepare labels by running them through the splitters in the pipeline.
+        Prepare absolute sample-level intervals from the dataset.
         """
         state = PipelineState(data=channel_data)
         
         from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-        for _, processor in self.steps:
-            if isinstance(processor, TimeSeriesSplitter):
-                if hasattr(processor, "pipeline_step"):
-                    state = processor.pipeline_step(state, is_fit=False)
-                return state.intervals if state.intervals is not None else []
+        found_splitter = False
+        for step in self.steps:
+            if isinstance(step.processor, TimeSeriesSplitter):
+                if hasattr(step.processor, "pipeline_step"):
+                    state = step.processor.pipeline_step(state, is_fit=False, results=results)
+                    found_splitter = True
+                break
+        
+        if not found_splitter or state.intervals is None or state.indices is None:
+            anoms = getattr(channel_data, "anomalies", [])
+            return [[int(s), int(e)] for s, e in anoms]
+
+        sample_intervals = []
+        for ws, we in state.intervals:
+            s_idx = int(state.indices[max(0, ws)][0])
+            e_idx = int(state.indices[min(we, len(state.indices)-1)][1])
+            sample_intervals.append((s_idx, e_idx))
                 
-        return []
+        return sample_intervals
 
     def _split_timeseries(
         self, 
         X: Any, 
         y: Optional[np.ndarray], 
-        eval_perc: float
+        eval_perc: Optional[float]
     ) -> Tuple[Any, Any, Optional[np.ndarray], Optional[np.ndarray]]:
-        if eval_perc <= 0.0 or eval_perc >= 1.0:
+        if eval_perc is None or eval_perc <= 0.0 or eval_perc >= 1.0:
             return X, None, y, None
 
         if hasattr(X, "__len__"):
             n_samples = len(X)
             split_idx = int(n_samples * (1 - eval_perc))
+            
 
             if isinstance(X, AnomalyDataset):
                 X_tr = AnomalyDatasetSubset(parent=X, start_idx=0, end_idx=split_idx)
@@ -239,6 +251,29 @@ class AnomalyDetectionPipeline:
         
         return X, None, y, None
 
+    def map_to_timestamps(
+        self, 
+        channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any], 
+        anomalies: List[Tuple[int, int]],
+        results: Optional[Dict[str, Any]] = None
+    ) -> List[Tuple[Any, Any]]:
+        if not anomalies:
+            return []
+
+        timestamps = getattr(channel_data, "timestamps", None)
+        offset = getattr(channel_data, "start_idx", 0)
+        
+        time_intervals = []
+        for s_idx, e_idx in anomalies:
+            if timestamps is not None:
+                s_safe = max(0, min(len(timestamps)-1, int(s_idx)))
+                e_safe = max(0, min(len(timestamps)-1, int(e_idx)))
+                time_intervals.append((timestamps[s_safe], timestamps[e_safe]))
+            else:
+                time_intervals.append((int(s_idx) + offset, int(e_idx) + offset))
+                
+        return time_intervals
+
     def save(self, path: str) -> None:
         """Save the classifier to disk."""
         pass
@@ -247,43 +282,3 @@ class AnomalyDetectionPipeline:
     def load(path: str) -> "AnomalyDetectionPipeline":
         """Load a classifier from disk."""
         return joblib.load(path)
-
-    def map_to_timestamps(
-        self, 
-        channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any], 
-        anomalies: List[Tuple[int, int]],
-        results: Optional[Dict[str, Any]] = None
-    ) -> List[Tuple[Any, Any]]:
-        """
-        Map window-level anomalies back to timestamps using message metadata.
-        """
-        state = PipelineState(data=channel_data)
-        
-        for _, processor in self.steps:
-            from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-            if isinstance(processor, TimeSeriesSplitter):
-                if hasattr(processor, "pipeline_step"):
-                    state = processor.pipeline_step(state, is_fit=False)
-                break
-        
-        if state.indices is None:
-            return []
-
-        # Map using timestamps if available
-        timestamps = getattr(channel_data, "timestamps", None)
-        offset = getattr(channel_data, "start_idx", 0)
-        
-        time_intervals = []
-        for ws, we in anomalies:
-            if ws >= len(state.indices):
-                continue
-            s_idx = int(state.indices[ws][0])
-            e_idx = int(state.indices[min(we, len(state.indices)-1)][1])
-            
-            if timestamps is not None:
-                time_intervals.append((timestamps[s_idx], timestamps[e_idx]))
-            else:
-                time_intervals.append((s_idx + offset, e_idx + offset))
-                
-        return time_intervals
-    

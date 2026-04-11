@@ -20,8 +20,8 @@ from utils.model_creators import (
 )
 from utils.reproducibility import set_seed
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.models.anomaly_classifier.rolling_window_classifier import RollingWindowClassifier
-from spaceai.models.anomaly_classifier.sml_client_classifier import SMLClientClassifier
+from spaceai.models.legacy.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.legacy.sml_client_classifier import SMLClientClassifier
 from spaceai.benchmark import ESABenchmark
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -151,7 +151,7 @@ def run_sml_exp():
         base_classifier, is_supervised = create_classifier(args, other_args)
 
         # Check if the returned classifier is a self-contained sequence model (like Telemanom)
-        from spaceai.models.anomaly_pipeline.telemanom_classifier import SequenceModelClassifier
+        from spaceai.models.legacy import SequenceModelClassifier
         if isinstance(base_classifier, SequenceModelClassifier):
             rolling_window_pipeline = base_classifier
             logging.info("[CLIENT-FACTORY] SequenceModelClassifier detected. Bypassing RollingWindow wrapping.")

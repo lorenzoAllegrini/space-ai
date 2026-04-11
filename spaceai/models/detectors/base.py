@@ -26,39 +26,6 @@ class AnomalyDetector(BaseEstimator, CallbackMixin):
         self.ignore_first_n_factor: float = 0
         self.filter_valid = filter_valid
 
-    def pipeline_step(self, state: "PipelineState", is_fit: bool = False, **kwargs) -> "PipelineState":
-        """
-        Execute a modular pipeline step for detection.
-        
-        If is_fit=True, it calibrates the detector using state.data and state.labels.
-        If self.filter_valid=True, it removes anomalous samples from the calibration set.
-        """
-        if is_fit:
-            scores = state.data
-            y = state.labels
-
-            # Filtering: only keep normal samples if filter_valid is True
-            if self.filter_valid and y is not None:
-                mask = (y == 0)
-                if hasattr(scores, "iloc"): # DataFrame
-                    scores_fit = scores[mask]
-                else: # Numpy
-                    scores_fit = scores[mask]
-                
-                y_fit = y[mask]
-                
-                
-                self.fit(scores_fit, y=y_fit, results=state.metrics, **kwargs)
-            else:
-                self.fit(scores, y=y, results=state.metrics, **kwargs)
-            
-            self.is_fitted_ = True
-            return state # Detector fit doesn't modify data, just updates internal threshold
-        
-        # Inference step
-        state.data = self.detect(state.data, results=state.metrics, **kwargs)
-        return state
-
     def __call__(
         self, input_data: np.ndarray, y_true: np.ndarray, results: Optional[Dict[str, Any]] = None, **kwargs
     ) -> np.ndarray:

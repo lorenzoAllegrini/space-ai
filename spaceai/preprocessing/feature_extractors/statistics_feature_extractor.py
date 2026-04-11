@@ -13,6 +13,8 @@ import pandas as pd  # type: ignore
 
 from spaceai.preprocessing.functions import FEATURE_MAP
 from .feature_extractor import FeatureExtractor
+from spaceai.models.anomaly_pipeline.anomaly_classifier import AnomalyDetectionPipeline
+import time
 from sklearn.metrics import precision_recall_curve
 from sklearn.feature_selection import SelectKBest
 
@@ -42,6 +44,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         self.telecommands = telecommands
         self.max_features = max_features
         self.kill_switch_active = False
+        self.is_fitted = False
 
     @property
     def output_dim(self) -> int:
@@ -57,12 +60,18 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         """
         Fit the feature extractor.
         """
+        if self.is_fitted:
+            return self
+
         with self._callback_context("feature_selection", results):
             if self.max_features is not None and self.max_features < len(self.transformations):
                 if y is None:
                     raise ValueError("y must be provided for feature selection")
+                
                 X_features = self.transform(X, results=results)
                 self.select_features(X_features, y, results=results)
+        
+        self.is_fitted = True
         return self
 
 
@@ -107,7 +116,10 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                     for func in self.transformations.values()
                 ])
             else:
-                feature_list = [func(segments=data) for func in self.transformations.values()]
+                feature_list = []
+                for name, func in self.transformations.items():
+                    f_val = func(segments=data)
+                    feature_list.append(f_val)
                 transformed_segments = np.column_stack(feature_list)
 
             df = pd.DataFrame(
@@ -136,7 +148,6 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         maximizing precision on the tails (Max F0.1 Score).
         Note: X_features must be the output of self.transform(X).
         """
-
         X_clean = X_features.fillna(0)
         precision_selector = SelectKBest(score_func=tail_f01_score, k=self.max_features)
         precision_selector.fit(X_clean.values, y)
@@ -174,8 +185,10 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             else:
                 pass
         
-        if len(selected_feature_names) == 0:
-            self.kill_switch_active = True
+        # Ensure at least one feature is selected (the top one from feature_scores)
+        if len(selected_feature_names) == 0 and len(feature_scores) > 0:
+            selected_feature_names.append(feature_scores[0][0])
+        
 
         self.transformations = {
             name: func 

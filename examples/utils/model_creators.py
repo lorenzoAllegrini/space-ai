@@ -17,12 +17,10 @@ import pandas as pd
 from scipy.stats import iqr as scipy_iqr
 from sklearn.base import BaseEstimator, TransformerMixin
 
-# Sequence models
 from spaceai.models.predictors import LSTM
 from spaceai.models.detectors import Telemanom
-from spaceai.models.anomaly_pipeline import SequenceModelClassifier
+from spaceai.models.legacy import SequenceModelClassifier
 
-# PyOD models
 from pyod.models.iforest import IForest  # type: ignore
 from pyod.models.pca import PCA as PyOD_PCA  # type: ignore
 from pyod.models.knn import KNN  # type: ignore
@@ -33,13 +31,12 @@ from pyod.models.copod import COPOD  # type: ignore
 from pyod.models.cblof import CBLOF  # type: ignore
 from pyod.models.hbos import HBOS  # type: ignore
 
-# from spaceai.models.anomaly_classifier import RockadClassifier
-from spaceai.models.anomaly_classifier.dpmm_detector import (
+from spaceai.models.classifiers.dpmm_detector import (
     DPMM,
     get_dpmm_argparser,
 )
-from spaceai.models.anomaly_classifier.ndpm_detector import NDPMDetector
-from spaceai.models.anomaly_classifier.ndpm_internal import Config as NdpmConfig
+from spaceai.models.classifiers.ndpm_detector import NDPMDetector
+from spaceai.models.classifiers.ndpm_internal import Config as NdpmConfig
 import os
 import logging
 import torch
@@ -47,14 +44,14 @@ import torch
 from .config import Config
 
 
-from spaceai.models.anomaly_classifier.base import SklearnClassifier
+from spaceai.models.classifiers import SklearnClassifier
 from spaceai.models.utils.scalers import RollingRobustScalerWithPrior
     
 
 
 def get_rockad_classifier(_num_kernels):
     """Get ROCKAD classifier."""
-    from spaceai.models.anomaly_classifier.rockad import RockadClassifier
+    from spaceai.models.legacy.rockad import RockadClassifier
     return RockadClassifier(num_kernels=_num_kernels), False
 
 
@@ -81,7 +78,6 @@ def get_xgboost_classifier(base_params=None):
 
 def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     """Get DPMM classifier."""
-    # Ensure defaults if None
     model_type = model_type if model_type is not None else "full"
     mode = mode if mode is not None else "likelihood_threshold"
     
@@ -89,7 +85,6 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     config, _ = parser.parse_known_args(other_dpmm_args)
     config_dict = vars(config)
 
-    # Merge with YAML params if provided
     base_params = base_params.copy() if base_params else {}
     dynamic_scaling = base_params.pop("dynamic_scaling", False)
     scaler_window = base_params.pop("scaler_window", 10)
@@ -127,11 +122,9 @@ def get_ndpm_classifier(args, device="cpu", input_dim=None):
         logging.info("Loading NDPM config from %s", config_path)
         config = NdpmConfig.from_yaml_file(config_path)
 
-        # Deducing x_w
         if input_dim is not None:
             x_w = input_dim
         else:
-            # Fallback deduction from args if input_dim is not provided
             fe_type = getattr(args, "feature_extractor", "none")
             if fe_type == "base_statistics":
                 from spaceai.preprocessing.functions import FEATURE_MAP
@@ -303,7 +296,7 @@ def create_classifier(args, other_args):
     elif model_id == "telemanom":
         return get_telemanom_sequence_classifier(base_params=base_params)
     else:
-        raise ValueError(f"Modello {args.model} non supportato!")
+        raise ValueError(f"Model {args.model} not supported!")
 
 
 def get_esn_predictor(config: Config):
@@ -341,14 +334,12 @@ def get_telemanom_sequence_classifier(base_params=None):
     """Get SequenceModelClassifier with LSTM predictor and Telemanom detector."""
     base_params = base_params.copy() if base_params else {}
     
-    # LSTM params
     input_size = base_params.pop("input_size", 1)
     hidden_sizes = base_params.pop("hidden_sizes", [80, 80])
     output_size = base_params.pop("output_size", 1)
     dropout = base_params.pop("dropout", 0.3)
     n_predictions = base_params.pop("n_predictions", 1)
     
-    # Training params (stored for server-side use)
     epochs = base_params.pop("epochs", 35)
     lr = base_params.pop("lr", 0.001)
     patience = base_params.pop("patience", 10)
@@ -356,8 +347,6 @@ def get_telemanom_sequence_classifier(base_params=None):
     batch_size = base_params.pop("batch_size", 32)
     perc_eval = base_params.pop("perc_eval", 0.15)
     
-    # Telemanom detector params
-    # Map 'error_offset' from both 'error_offset' and 'error_buffer' (v32 legacy)
     error_offset = base_params.pop("error_offset", base_params.pop("error_buffer", 100))
     smoothing_perc = base_params.pop("smoothing_perc", 0.05)
     pruning_factor = base_params.pop("pruning_factor", base_params.pop("p", 0.12))
@@ -387,7 +376,6 @@ def get_telemanom_sequence_classifier(base_params=None):
         predictor=predictor,
         detector=detector,
     )
-    # Store training hyperparams on the classifier for server-side access
     classifier._fit_args = {
         "criterion": nn.MSELoss(),
         "optimizer_class": torch.optim.Adam,

@@ -116,7 +116,7 @@ def main():
 
     logging.info("Starting stream to %s:%d...", args.server_ip, args.port)
     for channel_id in channels:
-        from spaceai.models.anomaly_classifier.sml_client_classifier import SMLClientClassifier
+        from spaceai.models.legacy.sml_client_classifier import SMLClientClassifier
         classifier = SMLClientClassifier(server_ip=args.server_ip, port=args.port, channel_id=channel_id)
         benchmark.test_continual(
             channel_id=channel_id,

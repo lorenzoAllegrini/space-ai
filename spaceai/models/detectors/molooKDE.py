@@ -12,9 +12,8 @@ from sklearn.preprocessing import RobustScaler
 try:
     from ripser import ripser
 except ImportError:
-    warnings.warn("Libreria 'ripser' non trovata. Esegui: pip install ripser")
+    warnings.warn("'ripser' library not found. Run: pip install ripser")
 
-# Assumendo che AnomalyDetector sia nel tuo framework
 from .base import AnomalyDetector
 
 
@@ -67,7 +66,6 @@ class MoLooKDEDetector(AnomalyDetector):
     def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None, results: Optional[Dict[str, Any]] = None) -> MoLooKDEDetector:
         """Trains the spatial KDE and calculates GPD parameters for adaptive thresholding."""
         with self._callback_context("detector_fit", results):
-            # Preprocessing: clipping and EWMA smoothing
             X_clipped = np.clip(X, a_min=self.min_allowed_ll, a_max=None)
             X_smoothed = pd.Series(X_clipped).ewm(alpha=self.smoothing_alpha, adjust=False).mean().values
             self._last_ewma = X_smoothed[-1]
@@ -75,9 +73,7 @@ class MoLooKDEDetector(AnomalyDetector):
             X_2d = self._ensure_2d(X_smoothed)
             X_scaled = self.scaler.fit_transform(X_2d) if self.unitize else X_2d
 
-            # Topological Analysis (Persistence Homology) for spatial scale definition
             if len(X_scaled) > 5000:
-                # Force local seed for reproducibility in bandwidth calculation
                 rng = np.random.default_rng(42)
                 indices = rng.choice(len(X_scaled), 5000, replace=False)
                 X_topo = X_scaled[indices]
@@ -101,7 +97,6 @@ class MoLooKDEDetector(AnomalyDetector):
                 self.kde.fit(X_scaled)
                 log_y = self.kde.score_samples(X_scaled)
             scores = -log_y
-            print("Fitting GPD for adaptive threshold...")
             self.pot_threshold = np.percentile(scores, self.pot_percentile)
             extreme_scores = scores[scores > self.pot_threshold]
 
@@ -109,7 +104,6 @@ class MoLooKDEDetector(AnomalyDetector):
                 self.gpd_params = genpareto.fit(extreme_scores, floc=self.pot_threshold)
             else:
                 self.gpd_params = (0.1, self.pot_threshold, 1.0)
-            print("Detector fitted successfully.")
 
             return self
 
@@ -135,22 +129,16 @@ class MoLooKDEDetector(AnomalyDetector):
             X_2d = self._ensure_2d(X_smoothed)
             X_scaled = self.scaler.transform(X_2d) if self.unitize else X_2d
 
-            # Score calculation and probability estimation via Extreme Value Theory
             log_y_new = self.kde.score_samples(X_scaled)
             scores_new = -log_y_new
             
-            # DIAGNOSTIC LOG (internal)
-            # print(f"[DEBUG-DETECTOR] Input scores (clipped) mean: {np.mean(X_clipped):.4f}")
-            # print(f"[DEBUG-DETECTOR] Smoothed scores mean: {np.mean(X_smoothed):.4f}")
 
             c, loc, scale = self.gpd_params
             probs = genpareto.sf(scores_new, c, loc=loc, scale=scale)
             probs[scores_new <= self.pot_threshold] = 1.0
 
             anomalies = (probs < self.alpha).astype(int)
-            
-            if len(anomalies) > 0:
-                 print(f"[DIAGNOSTIC-DETECTOR] Detect Batch: Samples={len(anomalies)}, Anomalies={np.sum(anomalies)}, PotThreshold={self.pot_threshold:.4f}, GPD_params={self.gpd_params}", flush=True)
+
 
             if return_probs:
                 return probs

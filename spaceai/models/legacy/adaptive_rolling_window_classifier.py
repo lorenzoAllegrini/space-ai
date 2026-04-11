@@ -14,7 +14,7 @@ from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.data import AnomalyDataset
 from spaceai.models.detectors import AnomalyDetector
 from spaceai.models.drift_detectors.drift_detector import DriftDetector
-from spaceai.models.drift_detectors.utils import ReplayBuffer
+from spaceai.models.replay import ReplayBuffer
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
 
@@ -111,7 +111,6 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 buffer_data = np.vstack((X_train, X_val))
                 
                 if getattr(self.feature_extractor, "kill_switch_active", False):
-                    print("[DEBUG] AdaptiveRollingWindowClassifier fitting short-circuit activated: no useful features extracted.")
                     self.replay_buffer.add(buffer_data, prepared_labels, timestamps=timestamps, results=results)
                     self.initial_train_size = len(buffer_data)
                     return results
@@ -133,7 +132,6 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                 # results is already updated by super().fit
                 buffer_data = self.feature_extractor.transform(prepared_data, results=results, save_dir=results_dir, suffix="train")
                 if getattr(self.feature_extractor, "kill_switch_active", False):
-                    print("[DEBUG] AdaptiveRollingWindowClassifier fitting short-circuit activated (fallback): no useful features extracted.")
                     self.replay_buffer.add(buffer_data, prepared_labels, timestamps=timestamps, results=results)
                     self.initial_train_size = len(buffer_data)
                     return results
@@ -219,14 +217,9 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
 
         if drift_detected:
             self.global_steps += 1
-            print("-------------------------")
-            print(f"\n total_steps: {self.global_steps}")
-
             retrain_data, retrain_labels, calib_X, calib_y = self._prepare_retraining_data(width, results=results)
             
-            if retrain_data is None:
-                print("Skipping retraining: No valid data in buffer (too many anomalies filtered?).")
-            else:
+            if retrain_data is not None:
                 self._run_training_cycle(
                     data=retrain_data, 
                     labels=retrain_labels,
@@ -235,9 +228,6 @@ class AdaptiveRollingWindowClassifier(RollingWindowClassifier):
                     y_val=calib_y,
                     is_retraining=True
                 )
-
-            print(f"\n Retraining complete!")
-            time.sleep(1)
 
         if self.detector is not None:
             with self._callback_context("detection", results):

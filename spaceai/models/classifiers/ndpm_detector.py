@@ -8,7 +8,6 @@ import numpy as np
 from typing import Optional, Dict, Any
 
 from .ndpm_internal import Ndpm, Config
-# from tensorboardX import SummaryWriter  <-- Spostato in __init__ e _ensure_writer (Lazy Import)
 from .base import BaseClassifier
 
 
@@ -39,7 +38,6 @@ class NDPMDetector(BaseClassifier):
         self.model = Ndpm(self.config, self.writer)
         self.model.to(self.device)
         
-        # Adaptive Threshold (Rolling Percentile)
         self.threshold = threshold if threshold is not None else self.config.get("anomaly_threshold", -100.0)
         self.ll_buffer = []
         self.max_buffer_size = self.config.get("ll_buffer_size", 5000)
@@ -78,7 +76,6 @@ class NDPMDetector(BaseClassifier):
             self.model.learn(x_tensor, dummy_y, self.global_step)
             self.global_step += 1
 
-            # Update adaptive threshold using training data (nominal by assumption)
             with torch.no_grad():
                 self.model.eval()
                 ll_nominal = self.model(x_tensor).cpu().numpy()
@@ -90,11 +87,9 @@ class NDPMDetector(BaseClassifier):
         """Update the log-likelihood buffer and recalculate the threshold."""
         self.ll_buffer.extend(new_lls.tolist())
         
-        # Keep buffer within size limits
         if len(self.ll_buffer) > self.max_buffer_size:
             self.ll_buffer = self.ll_buffer[-self.max_buffer_size:]
             
-        # Recalculate threshold based on percentile (0-100)
         if len(self.ll_buffer) > 0:
             self.threshold = float(np.percentile(self.ll_buffer, self.percentile))
             logging.info("Updated adaptive threshold for NDPM: %.4f (buffer size: %d, percentile: %.2f)", 
@@ -114,7 +109,6 @@ class NDPMDetector(BaseClassifier):
             return (log_likelihood < self.threshold).cpu().numpy()
 
     def sleep(self) -> None:
-        print("sleeping")
         if len(self.model.stm_x) == 0:
             return
             
@@ -133,7 +127,6 @@ class NDPMDetector(BaseClassifier):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        # SummaryWriter and other components might not be pickleable
         if "writer" in state:
             state["writer"] = None
         if "model" in state and hasattr(state["model"], "writer"):

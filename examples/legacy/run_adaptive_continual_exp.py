@@ -16,7 +16,7 @@ from spaceai.preprocessing import (
 from utils.dataset_exp import get_dataset_benchmark
 from utils.model_creators import create_classifier
 from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
-from spaceai.models.anomaly_classifier.adaptive_rolling_window_classifier import (
+from spaceai.models.legacy.adaptive_rolling_window_classifier import (
     AdaptiveRollingWindowClassifier,
 )
 from spaceai.models.drift_detectors import ADWINDetector

@@ -51,7 +51,6 @@ class RocketFeatureExtractor(FeatureExtractor):
             X_prep = self._prepare_input(X_segments)
             X_transformed = self.rocket.transform(X_prep)
             
-            # sktime returns a pandas DataFrame for Rocket
             columns = [f"rocket_{i}" for i in range(X_transformed.shape[1])]
             df = pd.DataFrame(X_transformed, columns=columns)
             
@@ -63,7 +62,6 @@ class RocketFeatureExtractor(FeatureExtractor):
                     filename += f"_{suffix}"
                 save_path = os.path.join(save_dir, f"{filename}.csv")
                 df.to_csv(save_path, index=False)
-                print(f"[DEBUG] Rocket features saved to {save_path}")
 
         return df
 
@@ -73,7 +71,6 @@ class RocketFeatureExtractor(FeatureExtractor):
         """Ensure X is 3D with shape (n_samples, n_channels=1, n_timestamps)."""
         X_arr = np.asarray(X)
         if X_arr.ndim != 2:
-            # Se è già 3D o altro, proviamo a reshaperlo se ha senso
             if X_arr.ndim == 3 and X_arr.shape[1] == 1:
                 return X_arr
             raise ValueError(f"Input X must be 2D (n_samples, n_timestamps), got shape {X_arr.shape}")

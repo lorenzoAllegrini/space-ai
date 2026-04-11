@@ -9,10 +9,8 @@ from typing import Union, Dict, List, Optional, Any, Tuple, Callable, TYPE_CHECK
 import numpy as np
 import pandas as pd
 import more_itertools as mit
-# import statsmodels.api as sm  <-- Spostato in find_window_size (Lazy Import)
 from scipy.signal import find_peaks, detrend
 from scipy.fft import rfft, rfftfreq
-# from .ts_splitter import ...
 
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from spaceai.data.anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
@@ -130,7 +128,7 @@ class TimeSeriesSplitter(CallbackMixin):
             if len(data) < self.window_size:
                 return np.empty((0, self.window_size))
             starts = np.arange(0, len(data) - self.window_size + 1, self.step_size)
-            return np.lib.stride_tricks.sliding_window_view(data, window_shape=self.window_size)[starts]
+            return np.lib.stride_tricks.sliding_window_view(data, window_shape=self.window_size, axis=0)[starts]
 
     def split_labels(self, labels: np.ndarray, sampling_period: Optional[float] = None, results: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """Segment pointwise labels into window-level binary labels."""
@@ -139,49 +137,60 @@ class TimeSeriesSplitter(CallbackMixin):
             if len(labels) < self.window_size:
                 return np.array([], dtype=int)
             starts = np.arange(0, len(labels) - self.window_size + 1, self.step_size)
-            windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size)[starts]
+            windows = np.lib.stride_tricks.sliding_window_view(labels, window_shape=self.window_size, axis=0)[starts]
             return (np.max(windows, axis=1) > 0).astype(int)
 
     def segment_dataset(self, dataset_channel: AnomalyDataset, return_subsets: bool = False, results: Optional[Dict[str, Any]] = None, save_dir: Optional[str] = None, suffix: str = "") -> PipelineState:
         """Segment an AnomalyDataset channel into windows or sub-datasets."""
-        with self._callback_context("segmentation", results):
-            sampling_period = getattr(dataset_channel, "sampling_period", None)
-            data = dataset_channel.data[:, 0]
-            if save_dir:
-                self.save_timeseries_csv(dataset_channel, save_dir, suffix=suffix)
-            self._ensure_sizes(data, sampling_period)
-            
-            p_labels = np.zeros(len(data), dtype=int)
-            if getattr(dataset_channel, "anomalies", None) is not None:
-                for s, e in dataset_channel.anomalies:
-                    p_labels[max(0, s):min(len(data), e)] = 1
+        sampling_period = getattr(dataset_channel, "sampling_period", None)
+        data = dataset_channel.data[:, 0]
+        if save_dir:
+            self.save_timeseries_csv(dataset_channel, save_dir, suffix=suffix)
+        self._ensure_sizes(data, sampling_period)
+        
+        p_labels = np.zeros(len(data), dtype=int)
+        if getattr(dataset_channel, "anomalies", None) is not None:
+            for s, e in dataset_channel.anomalies:
+                p_labels[max(0, s):min(len(data), e)] = 1
 
-            all_segments, all_labels, all_indices = [], [], []
-            for s, e in getattr(dataset_channel, "block_intervals", [(0, len(data))]):
+        intervals = getattr(dataset_channel, "block_intervals", [(0, len(data))])
+        
+        all_segments, all_labels, all_indices = [], [], []
+        
+        with self._callback_context("total_segmentation", results):
+            for i, (s, e) in enumerate(intervals):
                 b_data = data[s:e]
                 if self.apply_func is not None:
                     b_data = self.apply_func(b_data)
-                segs = self.split(b_data, sampling_period, results=results)
-                if not len(segs):
+                
+                if len(b_data) < self.window_size:
                     continue
-                lbls = self.split(p_labels[s:e], sampling_period, results=results) if return_subsets else self.split_labels(p_labels[s:e], sampling_period, results=results)
+                
+                segs = self.split(b_data, sampling_period, results=None)
+                if segs.size == 0:
+                    continue
+                
+                lbl_data = p_labels[s:e]
+                lbls = self.split(lbl_data, sampling_period, results=None) if return_subsets else self.split_labels(lbl_data, sampling_period, results=None)
+                
                 all_segments.append(segs)
                 all_labels.append(lbls)
                 idxs = np.arange(len(segs)) * self.step_size + s
                 all_indices.append(np.column_stack((idxs, idxs + self.window_size - 1)))
+        
 
-            if not all_segments:
-                return PipelineState(data=np.empty((0, self.window_size)), labels=np.array([]), indices=np.empty((0, 2)), intervals=[])
+        if not all_segments:
+            return PipelineState(data=np.empty((0, self.window_size)), labels=np.array([]), indices=np.empty((0, 2)), intervals=[])
 
-            final_segs, final_indices = np.vstack(all_segments), np.vstack(all_indices)
-            if return_subsets:
-                subsets = [AnomalyDatasetSubset(dataset_channel, int(s), int(e)) for s, e in final_indices]
-                return PipelineState(data=subsets, labels=np.vstack(all_labels), indices=final_indices, intervals=[])
-            
-            f_labels = np.concatenate(all_labels)
-            idx = np.where(f_labels == 1)[0]
-            intervals = [[g[0], g[-1]] for g in [list(group) for group in mit.consecutive_groups(idx)]] if idx.size > 0 else []
-            return PipelineState(data=final_segs, labels=f_labels, indices=final_indices, intervals=intervals)
+        final_segs, final_indices = np.vstack(all_segments), np.vstack(all_indices)
+        if return_subsets:
+            subsets = [AnomalyDatasetSubset(dataset_channel, int(s), int(e)) for s, e in final_indices]
+            return PipelineState(data=subsets, labels=np.vstack(all_labels), indices=final_indices, intervals=[])
+        
+        f_labels = np.concatenate(all_labels)
+        idx = np.where(f_labels == 1)[0]
+        intervals = [[g[0], g[-1]] for g in [list(group) for group in mit.consecutive_groups(idx)]] if idx.size > 0 else []
+        return PipelineState(data=final_segs, labels=f_labels, indices=final_indices, intervals=intervals)
 
     def get_timestamp_intervals(self, dataset_channel: AnomalyDataset, window_intervals: List[Tuple[int, int]]) -> List[Tuple[Any, Any]]:
         """Map window anomaly intervals back to timestamps or absolute indices."""
@@ -204,25 +213,27 @@ class TimeSeriesSplitter(CallbackMixin):
         """Estimate optimal window size using Auto-Correlation Function (ACF)."""
         try:
             import statsmodels.api as sm
-            d = np.diff(np.asarray(data).ravel())
+            d = np.diff(np.asarray(data).ravel()[:100000])
             if len(d) < 200 or np.var(d) < 1e-6:
                 return 100
             acf = sm.tsa.acf(d, nlags=min(self.max_window, len(d) // 2), fft=True)
             peaks, _ = find_peaks(acf, prominence=0.02, distance=10)
             peaks = [p for p in peaks if self.min_window < p < self.max_window]
-            return int(peaks[0]) if peaks else self.find_window_size_fft(data)
+            res = int(peaks[0]) if peaks else self.find_window_size_fft(data)
+            return res
         except (ImportError, ModuleNotFoundError):
-            logging.warning("statsmodels non trovato. Ripiego sulla stima FFT per la window_size.")
+            logging.warning("statsmodels not found. Falling back to FFT estimation for window_size.")
             return self.find_window_size_fft(data)
 
     def find_window_size_fft(self, data: np.ndarray) -> int:
         """Estimate optimal window size using Fast Fourier Transform (FFT)."""
-        d = np.diff(np.asarray(data).ravel())
+        d = np.diff(np.asarray(data).ravel()[:100000])
         if len(d) < 200 or np.var(d) < 1e-6:
             return 100
         xf, yf = rfftfreq(len(d), d=1.0), np.abs(rfft(d))
         valid = np.where((xf >= 1.0/self.max_window) & (xf <= 1.0/self.min_window))[0]
-        return int(round(1.0 / xf[valid[np.argmax(yf[valid])]])) if valid.size > 0 else 100
+        res = int(round(1.0 / xf[valid[np.argmax(yf[valid])]])) if valid.size > 0 else 100
+        return res
 
     def save_timeseries_csv(self, dataset_channel: AnomalyDataset, save_dir: str, suffix: str = "") -> None:
         """Save OXI-compatible raw timeseries CSV."""

@@ -41,15 +41,12 @@ class SafeRampUpFilter:
         """
         self.queue.append(float(value))
         
-        # We haven't seen enough "future" yet to make a decision
         if len(self.queue) < self.lookahead_steps + 1:
             return None
             
         curr_score = self.queue[-1]
 
-        #print(f"Oldest score: {curr_score}")
         
-        # The mathematical filter logic
         if max(list(self.queue)) < self.max_safe_score :
             return curr_score  # Validated!
             

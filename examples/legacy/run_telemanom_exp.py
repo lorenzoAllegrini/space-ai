@@ -14,7 +14,7 @@ from utils.model_creators import (
     create_predictor,
     get_telemanom_detector,
 )
-from spaceai.models.anomaly_pipeline.telemanom_classifier import SequenceModelClassifier
+from spaceai.models.legacy import SequenceModelClassifier
 warnings.simplefilter("ignore", FutureWarning)
 
 DATASET_LIST = ["ops", "nasa", "esa"]

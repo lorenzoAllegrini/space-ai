@@ -7,7 +7,7 @@ import numpy as np
 import zmq
 import pandas as pd
 
-from .anomaly_classifier import AnomalyClassifier
+from .base import AnomalyClassifier
 
 def inspect_sml_object(obj, name="classifier"):
     """Recursively dumps interesting attributes of the SML pipeline."""

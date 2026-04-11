@@ -15,7 +15,7 @@ import pandas as pd
 import os
 
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-from .anomaly_classifier import AnomalyClassifier
+from .base import AnomalyClassifier
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.models.detectors import AnomalyDetector
@@ -93,15 +93,10 @@ class RollingWindowClassifier(AnomalyClassifier):
             self.feature_extractor.clear_context()
 
         # Short-circuit if no features were selected
-        if self.feature_extractor is not None and getattr(self.feature_extractor, "kill_switch_active", False):
-            print("[DEBUG] RollingWindowClassifier fitting short-circuit activated: no useful features extracted.")
-            return results
+        # if self.feature_extractor is not None and getattr(self.feature_extractor, "kill_switch_active", False):
+        #     return results
 
         with self._callback_context("training", results):
-            # --- DEBUG EXPORT ---
-            os.makedirs("debug_exports", exist_ok=True)
-            pd.DataFrame(X_train).to_csv(f"debug_exports/train_features_extracted.csv", index=False)
-
             t0 = time.time()
             if self.supervised_classifier:
                 self.base_classifier.fit(X_train, y_train)
@@ -155,18 +150,14 @@ class RollingWindowClassifier(AnomalyClassifier):
                 self.feature_extractor.clear_context()
             
             # Opzione A: Kill-switch Short-circuit
-            if getattr(self.feature_extractor, "kill_switch_active", False):
-                # Restituisce un array di zeri (nessuna anomalia)
-                # Dobbiamo assicurarci che channel_data abbia la lunghezza corretta
-                return np.zeros(len(X)), results
+            # if getattr(self.feature_extractor, "kill_switch_active", False):
+            #     # Restituisce un array di zeri (nessuna anomalia)
+            #     # Dobbiamo assicurarci che channel_data abbia la lunghezza corretta
+            #     return np.zeros(len(X)), results
         else:
             channel_data = X
 
         with self._callback_context("prediction", results):
-            # --- DEBUG EXPORT ---
-            os.makedirs("debug_exports", exist_ok=True)
-            pd.DataFrame(channel_data).to_csv(f"debug_exports/test_features_PRE_SCALE.csv", index=False)
-
             t0 = time.time()
             if hasattr(self.base_classifier, "predict_proba"):
                 y_pred = self.base_classifier.predict_proba(channel_data)

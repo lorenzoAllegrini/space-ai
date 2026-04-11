@@ -2,7 +2,7 @@
 
 Reads a YAML config file where any parameter value can be a list of alternatives.
 Generates the cartesian product of all such lists and invokes an experiment script 
-(e.g., run_segment_extraction_exp.py) once per combination.
+(e.g., run_pipeline.py) once per combination.
 """
 
 import argparse
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 def _flatten_lists(config: Dict[str, Any], parent_key: str = "") -> Dict[str, List[Any]]:
     """Recursively collect all keys whose value is a list of scalars (sweep params)."""
     sweep_params = {}
-    # We exclude 'channels' as it is naturally a list of strings to process
     EXCLUDED_KEYS = {"channels"}
     
     for k, v in config.items():
@@ -73,23 +72,29 @@ def build_combinations(config: Dict[str, Any]) -> Generator[Dict[str, Any], None
 
     for combo in itertools.product(*value_lists):
         cfg_copy = copy.deepcopy(config)
-        # Create a unique run_id segment for this combination
         combo_parts = []
         for k, v in zip(keys, combo):
             _set_nested(cfg_copy, k, v)
-            # Short key for run_id
             short_k = k.split(".")[-1]
-            combo_parts.append(f"{short_k}_{v}")
+            if short_k == "type":
+                combo_parts.append(str(v))
+            else:
+                combo_parts.append(f"{short_k}_{v}")
         
-        # Inject combo suffix into run_id
-        original_run_id = cfg_copy.get("run_id", "exp")
+        original_run_id = cfg_copy.get("run_id", "")
         
-        # Add challenge suffix to base run_id if present as fixed value
         ch = cfg_copy.get("challenge", False)
-        if "challenge" not in keys: # Only if not already swept
-            original_run_id += f"_ch{'T' if ch else 'F'}"
+        if "challenge" not in keys:
+            prefix = "ch" + ("T" if ch else "F")
+            if original_run_id:
+                original_run_id += f"_{prefix}"
+            else:
+                original_run_id = prefix
 
-        cfg_copy["run_id"] = f"{original_run_id}_{'_'.join(combo_parts)}"
+        if original_run_id:
+            cfg_copy["run_id"] = f"{original_run_id}_{'_'.join(combo_parts)}"
+        else:
+            cfg_copy["run_id"] = "_".join(combo_parts)
         
         yield cfg_copy
 
@@ -129,8 +134,8 @@ def run_script_for_config(script: str, config: Dict[str, Any], index: int, total
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-parameter sweep for model selection.")
     parser.add_argument("--config", type=str, required=True, help="Path to base YAML config.")
-    parser.add_argument("--script", type=str, default="examples/run_segment_extraction_exp.py", 
-                        help="Experiment script to run (default: run_segment_extraction_exp.py).")
+    parser.add_argument("--script", type=str, default="examples/run_pipeline.py", 
+                        help="Experiment script to run (default: run_pipeline.py).")
     parser.add_argument("--dry-run", action="store_true", help="Print combinations without running.")
     parser.add_argument("--stop-on-error", action="store_true", help="Stop if a run fails.")
     

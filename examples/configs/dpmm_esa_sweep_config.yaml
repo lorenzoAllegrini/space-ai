@@ -6,7 +6,7 @@ exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"
-dpmm_type: ["diagonal", "unit", "single"]            
+dpmm_type: ["full", "diagonal", "unit", "single"]            
 dpmm_mode: "likelihood_threshold"
 detector: "threshold"
 segmentator: false
@@ -14,8 +14,8 @@ challenge: false
 save_metadata: false
 
 detector_params:
-  quantile: [1.5, 2.0]
-  smoothing_alpha: [0.1, 0.4, 1.0]
+  quantile: [1.5, 2.0, 2.5]
+  smoothing_alpha: [0.1, 0.3, 0.4, 1.0]
 
 eval_perc: 0.4
 filter_valid: true
@@ -39,7 +39,7 @@ base_classifier_params:
   dynamic_scaling: [true, false]
   scaler_window: 1000
   n_clusters: 100
-  num_iterations: 100
+  num_iterations: 200
   lr: 0.5
   alpha_dp: 3.0
   var_prior: 3.0

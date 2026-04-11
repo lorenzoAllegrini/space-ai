@@ -53,7 +53,6 @@ def get_feature_extractor(
         )
     elif name == "rocket":
         num_kernels = kwargs.get("n_kernel") or kwargs.get("num_kernels") or 100
-        # Remove n_kernel/num_kernels from kwargs to avoid duplicates if passed explicitly
         if "n_kernel" in kwargs:
             del kwargs["n_kernel"]
         if "num_kernels" in kwargs:

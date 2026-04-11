@@ -32,6 +32,7 @@ class ESABenchmark(Benchmark):
         mission: Optional[ESAMission] = None,
         data_root: str = "datasets",
         save_metadata: bool = True,
+        **kwargs
     ):
         """Initializes a new benchmark run.
 
@@ -42,6 +43,7 @@ class ESABenchmark(Benchmark):
         """
         super().__init__(run_id, exp_dir, data_root, save_metadata)
         self.mission = mission
+        self.date_overrides = kwargs
 
     @property
     def channels(self) -> List[str]:
@@ -71,5 +73,5 @@ class ESABenchmark(Benchmark):
             overlapping=overlapping_train if train else False,
             train=train,
             drop_last=train,
-            **kwargs
+            **{**self.date_overrides, **kwargs}
         )

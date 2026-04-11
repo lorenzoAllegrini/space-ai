@@ -1,24 +1,37 @@
-# dpmm_esa_global_config.yaml
-# Esperimenti su ESA con Modular Global Features
+# dpmm_esa_continual_sweep.yaml
+# Parameter sweep for ESA Continual Learning pipeline
 
 base_dir: "./datasets"           
-exp_dir: "experiments_"
+exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"
-dpmm_type: "diagonal"            
+dpmm_type: ["diagonal", "unit"]            
 dpmm_mode: "likelihood_threshold"
 detector: "threshold"
 segmentator: false
 challenge: false
 
-detector_params:
-  quantile: 3.0
-  smoothing_alpha: 0.5
+# Parametri per Continual Learning
+replay: "time-decay"
+buffer_size: 100000
+sample_size: 20000
+half_life: 10000
+experience_size: ["180D", "360D"]
 
-eval_perc: 0.4
+detector_params:
+  quantile: [0.9, 1.0, 1.5, 2.0]
+  smoothing_alpha: [0.7, 0.4]
+  threshold_alpha: 0.5
+
+replay_detector_params:
+  quantile: [0.75, 0.85, 1.0, 1.2]
+  smoothing_alpha: [0.7, 0.4]
+  threshold_alpha: 0.5
+
+eval_perc: 0.6
 filter_valid: true
-# Modular Feature Extraction
+
 feature_extractor: 
   - "base_statistics"
 
@@ -46,11 +59,3 @@ base_classifier_params:
   mu_prior_strength: 0.001
   quantile: 0.001
   return_likelihood: true
- 
-#detector_params:
-  #alpha: 0.002
-  #p: 3.0
-  #unitize: true
-  #pot_percentile: 93.0
-  #smoothing_alpha: 0.2
-  #min_allowed_ll: -200.0
