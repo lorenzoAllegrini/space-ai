@@ -17,7 +17,7 @@ MODEL_LIST = [
     "copod",
     "cblof",
     "hbos",
-    "ndpm"
+    "dcvae"
 ]
 DPMM_MODEL_TYPE = ["full", "diagonal", "single", "unit"]
 DPMM_MODE = ["likelihood_threshold", "cluster_labels"]
@@ -71,7 +71,6 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--min-window", type=int)
     parser.add_argument("--max-window", type=int)
     parser.add_argument("--perc-step-size", type=float)
-    parser.add_argument("--ndpm_config", type=str, help="Path to NDPM config")
     parser.add_argument("--detector", choices=["threshold", "molookde", "none"], default="threshold")
     parser.add_argument("--replay", choices=["time-decay", "none"], default="time-decay")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")

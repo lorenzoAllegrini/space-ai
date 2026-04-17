@@ -8,11 +8,14 @@ from typing import (
     Literal,
     Optional,
     Union,
+    Any,
 )
 
 import numpy as np
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from sklearn.base import BaseEstimator
+
+from spaceai.models.predictors.seq_model import SequenceModel
 
 class AnomalyDetector(BaseEstimator, CallbackMixin):
     """Base class for anomaly detectors."""

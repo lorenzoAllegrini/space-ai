@@ -17,7 +17,7 @@ from .benchmark import Benchmark
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
-    from spaceai.models.detectors.base import AnomalyDetector
+    from spaceai.models.detectors.anomaly_detector import AnomalyDetector
     from .callbacks import Callback
 
 import pandas as pd

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .base import AnomalyClassifier
+from .anomaly_classifier import AnomalyClassifier
 from spaceai.models.predictors.seq_model import SequenceModel
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.models.detectors import AnomalyDetector

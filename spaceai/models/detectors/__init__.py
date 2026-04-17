@@ -1,4 +1,4 @@
-from .base import AnomalyDetector
+from .anomaly_detector import AnomalyDetector
 from .error_based_detector import ErrorBasedDetector
 from .threshold_detector import ThresholdDetector
 from .molooKDE import MoLooKDEDetector

@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import time
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Optional, Any, List, Union
+from typing import TYPE_CHECKING, Dict, Optional, Any, List, Tuple, Union
 
 if TYPE_CHECKING:
     from spaceai.data import AnomalyDataset
 
 import numpy as np
 import torch
-import pandas as pd
-import os
+import more_itertools as mit
 
 from spaceai.preprocessing.ts_splitter import TimeSeriesSplitter
-from .base import AnomalyClassifier
+from .anomaly_classifier import AnomalyClassifier
 from spaceai.preprocessing.feature_extractors.feature_extractor import FeatureExtractor
 from spaceai.benchmark.callbacks import CallbackHandler
 from spaceai.models.detectors import AnomalyDetector

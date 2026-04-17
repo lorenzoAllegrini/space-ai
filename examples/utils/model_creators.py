@@ -35,8 +35,6 @@ from spaceai.models.classifiers.dpmm_detector import (
     DPMM,
     get_dpmm_argparser,
 )
-from spaceai.models.classifiers.ndpm_detector import NDPMDetector
-from spaceai.models.classifiers.ndpm_internal import Config as NdpmConfig
 import os
 import logging
 import torch
@@ -107,46 +105,6 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     )
     supervised = base_params.pop("supervised", mode != "likelihood_threshold")
     return SklearnClassifier(pipeline, supervised=supervised), supervised
-
-
-def get_ndpm_classifier(args, device="cpu", input_dim=None):
-    """Get NDPM classifier factory."""
-
-    def factory():
-        config_path = getattr(args, "ndpm_config", None)
-        if not config_path or not os.path.exists(config_path):
-            raise ValueError(
-                f"Valid NDPM configuration required. Please check --ndpm_config (path: {config_path})"
-            )
-
-        logging.info("Loading NDPM config from %s", config_path)
-        config = NdpmConfig.from_yaml_file(config_path)
-
-        if input_dim is not None:
-            x_w = input_dim
-        else:
-            fe_type = getattr(args, "feature_extractor", "none")
-            if fe_type == "base_statistics":
-                from spaceai.preprocessing.functions import FEATURE_MAP
-                x_w = len(FEATURE_MAP)
-            elif fe_type == "rocket":
-                n_kernel = getattr(args, "n_kernel", 100)
-                x_w = 2 * n_kernel
-            else:
-                x_w = getattr(args, "window_size", 100)
-
-        channel_id = getattr(args, "channel", "default") or "default"
-        run_dir = getattr(args, "run_dir", ".") or "."
-        config["log_dir"] = os.path.join(run_dir, "logs", channel_id)
-        config["x_w"] = x_w
-
-        detector = NDPMDetector(config, device=device)
-        logging.info(
-            "Initialized NDPM detector (x_w=%d) for channel: %s", x_w, channel_id
-        )
-        return detector
-
-    return factory, False
 
 
 def get_ridge_regression_classifier(base_params=None):
@@ -290,11 +248,10 @@ def create_classifier(args, other_args):
         return get_cblof_classifier(base_params=base_params)
     elif model_id == "hbos":
         return get_hbos_classifier(base_params=base_params)
-    elif model_id == "ndpm":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        return get_ndpm_classifier(args, device, input_dim=None)
     elif model_id == "telemanom":
         return get_telemanom_sequence_classifier(base_params=base_params)
+    elif model_id == "dcvae":
+        return get_dcvae_classifier(base_params=base_params)
     else:
         raise ValueError(f"Model {args.model} not supported!")
 
@@ -387,6 +344,12 @@ def get_telemanom_sequence_classifier(base_params=None):
         "perc_eval": perc_eval,
     }
     return classifier, False
+
+
+def get_dcvae_classifier(base_params=None):
+    """Get DCVAE classifier."""
+    from spaceai.models.legacy.dcvae import DCVAEClassifier
+    return DCVAEClassifier(**(base_params if base_params else {})), False
 
 
 def get_telemanom_detector(config: Config):

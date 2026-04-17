@@ -14,7 +14,7 @@ try:
 except ImportError:
     warnings.warn("'ripser' library not found. Run: pip install ripser")
 
-from .base import AnomalyDetector
+from .anomaly_detector import AnomalyDetector
 
 
 class MoLooKDEDetector(AnomalyDetector):

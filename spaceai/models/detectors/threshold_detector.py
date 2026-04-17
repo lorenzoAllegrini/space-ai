@@ -1,8 +1,10 @@
 from typing import Optional, Any, Dict
 import numpy as np
 import pandas as pd
-from .base import AnomalyDetector
+from .anomaly_detector import AnomalyDetector
+import logging
 
+logging.basicConfig(level=logging.INFO)
 
 class ThresholdDetector(AnomalyDetector):
     """Simple threshold-based anomaly detector with EWMA smoothing.
@@ -79,8 +81,7 @@ class ThresholdDetector(AnomalyDetector):
                 self.threshold = new_threshold
             
             q5, q50, q95 = np.quantile(scores, [0.05, 0.5, 0.95])
-            
-            import logging
+
             logging.info(f"[THRESHOLD] Detector calibrated with threshold: {self.threshold:.6f}")
 
         return self

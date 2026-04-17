@@ -15,10 +15,9 @@ from sklearn.preprocessing import (  # type: ignore
     StandardScaler,
 )
 from sklearn.utils import resample  # type: ignore
-from sktime.transformations.panel.rocket import Rocket  # type: ignore
+from sktime.transformations.panel.rocket import Rocket
 
-class BaseClassifier:
-    pass
+from spaceai.models.legacy.anomaly_classifier import AnomalyClassifier  # type: ignore
 
 
 class NearestNeighborOCC:
@@ -324,7 +323,7 @@ class ROCKAD:
         return False
 
 
-class RockadClassifier(BaseClassifier):
+class RockadClassifier(AnomalyClassifier):
     """
     A fully unsupervised wrapper: costruisce un ensemble ROCKAD su X,
     poi allena un OCC sui punteggi di anomalia.
