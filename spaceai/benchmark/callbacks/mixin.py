@@ -98,7 +98,11 @@ class CallbackMixin:
             if state.intervals is not None and len(state.intervals) == len(mask):
                 state.intervals = [state.intervals[i] for i, m in enumerate(mask) if m]
         elif isinstance(result, tuple) and len(result) == 2:
-            state.data, state.labels = result
+            state.data, labels_or_metrics = result
+            if isinstance(labels_or_metrics, dict):
+                state.metrics.update(labels_or_metrics)
+            else:
+                state.labels = labels_or_metrics
         else:
             state.data = result
 

@@ -44,7 +44,6 @@ from .config import Config
 
 from spaceai.models.classifiers import SklearnClassifier
 from spaceai.models.utils.scalers import RollingRobustScalerWithPrior
-    
 
 
 def get_rockad_classifier(_num_kernels):
@@ -64,7 +63,8 @@ def get_xgboost_classifier(base_params=None):
         else RobustScaler(with_centering=False)
     )
 
-    params = base_params if base_params else {"eval_metric": "logloss", "base_score": 0.5}
+    params = base_params if base_params else {
+        "eval_metric": "logloss", "base_score": 0.5}
     pipeline = Pipeline(
         [
             ("scaler", scaler),
@@ -78,7 +78,7 @@ def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
     """Get DPMM classifier."""
     model_type = model_type if model_type is not None else "full"
     mode = mode if mode is not None else "likelihood_threshold"
-    
+
     parser = get_dpmm_argparser()
     config, _ = parser.parse_known_args(other_dpmm_args)
     config_dict = vars(config)
@@ -128,7 +128,8 @@ def get_iforest_classifier(base_params=None):
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("iforest", SklearnClassifier(IForest(**base_params), supervised=supervised)),
+            ("iforest", SklearnClassifier(
+                IForest(**base_params), supervised=supervised)),
         ]
     )
     return pipeline, supervised
@@ -290,26 +291,44 @@ def get_lstm_predictor(config: Config):
 def get_telemanom_sequence_classifier(base_params=None):
     """Get SequenceModelClassifier with LSTM predictor and Telemanom detector."""
     base_params = base_params.copy() if base_params else {}
-    
+
     input_size = base_params.pop("input_size", 1)
     hidden_sizes = base_params.pop("hidden_sizes", [80, 80])
     output_size = base_params.pop("output_size", 1)
     dropout = base_params.pop("dropout", 0.3)
     n_predictions = base_params.pop("n_predictions", 1)
-    
+
     epochs = base_params.pop("epochs", 35)
     lr = base_params.pop("lr", 0.001)
     patience = base_params.pop("patience", 10)
     min_delta = base_params.pop("min_delta", 0.0003)
     batch_size = base_params.pop("batch_size", 32)
     perc_eval = base_params.pop("perc_eval", 0.15)
-    
-    error_offset = base_params.pop("error_offset", base_params.pop("error_buffer", 100))
+
+    error_offset = base_params.pop(
+        "error_offset", base_params.pop("error_buffer", 100))
     smoothing_perc = base_params.pop("smoothing_perc", 0.05)
-    pruning_factor = base_params.pop("pruning_factor", base_params.pop("p", 0.12))
+    pruning_factor = base_params.pop(
+        "pruning_factor", base_params.pop("p", 0.12))
     n_eval_per_window = base_params.pop("n_eval_per_window", 70)
     tele_window_size = base_params.pop("telemanom_window_size", 2100)
-    
+
+    optimizer_builder = getattr(
+        torch.optim, base_params.pop("optimizer_class", "Adam"))
+    criterion = getattr(torch.nn, base_params.pop("criterion", "MSELoss"))()
+
+    def optimizer_builder_func(model):
+        return optimizer_builder(model.parameters(), lr=lr)
+
+    fit_predictor_args = {
+        "criterion": criterion,
+        "optimizer_builder": optimizer_builder_func,
+        "epochs": epochs,
+        "patience_before_stopping": patience,
+        "min_delta": min_delta,
+        "perc_eval": perc_eval,
+    }
+
     predictor = LSTM(
         input_size=input_size,
         hidden_sizes=hidden_sizes,
@@ -318,20 +337,21 @@ def get_telemanom_sequence_classifier(base_params=None):
         dropout=dropout,
     )
     predictor.build()
-    
+
     detector = Telemanom(
         pruning_factor=pruning_factor,
         error_offset=error_offset,
         smoothing_perc=smoothing_perc,
         n_eval_per_window=n_eval_per_window,
         window_size=tele_window_size,
-        pred_buffer=base_params.get("l_s", 250) # Fallback if present
+        pred_buffer=base_params.get("l_s", 250)  # Fallback if present
     )
-    
+
     import torch.nn as nn
     classifier = SequenceModelClassifier(
         predictor=predictor,
         detector=detector,
+        fit_predictor_args=fit_predictor_args,
     )
     classifier._fit_args = {
         "criterion": nn.MSELoss(),

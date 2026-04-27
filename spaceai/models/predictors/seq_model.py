@@ -99,7 +99,7 @@ class SequenceModel:
         self,
         train_loader: DataLoader,
         criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-        optimizer: torch.optim.Optimizer,
+        optimizer_builder: Callable[[torch.nn.Module], torch.optim.Optimizer],
         epochs: int,
         patience_before_stopping: Optional[int] = None,
         min_delta: Optional[float] = None,
@@ -114,7 +114,7 @@ class SequenceModel:
         Args:
             train_loader (DataLoader): DataLoader containing training data
             criterion (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]): Loss function
-            optimizer (torch.optim.Optimizer): Optimizer
+            optimizer_builder (Callable[[torch.nn.Module], torch.optim.Optimizer]): Function to build the optimizer
             epochs (int): Number of epochs to train the model
             patience_before_stopping (Optional[int], optional): Number of epochs to wait before
                 stopping training if no improvement. Defaults to None.
@@ -125,6 +125,7 @@ class SequenceModel:
         """
         if self.model is None:
             raise ValueError("Model must be built before calling fit.")
+        optimizer = optimizer_builder(self.model)
         min_delta_ = min_delta if min_delta is not None else 0.0
         self.model = self.model.to(self.device)
         best_val_loss = float("inf")

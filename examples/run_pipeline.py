@@ -1,5 +1,6 @@
 """Run decoupled pipeline experiment module."""
 
+from utils.args import parse_exp_args
 import argparse
 import warnings
 import logging
@@ -25,28 +26,30 @@ from spaceai.models.detectors import ThresholdDetector, MoLooKDEDetector
 from spaceai.models.classifiers import DPMMDetector
 warnings.simplefilter("ignore", FutureWarning)
 
-from utils.args import parse_exp_args
 
 def run_exp(args, other_args=None):
     """Run decoupled pipeline experiment."""
     set_seed(getattr(args, 'seed', 40))
 
     wrapper_params = getattr(args, 'wrapper_params', {})
-    eval_perc = getattr(args, 'eval_perc', wrapper_params.get('eval_perc', None))
-    filter_valid = getattr(args, 'filter_valid', wrapper_params.get('filter_valid', wrapper_params.get('filter_valid_for_detector', False)))
+    eval_perc = getattr(args, 'eval_perc',
+                        wrapper_params.get('eval_perc', None))
+    filter_valid = getattr(args, 'filter_valid', wrapper_params.get(
+        'filter_valid', wrapper_params.get('filter_valid_for_detector', False)))
 
     detector_params = getattr(args, 'detector_params', {})
     detector = None
     if args.detector == "threshold":
-        detector = ThresholdDetector(**{**dict(threshold=None, filter_valid=filter_valid), **detector_params})
+        detector = ThresholdDetector(
+            **{**dict(threshold=None, filter_valid=filter_valid), **detector_params})
     elif args.detector == "molookde":
-        detector = MoLooKDEDetector(**{**dict(alpha=0.001, filter_valid=filter_valid), **detector_params})
+        detector = MoLooKDEDetector(
+            **{**dict(alpha=0.001, filter_valid=filter_valid), **detector_params})
     else:
         detector = None
         args.detector = "no_detector"
-    
-    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
 
     if getattr(args, 'run_id', None) is not None:
         run_id = args.run_id
@@ -54,14 +57,14 @@ def run_exp(args, other_args=None):
         run_id = f"{args.feature_extractor}_{args.dataset}_{args.model}_{args.detector}"
         if args.model == "dpmm":
             run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
-        
+
         if eval_perc is not None:
             run_id += f"_eval_perc{eval_perc}"
-        
+
         base_params = getattr(args, 'base_classifier_params', {})
         ds = base_params.get('dynamic_scaling', False)
         run_id += f"_dynamic_scaling{'T' if ds else 'F'}"
-        
+
         if filter_valid:
             run_id += "_filtered_detector"
 
@@ -80,7 +83,7 @@ def run_exp(args, other_args=None):
         **date_overrides
     )
     channels = benchmark.channels if args.channels is None else args.channels
-     
+
     for channel_name in channels:
         ts_splitter = TimeSeriesSplitter(
             window_size=args.window_size,
@@ -90,7 +93,7 @@ def run_exp(args, other_args=None):
             perc_step_size=getattr(args, 'perc_step_size', None) or 1.0,
             callback_handler=handler
         )
-        
+
         feature_extractor = get_feature_extractor(
             args.feature_extractor,
             window_size=args.window_size,
@@ -105,43 +108,43 @@ def run_exp(args, other_args=None):
         pipeline = AnomalyDetectionPipeline(
             steps=[
                 PipelineStep(
-                    name="ts_splitter", 
+                    name="ts_splitter",
                     processor=ts_splitter,
                     phases={"train": None, "val": None, "predict": None}
                 ),
                 PipelineStep(
-                    name="feature_extractor", 
+                    name="feature_extractor",
                     processor=feature_extractor,
                     phases={
-                        "train": PhaseConfig(method="fit_transform", supervised=True), 
+                        "train": PhaseConfig(method="fit_transform", supervised=True),
                         "val": PhaseConfig(method="transform", supervised=True),
                         "predict": "transform"
                     }
                 ),
                 PipelineStep(
-                    name="data_filter", 
+                    name="data_filter",
                     processor=detector,
                     phases={
                         "train": PhaseConfig(method="filter", supervised=True),
                         "val": PhaseConfig(method="filter", supervised=True),
-                    }  
+                    }
                 ),
                 PipelineStep(
-                    name="base_classifier", 
+                    name="base_classifier",
                     processor=classifier,
                     phases={
-                        "train": PhaseConfig(method="fit", supervised=True), 
+                        "train": PhaseConfig(method="fit", supervised=True),
                         "val": PhaseConfig(method="predict", supervised=True),
                         "predict": "predict"
                     }
                 ),
                 PipelineStep(
-                    name="detector", 
+                    name="detector",
                     processor=detector,
                     phases={
-                        "val": PhaseConfig(method="fit", supervised=True), 
+                        "val": PhaseConfig(method="fit", supervised=True),
                         "predict": "detect"
-                    }  
+                    }
                 ),
             ],
             eval_perc=eval_perc,
@@ -167,9 +170,11 @@ def run_exp(args, other_args=None):
     if isinstance(benchmark, ESABenchmark):
         results = benchmark.compute_global_event_metrics(channels=channels)
 
+
 def main():
     args, other_args = parse_exp_args()
     run_exp(args, other_args)
+
 
 if __name__ == "__main__":
     main()
