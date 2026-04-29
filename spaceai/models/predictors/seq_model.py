@@ -220,7 +220,8 @@ class SequenceModel:
                     ) * inputs.size(1)
 
         for name in metrics_values:
-            metrics_values[name] /= len(eval_loader.dataset)  # type: ignore[arg-type, operator]
+            if len(eval_loader.dataset) > 0:
+                metrics_values[name] /= len(eval_loader.dataset)  # type: ignore[arg-type, operator]
 
         return metrics_values
 

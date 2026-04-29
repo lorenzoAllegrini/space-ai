@@ -11,6 +11,7 @@ from typing import (
     Any,
 )
 
+import torch
 import numpy as np
 from spaceai.benchmark.callbacks.mixin import CallbackMixin
 from sklearn.base import BaseEstimator

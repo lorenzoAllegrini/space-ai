@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     List,
-    Dict,
+    Optional,
+    Tuple,
 )
 
 from spaceai.data import (

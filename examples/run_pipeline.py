@@ -107,45 +107,47 @@ def run_exp(args, other_args=None):
 
         pipeline = AnomalyDetectionPipeline(
             steps=[
-                PipelineStep(
-                    name="ts_splitter",
-                    processor=ts_splitter,
-                    phases={"train": None, "val": None, "predict": None}
-                ),
-                PipelineStep(
-                    name="feature_extractor",
-                    processor=feature_extractor,
-                    phases={
-                        "train": PhaseConfig(method="fit_transform", supervised=True),
-                        "val": PhaseConfig(method="transform", supervised=True),
-                        "predict": "transform"
-                    }
-                ),
-                PipelineStep(
-                    name="data_filter",
-                    processor=detector,
-                    phases={
-                        "train": PhaseConfig(method="filter", supervised=True),
-                        "val": PhaseConfig(method="filter", supervised=True),
-                    }
-                ),
-                PipelineStep(
-                    name="base_classifier",
-                    processor=classifier,
-                    phases={
-                        "train": PhaseConfig(method="fit", supervised=True),
-                        "val": PhaseConfig(method="predict", supervised=True),
-                        "predict": "predict"
-                    }
-                ),
-                PipelineStep(
-                    name="detector",
-                    processor=detector,
-                    phases={
-                        "val": PhaseConfig(method="fit", supervised=True),
-                        "predict": "detect"
-                    }
-                ),
+                ps for ps in [
+                    PipelineStep(
+                        name="ts_splitter",
+                        processor=ts_splitter,
+                        phases={"train": None, "val": None, "predict": None}
+                    ) if args.segmentator else None,
+                    PipelineStep(
+                        name="feature_extractor",
+                        processor=feature_extractor,
+                        phases={
+                            "train": PhaseConfig(method="fit_transform", supervised=True),
+                            "val": PhaseConfig(method="transform", supervised=True),
+                            "predict": "transform"
+                        }
+                    ),
+                    PipelineStep(
+                        name="data_filter",
+                        processor=detector,
+                        phases={
+                            "train": PhaseConfig(method="filter", supervised=True),
+                            "val": PhaseConfig(method="filter", supervised=True),
+                        }
+                    ),
+                    PipelineStep(
+                        name="base_classifier",
+                        processor=classifier,
+                        phases={
+                            "train": PhaseConfig(method="fit", supervised=True),
+                            "val": PhaseConfig(method="predict", supervised=True),
+                            "predict": "predict"
+                        }
+                    ),
+                    PipelineStep(
+                        name="detector",
+                        processor=detector,
+                        phases={
+                            "val": PhaseConfig(method="fit", supervised=True),
+                            "predict": "detect"
+                        }
+                    ),
+                ] if ps is not None
             ],
             eval_perc=eval_perc,
             phase_map={"fit": ["train", "val"], "predict": ["predict"]}
@@ -154,6 +156,7 @@ def run_exp(args, other_args=None):
         dataset_kwargs = {}
         if hasattr(args, 'challenge'):
             dataset_kwargs["challenge"] = getattr(args, 'challenge')
+            dataset_kwargs["n_predictions"] = getattr(args, 'n_predictions', 1)
 
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,

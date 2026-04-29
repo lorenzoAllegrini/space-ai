@@ -283,7 +283,7 @@ def get_lstm_predictor(config: Config):
         input_size=input_size,
         hidden_sizes=config.layers,
         output_size=config.n_predictions,
-        reduce_out="first",
+        reduce_out=config.reduce_out,
         dropout=config.dropout,
     )
 
@@ -294,9 +294,9 @@ def get_telemanom_sequence_classifier(base_params=None):
 
     input_size = base_params.pop("input_size", 1)
     hidden_sizes = base_params.pop("hidden_sizes", [80, 80])
-    output_size = base_params.pop("output_size", 1)
     dropout = base_params.pop("dropout", 0.3)
     n_predictions = base_params.pop("n_predictions", 1)
+    reduce_out = base_params.pop("reduce_out", "first")
 
     epochs = base_params.pop("epochs", 35)
     lr = base_params.pop("lr", 0.001)
@@ -333,7 +333,7 @@ def get_telemanom_sequence_classifier(base_params=None):
         input_size=input_size,
         hidden_sizes=hidden_sizes,
         output_size=n_predictions,
-        reduce_out="first",
+        reduce_out=reduce_out,
         dropout=dropout,
     )
     predictor.build()

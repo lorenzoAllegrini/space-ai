@@ -21,30 +21,6 @@ from spaceai.models.detectors import AnomalyDetector
 from torch.utils.data import TensorDataset, DataLoader, Subset
 from spaceai.data.utils import seq_collate_fn
 
-class SequenceDataset(torch.utils.data.Dataset):
-    """Custom Dataset for sequence data."""
-
-    def __init__(self, data: np.ndarray, labels: Optional[np.ndarray] = None):
-        if isinstance(data, list):
-            data = np.array(data)
-        if isinstance(data, np.ndarray):
-            data = torch.from_numpy(data).float()
-        self.data = data
-        if labels is not None:
-            if isinstance(labels, list):
-                labels = np.array(labels)
-            if isinstance(labels, np.ndarray):
-                labels = torch.from_numpy(labels).float()
-        self.labels = labels if labels is not None else None
-
-    def __len__(self) -> int:
-        return len(self.data)
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        x = self.data[idx]
-        y = self.labels[idx] if self.labels is not None else None
-        return x, y
-
 class SequenceModelClassifier(AnomalyClassifier):
     """
     Abstract base for time-series wrappers: defines common interface and input preparation.
@@ -120,6 +96,9 @@ class SequenceModelClassifier(AnomalyClassifier):
 
                 y_pred_arr = np.concatenate(all_y_pred)[window_size - 1:]
                 y_trg_arr = np.concatenate(all_y_trg)[window_size - 1:]
+                # If targets have multiple dimensions, take the first one for detection (the last dimension is used for repeating future datapoints like [[1, 2, 3], [2, 3, 4], ...])
+                if y_trg_arr.ndim > 1:
+                    y_trg_arr = y_trg_arr[:, 0]
 
             with self._callback_context("detect_", results):
                 if len(y_trg_arr) < 2500:
@@ -130,12 +109,11 @@ class SequenceModelClassifier(AnomalyClassifier):
                 pred_anomalies_intervals = self.detector.detect_anomalies(
                     y_pred_arr, y_trg_arr)
                 pred_anomalies_intervals += self.detector.flush_detector()
+                self.detector.reset_state()
 
             anomaly_mask = np.zeros(len(y_pred_arr), dtype=int)
         for start, end in pred_anomalies_intervals:
             anomaly_mask[int(start): int(end) + 1] = 1
-
-        self.last_results = results
 
         return anomaly_mask, results
 
@@ -194,12 +172,6 @@ class SequenceModelClassifier(AnomalyClassifier):
         batch_size = fit_predictor_args.pop("batch_size", 32)
         perc_eval = fit_predictor_args.pop("perc_eval", None)
 
-        channel_data = torch.from_numpy(channel_data)[..., torch.newaxis]
-        data = torch.zeros_like(channel_data)
-        data[:, 1:] = channel_data[:, :-1]
-        labels = channel_data
-        channel_data = SequenceDataset(data=data, labels=labels)
-
         if perc_eval is not None:
             eval_size = int(len(channel_data) * perc_eval)
             eval_indices = np.arange(eval_size)
@@ -231,17 +203,6 @@ class SequenceModelClassifier(AnomalyClassifier):
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset],
         test_predictor_args: Optional[Dict[str, Any]] = None
     ) -> Tuple[DataLoader, Optional[Dict[str, Any]]]:  # pylint: disable=invalid-name
-        
-        if isinstance(channel_data, list):
-            channel_data = np.array(channel_data)
-        if isinstance(channel_data, np.ndarray):
-            channel_data = torch.from_numpy(channel_data).float()
-
-        channel_data = channel_data[..., torch.newaxis]
-        data = torch.zeros_like(channel_data)
-        data[:, 1:] = channel_data[:, :-1]
-        labels = channel_data
-        channel_data = SequenceDataset(data=data, labels=labels)
 
         test_loader = DataLoader(
             channel_data,

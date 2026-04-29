@@ -6,6 +6,7 @@ import math
 import os
 import tarfile
 from typing import (
+    List,
     Optional,
     Tuple,
     Union,
@@ -122,6 +123,7 @@ class NASA(AnomalyDataset):
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
+        feature_indices: Optional[List[int]] = [0],
         train: bool = True,
         download: bool = True,
         drop_last: bool = True,
@@ -145,7 +147,8 @@ class NASA(AnomalyDataset):
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
         self.drop_last: bool = drop_last
-        self.n_predictions: int = n_predictions
+        self.n_predictions: int = n_predictions if train else 1
+        self.feature_indices: Optional[List[int]] = feature_indices
 
         if not channel_id in self.channel_ids:
             raise ValueError(f"Channel ID {channel_id} is not valid")
@@ -194,6 +197,8 @@ class NASA(AnomalyDataset):
                 )
             ).T,
         )
+        if self.feature_indices is not None:
+            x = x[:, self.feature_indices]
         return x, y_true
 
     def __len__(self) -> int:
@@ -266,4 +271,6 @@ class NASA(AnomalyDataset):
     @property
     def in_features_size(self) -> int:
         """Return the size of the input features."""
+        if self.feature_indices is not None:
+            return len(self.feature_indices)
         return self.data.shape[-1]
