@@ -30,15 +30,12 @@ def check_datasets(datasets):
     ]
 
 
-def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
+def compute_experiment_scores(results_df: pd.DataFrame, include_efficiency: bool = False) -> Optional[dict]:
     """Compute F1, Precision, Recall, and other metrics from experiment results."""
     req = {
         "true_positives",
         "false_positives",
         "false_negatives",
-        "detected_negatives",
-        "test_negatives",
-        "test_length",
     }
     if not req.issubset(results_df.columns):
         return None
@@ -48,20 +45,18 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
     
     if not global_row.empty:
         row = global_row.iloc[0]
-        tp = row["true_positives"]
-        fp = row["false_positives"]
-        fn = row["false_negatives"]
-        tnr = row["tnr"]
-        tot_neg = row["test_negatives"]
+        tp = row.get("true_positives", 0)
+        fp = row.get("false_positives", 0)
+        fn = row.get("false_negatives", 0)
+        tnr = row.get("tnr", 0.0)
+        tot_neg = row.get("test_negatives", 0)
     else:
         df = results_df[~results_df[col].astype(str).str.startswith("GLOBAL")]
-        tp, fp, fn = (
-            df["true_positives"].sum(),
-            df["false_positives"].sum(),
-            df["false_negatives"].sum(),
-        )
-        tot_neg = df["test_negatives"].sum()
-        tnr = (df["detected_negatives"].sum() / tot_neg) if tot_neg > 0 else 0.0
+        tp = df["true_positives"].sum() if "true_positives" in df.columns else 0
+        fp = df["false_positives"].sum() if "false_positives" in df.columns else 0
+        fn = df["false_negatives"].sum() if "false_negatives" in df.columns else 0
+        tot_neg = df["test_negatives"].sum() if "test_negatives" in df.columns else 0
+        tnr = (df["detected_negatives"].sum() / tot_neg) if tot_neg > 0 and "detected_negatives" in df.columns else 0.0
 
     precision = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
     recall = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
@@ -78,7 +73,7 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
     predict_time = get_mean_time(results_df, ["predict_time", "detection_time", "segmentation_split_time"])
     train_time = get_mean_time(results_df, ["train_time", "fitting_time"])
 
-    return {
+    out_dict = {
         "f1": float(
             (2 * prec_corr * recall / (prec_corr + recall))
             if (prec_corr + recall) > 0
@@ -97,6 +92,30 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         "total_negatives": int(tot_neg),
         "channels": int(len(results_df) - (1 if not global_row.empty else 0)),
     }
+
+    # Add extra metrics requested from GLOBAL row
+    extra_metrics = [
+        "n_anomalies", "n_detected", "true_positives", "false_positives", "false_negatives",
+        "precision", "recall", "f1", "tnr", "test_length", "test_negatives", "detected_negatives",
+        "precision_corrected", "corrected_f0.5", "corrected_f1", "adtqc_n_before", "adtqc_n_after",
+        "adtqc_after_rate", "adtqc_score", "total_segmentation_time", "total_segmentation_cpu",
+        "total_segmentation_mem", "feature_extraction_time", "feature_extraction_cpu",
+        "feature_extraction_mem", "feature_selection_time", "feature_selection_cpu", "feature_selection_mem"
+    ]
+    
+    if not global_row.empty:
+        row = global_row.iloc[0]
+        for m in extra_metrics:
+            # Filter efficiency metrics if requested
+            if not include_efficiency and any(x in m.lower() for x in ["cpu", "mem", "time"]):
+                continue
+                
+            if m in row:
+                val = row[m]
+                if pd.notna(val):
+                    out_dict[m] = val
+                    
+    return out_dict
 
 
 def parse_args():
@@ -125,9 +144,21 @@ def parse_args():
     )
     p.add_argument(
         "--print_tables",
-        default=True,
+        default=False,
         action="store_true",
         help="Print tables in console (tabulate).",
+    )
+    p.add_argument(
+        "--include-efficiency",
+        default=False,
+        action="store_true",
+        help="Include efficiency metrics (CPU, Memory, Time) in the output.",
+    )
+    p.add_argument(
+        "--min-channels",
+        type=int,
+        default=50,
+        help="Minimum number of channels to include an experiment.",
     )
     return p.parse_args()
 
@@ -164,7 +195,7 @@ def render_and_export(
             print(f"Salvato in: {csv_path}")
 
     summary_path = os.path.join(output_dir, "summary_all.csv")
-    out_df.sort_values(["dataset", "f1"], ascending=[True, False]).to_csv(
+    out_df.sort_values(["dataset", "f0.5"], ascending=[True, False]).to_csv(
         summary_path, index=False
     )
     if print_tables:
@@ -225,7 +256,7 @@ def main():
         dataset_name = DATASET_ALIAS.get(found_ds, found_ds.upper())
         res_df = pd.read_csv(csv_path)
 
-        scores = compute_experiment_scores(results_df=res_df)
+        scores = compute_experiment_scores(results_df=res_df, include_efficiency=args.include_efficiency)
         if not scores:
             continue
 
@@ -234,6 +265,12 @@ def main():
     out_df = pd.DataFrame(rows)
     if out_df.empty:
         return
+
+    if args.min_channels > 0:
+        out_df = out_df[out_df["channels"] >= args.min_channels]
+        if out_df.empty:
+            print(f"Nessun esperimento trovato con almeno {args.min_channels} canali.")
+            return
 
     render_and_export(
         out_df=out_df,
