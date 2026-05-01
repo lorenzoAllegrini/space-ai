@@ -4,7 +4,7 @@ import pandas as pd
 from .anomaly_detector import AnomalyDetector
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
 
 class ThresholdDetector(AnomalyDetector):
     """Simple threshold-based anomaly detector with EWMA smoothing.
@@ -84,7 +84,7 @@ class ThresholdDetector(AnomalyDetector):
             
             q5, q50, q95 = np.quantile(scores, [0.05, 0.5, 0.95])
 
-            logging.info(f"[THRESHOLD] Detector calibrated with threshold: {self.threshold:.6f}")
+            logging.debug(f"[THRESHOLD] Detector calibrated with threshold: {self.threshold:.6f}")
 
         return self
 
@@ -117,8 +117,8 @@ class ThresholdDetector(AnomalyDetector):
                     scores = pd.Series(scores).ewm(alpha=self.smoothing_alpha, adjust=False).mean().values
                 
                 self._last_ewma = scores[-1]
-            if len(scores) > 0:
-                print(f"[THRESHOLD DEBUG] Applying threshold {self.threshold:.6f} to {len(scores)} scores (Min={np.min(scores):.6f}, Max={np.max(scores):.6f})")
+# if len(scores) > 0:
+            #     print(f"[THRESHOLD DEBUG] Applying threshold {self.threshold:.6f} to {len(scores)} scores (Min={np.min(scores):.6f}, Max={np.max(scores):.6f})")
             
             return (scores > self.threshold).astype(int) if self.threshold is not None else np.zeros(len(scores), dtype=int)
 

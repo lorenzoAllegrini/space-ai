@@ -30,4 +30,4 @@ def set_seed(seed: int = 42):
         except Exception:
             pass
             
-    logging.info(f"Global seed set to {seed} for reproducibility.")
+    logging.debug(f"Global seed set to {seed} for reproducibility.")

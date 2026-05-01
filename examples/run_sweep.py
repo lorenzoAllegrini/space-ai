@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Generator, List, Tuple
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="[%(asctime)s] %(levelname)s - %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -54,21 +54,21 @@ def build_combinations(config: Dict[str, Any]) -> Generator[Dict[str, Any], None
     sweep_params = _flatten_lists(config)
 
     if not sweep_params:
-        logger.info("No sweep parameters found. Running a single experiment.")
+        logger.debug("No sweep parameters found. Running a single experiment.")
         yield config
         return
 
     keys = list(sweep_params.keys())
     value_lists = [sweep_params[k] for k in keys]
 
-    logger.info(f"Sweep parameters detected ({len(keys)}):")
+    logger.debug(f"Sweep parameters detected ({len(keys)}):")
     for k, vals in zip(keys, value_lists):
         logger.info(f"  {k}: {vals}")
 
     total = 1
     for v in value_lists:
         total *= len(v)
-    logger.info(f"Total combinations: {total}")
+    logger.debug(f"Total combinations: {total}")
 
     for combo in itertools.product(*value_lists):
         cfg_copy = copy.deepcopy(config)
@@ -81,15 +81,8 @@ def build_combinations(config: Dict[str, Any]) -> Generator[Dict[str, Any], None
             else:
                 combo_parts.append(f"{short_k}_{v}")
         
-        original_run_id = cfg_copy.get("run_id", "")
-        
-        ch = cfg_copy.get("challenge", False)
-        if "challenge" not in keys:
-            prefix = "ch" + ("T" if ch else "F")
-            if original_run_id:
-                original_run_id += f"_{prefix}"
-            else:
-                original_run_id = prefix
+        model_name = cfg_copy.get("model", "model")
+        original_run_id = model_name
 
         if original_run_id:
             cfg_copy["run_id"] = f"{original_run_id}_{'_'.join(combo_parts)}"
@@ -117,17 +110,17 @@ def run_script_for_config(script: str, config: Dict[str, Any], index: int, total
         "--config", str(tmp_config_path),
     ] + extra_args
 
-    logger.info(f"\n{'='*60}")
-    logger.info(f"Combination {index}/{total}: {config.get('run_id')}")
-    logger.info(f"Command: {' '.join(cmd)}")
-    logger.info(f"{'='*60}")
+    logger.debug(f"\n{'='*60}")
+    logger.debug(f"Combination {index}/{total}: {config.get('run_id')}")
+    logger.debug(f"Command: {' '.join(cmd)}")
+    logger.debug(f"{'='*60}")
 
     result = subprocess.run(cmd, check=False)
 
     if result.returncode != 0:
         logger.warning(f"Script exited with code {result.returncode} for combo {index}. Continuing...")
     else:
-        logger.info(f"Combination {index}/{total} completed successfully.")
+        logger.debug(f"Combination {index}/{total} completed successfully.")
 
     return result.returncode
 
@@ -162,7 +155,7 @@ def main():
             script_path = "examples/run_continual_pipeline.py"
         else:
             script_path = "examples/run_pipeline.py"
-        logger.info(f"Auto-selected script: {script_path}")
+        logger.debug(f"Auto-selected script: {script_path}")
     
     if not os.path.exists(script_path):
         # Try local path if examples/ prefix is missing
@@ -199,7 +192,7 @@ def main():
             if args.stop_on_error:
                 sys.exit(rc)
 
-    logger.info(f"\nSweep finished. Success: {total - len(failed) - len(skipped)}/{total} (Skipped: {len(skipped)})")
+    logger.debug(f"\nSweep finished. Success: {total - len(failed) - len(skipped)}/{total} (Skipped: {len(skipped)})")
     if failed:
         logger.warning(f"Failed combos: {failed}")
         sys.exit(1)

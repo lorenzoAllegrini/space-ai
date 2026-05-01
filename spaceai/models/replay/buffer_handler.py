@@ -75,10 +75,10 @@ class BufferHandler(CallbackMixin):
             
 
             if len(retrain_data) > 0:
-                print(f"[BUFFER] Adding {len(retrain_data)} nominal samples to replay buffer (Buffer size: {len(self.buffer)}/{self.buffer.max_size})")
+                # print(f"[BUFFER] Adding {len(retrain_data)} nominal samples to replay buffer (Buffer size: {len(self.buffer)}/{self.buffer.max_size})")
                 self.buffer.add(retrain_data, y=retrain_labels)
-            else:
-                print("[BUFFER] Warning: No nominal samples found to add to buffer.")
+            # else:
+            #     print("[BUFFER] Warning: No nominal samples found to add to buffer.")
         return X, y
 
     def sample(
@@ -95,14 +95,14 @@ class BufferHandler(CallbackMixin):
         with self._callback_context("buffer_handler_sample", results):
             buffer_size = len(self.buffer) if self.buffer is not None else 0
             if buffer_size == 0:
-                print("[BUFFER] Replay buffer is empty, skipping sampling.")
+                # print("[BUFFER] Replay buffer is empty, skipping sampling.")
                 return X, y
                 
             sample_size = getattr(self.buffer, 'sample_size', 1000)
             sampled_X, sampled_y = self.buffer.sample(sample_size=sample_size, results=results)
             
             if len(sampled_X) > 0:
-                print(f"[BUFFER] Sampling {len(sampled_X)} historical samples and mixing with {len(X)} new samples")
+                # print(f"[BUFFER] Sampling {len(sampled_X)} historical samples and mixing with {len(X)} new samples")
                 if hasattr(self.buffer, '_concatenate'):
                     X = self.buffer._concatenate(sampled_X, X)
                 else:
