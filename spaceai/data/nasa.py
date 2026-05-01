@@ -251,13 +251,13 @@ class NASA(AnomalyDataset):
 
         anomalies: list[list[int]] = []  # Normal by default (train)
 
-        # Load the anomalies for the test data
         if not self.train:
             anomaly_df = pd.read_csv(os.path.join(self.split_folder, "anomalies.csv"))
             anomaly_df = anomaly_df[anomaly_df["chan_id"] == self.channel_id]
             anomaly_seq_df = anomaly_df["anomaly_sequences"]
             if len(anomaly_seq_df) > 0:
                 anomalies = ast.literal_eval(anomaly_seq_df.values[0])
+                logging.debug("NASA: Loaded %d anomaly sequences for channel %s", len(anomalies), self.channel_id)
             else:
                 logging.warning("No anomalies found for channel %s", self.channel_id)
 
@@ -274,3 +274,12 @@ class NASA(AnomalyDataset):
         if self.feature_indices is not None:
             return len(self.feature_indices)
         return self.data.shape[-1]
+
+    @property
+    def labels(self) -> np.ndarray:
+        """Return the anomaly labels for the dataset."""
+        labels = np.zeros(len(self.data), dtype=int)
+        if self.anomalies:
+            for start, end in self.anomalies:
+                labels[int(start) : int(end) + 1] = 1
+        return labels

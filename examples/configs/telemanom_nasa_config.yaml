@@ -1,14 +1,13 @@
 # telemanom_nasa_config.yaml
-# Test configuration for Telemanom integration
-
+# Test configuration for Telemanom integration on NASA dataset
 base_dir: "./datasets"           
 exp_dir: "experiments_telemanom"
 dataset: "nasa"               
-mission_id: 1
 model: "telemanom"
 feature_extractor: "none"
 use_telecommands: False
 segmentator: false
+detector: none
 n_predictions: 10
 
 base_classifier_params:

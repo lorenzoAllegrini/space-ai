@@ -91,6 +91,7 @@ class Telemanom(ErrorBasedDetector):
         self.y_true_window = np.array([])
         self.y_true_buffer = np.array([])
         self.n_window: int = 0
+        self.n_eval_total: int = 0  # Added for global index tracking
 
     def compute_error(  # type: ignore[override]
         self,
@@ -184,6 +185,19 @@ class Telemanom(ErrorBasedDetector):
             ]
 
         return e_seqs
+
+    def reset_state(self):
+        """Reset the internal state of the detector."""
+        self.window = np.array([])
+        self.eval_buffer = np.array([])
+        self.y_true_window = np.array([])
+        self.y_true_buffer = np.array([])
+        self.n_window = 0
+        self.n_eval_total = 0
+        if hasattr(self, 'ewma'):
+            self.ewma.history = np.array([])
+            self.ewma.ewma = np.array([])
+            self.ewma.last_val = None
 
     def flush_detector(self) -> List[Tuple[int, int]]:  # type: ignore[override]
         self.window = np.append(self.window, self.eval_buffer)[-self.window_size :]

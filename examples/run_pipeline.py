@@ -30,7 +30,15 @@ warnings.simplefilter("ignore", FutureWarning)
 
 def run_exp(args, other_args=None):
     """Run decoupled pipeline experiment."""
-    set_seed(getattr(args, 'seed', 40))
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    # Silence third-party debug logs
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    
+    set_seed(getattr(args, 'seed', 42))
 
     wrapper_params = getattr(args, 'wrapper_params', {})
     calibration_perc = getattr(args, 'calibration_perc',
@@ -157,7 +165,7 @@ def run_exp(args, other_args=None):
                             "train": PhaseConfig(method="filter", supervised=True),
                             "calibration": PhaseConfig(method="filter", supervised=True),
                         }
-                    ) if detector is not None else None,
+                    ) if detector else None,
                     PipelineStep(
                         name="base_classifier",
                         processor=clf,
@@ -174,8 +182,8 @@ def run_exp(args, other_args=None):
                             "calibration": PhaseConfig(method="fit", supervised=True),
                             "predict": "detect"
                         }
-                    ) if detector is not None else None,
-                ] if ps is not None
+                    ) if detector else None,
+                ] if ps
             ],
             eval_perc=None,
             phase_map={"fit": fit_phases, "predict": ["predict"]}

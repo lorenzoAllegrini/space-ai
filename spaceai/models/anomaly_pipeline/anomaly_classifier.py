@@ -215,6 +215,7 @@ class AnomalyDetectionPipeline:
         
         if not found_splitter or state.intervals is None or state.indices is None:
             anoms = getattr(channel_data, "anomalies", [])
+            logging.debug("AnomalyDetectionPipeline: Splitter not found or no intervals. Using raw dataset anomalies: %d", len(anoms))
             return [[int(s), int(e)] for s, e in anoms]
 
         sample_intervals = []
@@ -222,7 +223,8 @@ class AnomalyDetectionPipeline:
             s_idx = int(state.indices[max(0, ws)][0])
             e_idx = int(state.indices[min(we, len(state.indices)-1)][1])
             sample_intervals.append((s_idx, e_idx))
-                
+        
+        logging.debug("AnomalyDetectionPipeline: Prepared %d sample intervals from %d segments", len(sample_intervals), len(state.intervals))
         return sample_intervals
 
     def _split_timeseries(
