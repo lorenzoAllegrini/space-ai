@@ -27,7 +27,7 @@ def parse_exp_args(str_args=None):
     """Parse experiment arguments with YAML config support."""
     
     conf_parser = argparse.ArgumentParser(add_help=False)
-    conf_parser.add_argument("--config", type=str, default=None, 
+    conf_parser.add_argument("--config", type=str, default=None,
                              help="Path to the YAML configuration file")
     
     args, remaining_argv = conf_parser.parse_known_args(str_args)
@@ -60,7 +60,7 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--dataset", choices=DATASET_LIST)
     parser.add_argument("--mission-id", type=int)
     parser.add_argument("--model", choices=MODEL_LIST)
-    parser.add_argument("--segmentator", action="store_true")
+    parser.add_argument("--segmentator", default=True)
     parser.add_argument("--feature-extractor", choices=FEATURE_EXTRACTOR_LIST)
     parser.add_argument("--channels", type=str, nargs="+")
     parser.add_argument("--n-kernel", type=int)
