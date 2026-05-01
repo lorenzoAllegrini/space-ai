@@ -24,6 +24,7 @@ from spaceai.models.anomaly_pipeline.anomaly_classifier import AnomalyDetectionP
 import time
 from spaceai.models.detectors import ThresholdDetector, MoLooKDEDetector
 from spaceai.models.classifiers import DPMMDetector
+from spaceai.model_selection import PhaseSplitter
 warnings.simplefilter("ignore", FutureWarning)
 
 
@@ -32,8 +33,14 @@ def run_exp(args, other_args=None):
     set_seed(getattr(args, 'seed', 40))
 
     wrapper_params = getattr(args, 'wrapper_params', {})
+    calibration_perc = getattr(args, 'calibration_perc',
+                               wrapper_params.get('calibration_perc', None))
+    validation_perc = getattr(args, 'validation_perc',
+                              wrapper_params.get('validation_perc', None))
     eval_perc = getattr(args, 'eval_perc',
                         wrapper_params.get('eval_perc', None))
+    if calibration_perc is None and eval_perc is not None:
+        calibration_perc = eval_perc
     filter_valid = getattr(args, 'filter_valid', wrapper_params.get(
         'filter_valid', wrapper_params.get('filter_valid_for_detector', False)))
 
@@ -58,8 +65,8 @@ def run_exp(args, other_args=None):
         if args.model == "dpmm":
             run_id += f"_{args.dpmm_type}_{args.dpmm_mode}"
 
-        if eval_perc is not None:
-            run_id += f"_eval_perc{eval_perc}"
+        if calibration_perc is not None or validation_perc is not None:
+            run_id += f"_cal{calibration_perc}_val{validation_perc}"
 
         base_params = getattr(args, 'base_classifier_params', {})
         ds = base_params.get('dynamic_scaling', False)
@@ -84,7 +91,13 @@ def run_exp(args, other_args=None):
     )
     channels = benchmark.channels if args.channels is None else args.channels
 
-    for channel_name in channels:
+    temporal_validation = getattr(args, 'temporal_validation', False)
+    val_train_end = getattr(args, 'val_train_end_date', "2005-01-01")
+    val_test_start = getattr(args, 'val_test_start_date', "2005-01-01")
+    val_test_end = getattr(args, 'val_test_end_date', "2007-01-01")
+
+    def _build_pipeline(channel_name):
+        """Build a fresh AnomalyDetectionPipeline for a given channel."""
         ts_splitter = TimeSeriesSplitter(
             window_size=args.window_size,
             step_size=args.step_size,
@@ -103,39 +116,54 @@ def run_exp(args, other_args=None):
             callback_handler=handler
         )
 
-        classifier, is_supervised = create_classifier(args, other_args)
+        clf, _ = create_classifier(args, other_args)
 
-        pipeline = AnomalyDetectionPipeline(
+        fit_phases = ["train"]
+        phase_percs = {}
+        if calibration_perc and calibration_perc > 0:
+            fit_phases.append("calibration")
+            phase_percs["calibration"] = calibration_perc
+
+        phase_splitter = PhaseSplitter(phases=phase_percs) if phase_percs else None
+
+        return AnomalyDetectionPipeline(
             steps=[
                 ps for ps in [
                     PipelineStep(
                         name="ts_splitter",
                         processor=ts_splitter,
-                        phases={"train": None, "val": None, "predict": None}
-                    ) if args.segmentator else None,
+                        phases={"train": None, "predict": None}
+                    ),
                     PipelineStep(
                         name="feature_extractor",
                         processor=feature_extractor,
                         phases={
                             "train": PhaseConfig(method="fit_transform", supervised=True),
-                            "val": PhaseConfig(method="transform", supervised=True),
                             "predict": "transform"
                         }
                     ),
+                    PipelineStep(
+                        name="phase_splitter",
+                        processor=phase_splitter,
+                        phases={
+                            "train": PhaseConfig(method="split", supervised=True),
+                            "calibration": PhaseConfig(method="switch_phase", supervised=True),
+                        }
+                    ) if phase_splitter is not None else None,
                     PipelineStep(
                         name="data_filter",
                         processor=detector,
                         phases={
                             "train": PhaseConfig(method="filter", supervised=True),
-                            "val": PhaseConfig(method="filter", supervised=True),
+                            "calibration": PhaseConfig(method="filter", supervised=True),
                         }
-                    ),
+                    ) if detector is not None else None,
                     PipelineStep(
                         name="base_classifier",
-                        processor=classifier,
+                        processor=clf,
                         phases={
                             "train": PhaseConfig(method="fit", supervised=True),
-                            "val": PhaseConfig(method="predict", supervised=True),
+                            "calibration": PhaseConfig(method="predict", supervised=True),
                             "predict": "predict"
                         }
                     ),
@@ -143,21 +171,54 @@ def run_exp(args, other_args=None):
                         name="detector",
                         processor=detector,
                         phases={
-                            "val": PhaseConfig(method="fit", supervised=True),
+                            "calibration": PhaseConfig(method="fit", supervised=True),
                             "predict": "detect"
                         }
-                    ),
+                    ) if detector is not None else None,
                 ] if ps is not None
             ],
-            eval_perc=eval_perc,
-            phase_map={"fit": ["train", "val"], "predict": ["predict"]}
+            eval_perc=None,
+            phase_map={"fit": fit_phases, "predict": ["predict"]}
         )
 
-        dataset_kwargs = {}
-        if hasattr(args, 'challenge'):
-            dataset_kwargs["challenge"] = getattr(args, 'challenge')
-            dataset_kwargs["n_predictions"] = getattr(args, 'n_predictions', 1)
+    dataset_kwargs = {}
+    if hasattr(args, 'challenge'):
+        dataset_kwargs["challenge"] = getattr(args, 'challenge')
+        dataset_kwargs["n_predictions"] = getattr(args, 'n_predictions', 1)
 
+    # ── Pass 1: Temporal Validation (optional) ──
+    if temporal_validation:
+        logging.info("=== Temporal Validation Pass ===")
+        benchmark.results_filename = "validation_results.csv"
+        benchmark.date_overrides["train_end_date"] = val_train_end
+        benchmark.date_overrides["test_start_date"] = val_test_start
+        benchmark.date_overrides["test_end_date"] = val_test_end
+
+        for channel_name in channels:
+            pipeline = _build_pipeline(channel_name)
+            fitted_classifier, _ = benchmark.fit_channel(
+                channel_id=channel_name,
+                classifier=pipeline,
+                **dataset_kwargs
+            )
+            benchmark.test_channel(
+                channel_id=channel_name,
+                classifier=fitted_classifier,
+                **dataset_kwargs
+            )
+
+        if isinstance(benchmark, ESABenchmark):
+            benchmark.compute_global_event_metrics(channels=channels)
+
+        benchmark.reset()
+
+    # ── Pass 2: Full Test ──
+    logging.info("=== Full Test Pass ===")
+    # Restore default date overrides (from original config or ESAMission defaults)
+    benchmark.date_overrides = date_overrides.copy()
+
+    for channel_name in channels:
+        pipeline = _build_pipeline(channel_name)
         fitted_classifier, fitting_metrics = benchmark.fit_channel(
             channel_id=channel_name,
             classifier=pipeline,

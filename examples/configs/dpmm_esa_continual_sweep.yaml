@@ -29,7 +29,14 @@ replay_detector_params:
   smoothing_alpha: [0.7, 0.4]
   threshold_alpha: 0.5
 
-eval_perc: 0.6
+calibration_perc: 0.6
+
+# Temporal Validation: train up to val_train_end, test from val_test_start to val_test_end
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+
 filter_valid: true
 
 feature_extractor: 

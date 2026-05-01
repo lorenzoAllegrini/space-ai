@@ -49,12 +49,14 @@ class SklearnClassifier(BaseClassifier):
         model: Any, 
         supervised: bool = False, 
         return_labels: bool = False, 
+        return_proba: bool = False,
         callback_handler: Optional[CallbackHandler] = None
     ):
         super().__init__(callback_handler=callback_handler)
         self.model = model
         self.supervised = supervised
         self.return_labels = return_labels
+        self.return_proba = return_proba
 
     def fit(
         self, 
@@ -64,10 +66,12 @@ class SklearnClassifier(BaseClassifier):
         **kwargs
     ) -> "SklearnClassifier":
         with self._callback_context("classifier_fit", results):
+            X_arr = np.asarray(X)
             if self.supervised and y is not None:
-                self.model.fit(X, y)
+                self.model.fit(X_arr, y)
             else:
-                self.model.fit(X)
+                self.model.fit(X_arr)
+        self.is_fitted_ = True
         return self
 
     def predict(
@@ -77,17 +81,25 @@ class SklearnClassifier(BaseClassifier):
         **kwargs
     ) -> np.ndarray:
         with self._callback_context("classifier_predict", results):
+            X_arr = np.asarray(X)
             
             if self.return_labels:
-                return self.model.predict(X)
-
-            if hasattr(self.model, "decision_function"):
-                return self.model.decision_function(X)
-                
-            if hasattr(self.model, "predict_proba"):
-                probs = self.model.predict_proba(X)
+                res = self.model.predict(X_arr)
+            elif self.return_proba and hasattr(self.model, "predict_proba"):
+                probs = self.model.predict_proba(X_arr)
                 if probs.ndim > 1 and probs.shape[1] == 2:
-                    return probs[:, 1]
-                return probs
-                
-            return self.model.predict(X)
+                    res = probs[:, 1]
+                else:
+                    res = probs
+            elif hasattr(self.model, "decision_function"):
+                res = self.model.decision_function(X_arr)
+            elif hasattr(self.model, "predict_proba"):
+                probs = self.model.predict_proba(X_arr)
+                if probs.ndim > 1 and probs.shape[1] == 2:
+                    res = probs[:, 1]
+                else:
+                    res = probs
+            else:
+                res = self.model.predict(X_arr)
+            
+            return np.asarray(res)

@@ -47,11 +47,13 @@ class ThresholdDetector(AnomalyDetector):
             return
             
         # Handle cases with multiple columns (take the first if ambiguous)
-        if len(scores.shape) > 1 and scores.shape[1] > 1:
+        if len(scores.shape) > 1 and scores.shape[1] > 0:
             if hasattr(scores, "iloc"):
-                scores = scores.iloc[:, 0]
+                scores = scores.iloc[:, 0].values
             else:
                 scores = scores[:, 0]
+                
+        scores = np.asarray(scores).flatten()
             
         
         with self._callback_context("detector_fit", results):
@@ -74,11 +76,11 @@ class ThresholdDetector(AnomalyDetector):
                 
                 if self.quantile > 1.0:
                     new_threshold *= self.quantile
-            
-            if self.threshold is not None:
-                self.threshold = self.threshold_alpha * new_threshold + (1-self.threshold_alpha) * self.threshold
-            else:
-                self.threshold = new_threshold
+                    
+                if self.threshold is not None:
+                    self.threshold = self.threshold_alpha * new_threshold + (1-self.threshold_alpha) * self.threshold
+                else:
+                    self.threshold = new_threshold
             
             q5, q50, q95 = np.quantile(scores, [0.05, 0.5, 0.95])
 
@@ -115,6 +117,9 @@ class ThresholdDetector(AnomalyDetector):
                     scores = pd.Series(scores).ewm(alpha=self.smoothing_alpha, adjust=False).mean().values
                 
                 self._last_ewma = scores[-1]
+            if len(scores) > 0:
+                print(f"[THRESHOLD DEBUG] Applying threshold {self.threshold:.6f} to {len(scores)} scores (Min={np.min(scores):.6f}, Max={np.max(scores):.6f})")
+            
             return (scores > self.threshold).astype(int) if self.threshold is not None else np.zeros(len(scores), dtype=int)
 
 
@@ -141,7 +146,7 @@ class ThresholdDetector(AnomalyDetector):
             if y is not None:
                 y_filtered = y[mask]
             
-        return X_filtered, y_filtered, mask
+        return X_filtered, y_filtered
 
     def detect_anomalies(
         self, y_pred: np.ndarray, y_true: np.ndarray, **kwargs

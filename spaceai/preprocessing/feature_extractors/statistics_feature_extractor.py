@@ -8,6 +8,8 @@ from typing import (
     Union
 )
 import os
+import json
+import logging
 import numpy as np
 import pandas as pd  # type: ignore
 
@@ -55,7 +57,8 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         self, 
         X: np.ndarray, 
         y=None,
-        results: Optional[Dict[str, Any]] = None
+        results: Optional[Dict[str, Any]] = None,
+        **kwargs
     ):
         """
         Fit the feature extractor.
@@ -69,7 +72,7 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                     raise ValueError("y must be provided for feature selection")
                 
                 X_features = self.transform(X, results=results)
-                self.select_features(X_features, y, results=results)
+                self.select_features(X_features, y, results=results, **kwargs)
         
         self.is_fitted = True
         return self
@@ -80,7 +83,8 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         X: Union[np.ndarray, Any],
         results: Optional[Dict[str, Any]] = None,
         save_dir: Optional[str] = None,
-        suffix: str = ""
+        suffix: str = "",
+        **kwargs
     ) -> Union[pd.DataFrame, Any]:
         """
         Extract statistical features from batches of segments.
@@ -88,12 +92,16 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         """
         if hasattr(X, "data") and not isinstance(X, (np.ndarray, pd.DataFrame)):
             msg = X
-            msg.data = self.transform(msg.data, results=results, save_dir=save_dir, suffix=suffix)
+            msg.data = self.transform(msg.data, results=results, save_dir=save_dir, suffix=suffix, **kwargs)
             return msg
 
         data = X
         if isinstance(X, pd.DataFrame) or isinstance(X, pd.Series):
             data = X.values
+
+        # Resolve save_dir from results_dir if not provided
+        if not save_dir:
+            save_dir = kwargs.get("results_dir") or kwargs.get("save_dir")
 
         different_lengths = False
 
@@ -141,7 +149,8 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         self, 
         X_features: pd.DataFrame, 
         y: np.ndarray,
-        results: Optional[Dict[str, Any]] = None
+        results: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> pd.DataFrame:
         """
         Select features that minimize false positives on anomalies by 
@@ -152,7 +161,24 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         precision_selector = SelectKBest(score_func=tail_f01_score, k=self.max_features)
         precision_selector.fit(X_clean.values, y)
 
-        feature_scores = sorted(zip(X_features.columns, precision_selector.scores_), key=lambda x: x[1], reverse=True)
+        # Custom preference weight for ESA domain expertise
+        PREFERENCE_ORDER = {
+            "spectral_centroid": 11.0,  # User Priority 1
+            "trend_slope": 10.0,        # User Priority 2
+            "dom_freq_energy": 9.0,
+            "root_mean_square": 8.0,
+            "cusum_deviation": 7.0,
+            "signal_monotonicity": 6.0,
+            "max": 5.0,
+            "min": 4.0
+        }
+
+        # Sort primarily by importance score, secondarily by our preference order (tie-breaker)
+        feature_scores = sorted(
+            zip(X_features.columns, precision_selector.scores_), 
+            key=lambda x: (x[1], PREFERENCE_ORDER.get(x[0], 0.0)), 
+            reverse=True
+        )
         
         correlation_threshold = 0.8
         corr_matrix = X_clean.corr().abs()
@@ -173,6 +199,30 @@ class StatisticsFeatureExtractor(FeatureExtractor):
                     
         feature_scores = filtered_feature_scores
 
+        # METADATA SAVE: Put in the results metadata for the pipeline to merge into PipelineState
+        try:
+            # 1. Store in results["metadata"] for the pipeline to propagate back to state
+            if results is not None:
+                if "metadata" not in results:
+                    results["metadata"] = {}
+                results["metadata"]["feature_importance_scores"] = feature_scores
+            
+            # 2. Keep the analysis dump for easy access
+            dump_dir = "feature_scores_analysis"
+            os.makedirs(dump_dir, exist_ok=True)
+            
+            # Get channel_id from metadata in results if available, otherwise unknown
+            channel_id = "unknown"
+            if results and "metadata" in results:
+                channel_id = results["metadata"].get("channel_id", "unknown")
+            elif "channel_id" in kwargs:
+                channel_id = kwargs["channel_id"]
+                
+            save_path = os.path.join(dump_dir, f"{channel_id}_scores.csv")
+            pd.DataFrame(feature_scores, columns=['feature_name', 'importance_score']).to_csv(save_path, index=False)
+        except Exception:
+            pass
+
         selected_feature_names = []
 
         for i, (f_name, f_score) in enumerate(feature_scores):
@@ -187,8 +237,25 @@ class StatisticsFeatureExtractor(FeatureExtractor):
         
         # Ensure at least one feature is selected (the top one from feature_scores)
         if len(selected_feature_names) == 0 and len(feature_scores) > 0:
-            selected_feature_names.append(feature_scores[0][0])
+                selected_feature_names.append(feature_scores[0][0])
         
+        # Log and save selected features
+        selected_info = [f"{name} ({score:.4f})" for name, score in feature_scores if name in selected_feature_names]
+        logging.info("Selected features: %s", selected_feature_names)
+
+        if results is not None:
+            results["selected_features"] = ",".join(selected_feature_names)
+
+        # Save to JSON if results_dir or save_dir is provided
+        save_dir = kwargs.get("results_dir") or kwargs.get("save_dir")
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+            json_save_path = os.path.join(save_dir, "selected_features.json")
+            with open(json_save_path, "w") as f:
+                json.dump({
+                    "selected_features": selected_feature_names,
+                    "all_scores": {name: float(score) for name, score in feature_scores}
+                }, f, indent=2)
 
         self.transformations = {
             name: func 

@@ -58,10 +58,6 @@ class BufferHandler(CallbackMixin):
             if self.replay_detector is None:
                 return X, y
 
-            if is_fit:
-                self.replay_detector.fit(X, y=y, results=results)
-                return X, y
-
             retrain_mask = self.replay_detector.detect(X)
             nominal_idx = (np.array(retrain_mask).flatten() == 0)
             
@@ -79,4 +75,40 @@ class BufferHandler(CallbackMixin):
             
 
             if len(retrain_data) > 0:
+                print(f"[BUFFER] Adding {len(retrain_data)} nominal samples to replay buffer (Buffer size: {len(self.buffer)}/{self.buffer.max_size})")
                 self.buffer.add(retrain_data, y=retrain_labels)
+            else:
+                print("[BUFFER] Warning: No nominal samples found to add to buffer.")
+        return X, y
+
+    def sample(
+        self, 
+        X: np.ndarray,
+        y: Optional[np.ndarray] = None, 
+        results: Optional[Dict[str, Any]] = None, 
+        **kwargs
+    ) -> tuple[np.ndarray, Optional[np.ndarray]]: 
+        """
+        Samples from the replay buffer and combines with X.
+        Intended to be used only in the training phase.
+        """
+        with self._callback_context("buffer_handler_sample", results):
+            buffer_size = len(self.buffer) if self.buffer is not None else 0
+            if buffer_size == 0:
+                print("[BUFFER] Replay buffer is empty, skipping sampling.")
+                return X, y
+                
+            sample_size = getattr(self.buffer, 'sample_size', 1000)
+            sampled_X, sampled_y = self.buffer.sample(sample_size=sample_size, results=results)
+            
+            if len(sampled_X) > 0:
+                print(f"[BUFFER] Sampling {len(sampled_X)} historical samples and mixing with {len(X)} new samples")
+                if hasattr(self.buffer, '_concatenate'):
+                    X = self.buffer._concatenate(sampled_X, X)
+                else:
+                    X = np.concatenate([np.array(sampled_X), X], axis=0)
+                    
+                if y is not None and sampled_y is not None:
+                    y = np.concatenate([np.array(sampled_y), y], axis=0)
+                    
+        return X, y

@@ -41,6 +41,7 @@ class Benchmark:
         self.exp_dir = exp_dir
         self.data_root: str = data_root
         self.save_metadata: bool = save_metadata
+        self.results_filename: str = "results.csv"
         self.all_results: List[Dict[str, Any]] = []
         self.processed_channels: set[str] = set()
         self.channel_fit_metrics: Dict[str, Dict[str, Any]] = {}
@@ -51,6 +52,18 @@ class Benchmark:
         self.event_labels_global: List[Any] = []
         self.predicted_events_global: List[Any] = []
         self.global_y_pred: Optional[np.ndarray] = None
+
+    def reset(self) -> None:
+        """Reset all accumulated state so the benchmark can be reused for a new pass."""
+        self.results_filename = "results.csv"
+        self.all_results = []
+        self.processed_channels = set()
+        self.channel_fit_metrics = {}
+        self.trained_classifiers = {}
+        self.global_results = {"channel_id": "GLOBAL_EVENT_LEVEL"}
+        self.event_labels_global = []
+        self.predicted_events_global = []
+        self.global_y_pred = None
 
     def set_classifier(self, channel_id: str, classifier: Any):
         """Manually inject a pre-trained classifier into the benchmark state.
@@ -172,7 +185,7 @@ class Benchmark:
 
         self.all_results.append(report_results)
         pd.DataFrame.from_records(self.all_results).to_csv(
-            os.path.join(self.run_dir, "results.csv"), index=False
+            os.path.join(self.run_dir, self.results_filename), index=False
         )
 
         if getattr(self, "global_y_pred", None) is not None:
@@ -216,8 +229,8 @@ class Benchmark:
             os.makedirs(chan_results_dir, exist_ok=True)
 
         metrics = classifier.fit(train_channel, results_dir=chan_results_dir)
+        
         self.channel_fit_metrics[channel_id] = metrics
-
         self.trained_classifiers[channel_id] = classifier
 
         os.makedirs(self.run_dir, exist_ok=True)
@@ -281,7 +294,7 @@ class Benchmark:
 
         os.makedirs(self.run_dir, exist_ok=True)
         pd.DataFrame.from_records(self.all_results).to_csv(
-            os.path.join(self.run_dir, "results.csv"), index=False
+            os.path.join(self.run_dir, self.results_filename), index=False
         )
 
         if challenge:
@@ -294,15 +307,13 @@ class Benchmark:
             submission_df = pd.DataFrame(
                 {'id': ids, 'is_anomaly': y_pred_pointwise})
             chan_results_dir = os.path.join(self.run_dir, channel_id)
-            os.makedirs(chan_results_dir, exist_ok=True)
-            submission_df.to_csv(os.path.join(
-                chan_results_dir, "submission.csv"), index=False)
-
             if self.global_y_pred is None:
                 self.global_y_pred = y_pred_pointwise.copy()
             else:
-                self.global_y_pred = np.maximum(
-                    self.global_y_pred, y_pred_pointwise)
+                self.global_y_pred = np.maximum(self.global_y_pred, y_pred_pointwise)
+
+            os.makedirs(chan_results_dir, exist_ok=True)
+            submission_df.to_csv(os.path.join(chan_results_dir, "submission.csv"), index=False)
 
         if self.save_metadata:
 
@@ -324,6 +335,8 @@ class Benchmark:
         if true_anomaly_intervals_ts or pred_intervals_ts:
             self._update_global_state(
                 channel_id, results, true_anomaly_intervals_ts, pred_intervals_ts)
+            self._update_global_state(channel_id, results, true_anomaly_intervals_ts, pred_intervals_ts)
+            self._save_feature_scores(channel_id, results)
 
         return results, true_anomaly_intervals_ts, pred_intervals_ts
 
@@ -332,6 +345,7 @@ class Benchmark:
         channel_id: str,
         pred_buffer: int = 2,
         classifier: Optional[AnomalyClassifier] = None,
+        extra_metrics: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Tuple[Dict[str, Any], List[Any], List[Any]]:
         """Tests the fitted anomaly classifier for a given channel using internal state."""
@@ -360,7 +374,8 @@ class Benchmark:
 
         return self._finalize_channel_results(
             channel_id, classifier, test_channel, y_pred, y_true=y_true_aligned,
-            extra_metrics=metrics, pred_buffer=pred_buffer,
+            extra_metrics={**(metrics or {}), **(extra_metrics or {})},
+            pred_buffer=pred_buffer,
             challenge=challenge,
         )
 
@@ -383,14 +398,11 @@ class Benchmark:
                     "Classifier for channel %s not found in state.", channel_id)
                 return {"channel_id": channel_id}
             classifier = self.trained_classifiers[channel_id]
-
-        test_dataset = self.load_channel(
-            channel_id, train=False, overlapping_train=False)
-
-        experience_splitter = TimeSeriesSplitter(
-            window_size=experience_size, step_size=experience_size)
-        splitted = experience_splitter.segment_dataset(
-            test_dataset, return_subsets=True)
+            
+        test_dataset = self.load_channel(channel_id, train=False, overlapping_train=False)
+        
+        experience_splitter = TimeSeriesSplitter(window_size=experience_size, step_size=experience_size, include_remainder=True, ignore_gaps=True)
+        splitted = experience_splitter.segment_dataset(test_dataset, return_subsets=True)
 
         logging.info(
             "Streaming dataset for channel %s experience by experience...", channel_id)
@@ -398,7 +410,26 @@ class Benchmark:
         experience_log = {}
         all_predictions = []
         all_point_labels = []
+        timestamps = getattr(test_dataset, "timestamps", None)
+
+        prev_end_idx = None
+        prev_end_time = None
+
         for i, (data, point_labels, (start_idx, end_idx)) in enumerate(zip(splitted.segments, splitted.labels, splitted.segment_indices)):
+            
+            start_time = timestamps[int(start_idx)] if timestamps is not None else f"idx={start_idx}"
+            end_time = timestamps[int(end_idx)] if timestamps is not None else f"idx={end_idx}"
+            
+            print(f"\n{'='*20}")
+            if prev_end_idx is not None:
+                gap_len = start_idx - prev_end_idx
+                if gap_len > 1:
+                    print(f"[EXPERIENCE GAP] Gap of {gap_len} samples between {prev_end_time} and {start_time}.")
+            print(f"[EXPERIENCE {i}] Size: {len(data)} samples | Period: {start_time} to {end_time}")
+            print(f"{'='*20}")
+            
+            prev_end_idx = end_idx
+            prev_end_time = end_time
 
             if hasattr(classifier, "step"):
                 experience_predictions, metrics = classifier.step(
@@ -408,6 +439,8 @@ class Benchmark:
                     data)
                 train_metrics = classifier.fit(data)
                 metrics = {**test_metrics, **train_metrics}
+
+            
 
             all_predictions.extend(experience_predictions)
             all_point_labels.extend(point_labels)
@@ -443,6 +476,26 @@ class Benchmark:
             json.dump(experience_log, f, indent=2, default=str)
 
         return results
+
+
+    def _save_feature_scores(self, channel_id, metrics):
+        """Helper to save feature importance scores from metrics/metadata."""
+        if not metrics:
+            return
+            
+        metadata = metrics.get("metadata", {})
+        if metadata and "feature_importance_scores" in metadata:
+            try:
+                chan_results_dir = os.path.join(self.run_dir, channel_id)
+                os.makedirs(chan_results_dir, exist_ok=True)
+                
+                scores = metadata["feature_importance_scores"]
+                scores_df = pd.DataFrame(scores, columns=['feature_name', 'importance_score'])
+                scores_save_path = os.path.join(chan_results_dir, "feature_scores.csv")
+                scores_df.to_csv(scores_save_path, index=False)
+                logging.info("Feature scores for %s saved to %s", channel_id, scores_save_path)
+            except Exception as e:
+                logging.warning("Could not save feature scores for %s: %s", channel_id, e)
 
     def _update_global_state(self, channel_id, metrics, true_intervals=None, pred_intervals=None):
         for k, v in metrics.items():
@@ -490,13 +543,10 @@ class Benchmark:
         x_axis = np.arange(n_points)
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
-
-        ax1.plot(x_axis, cum_fp, label='Cumulative False Positives',
-                 color='red', linewidth=2)
-        ax1.plot(x_axis, cum_fn, label='Cumulative False Negatives',
-                 color='orange', linewidth=2)
-        ax1.set_title(
-            f"[{channel_id}] Cumulative Errors over Time")
+        
+        ax1.plot(x_axis, cum_fp, label='Cumulative False Positives', color='red', linewidth=2)
+        ax1.plot(x_axis, cum_fn, label='Cumulative False Negatives', color='orange', linewidth=2)
+        ax1.set_title(f"[{channel_id}] Cumulative Errors over Time ({n_points} points)")
         ax1.set_ylabel("Total Error Count")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
@@ -506,11 +556,12 @@ class Benchmark:
         ax2.set_title(f"[{channel_id}] Rolling False Positive Rate")
         ax2.set_xlabel("Time step")
         ax2.set_ylabel("FPR (%)")
-        ax2.legend()
+        ax2.legend(loc="upper right", frameon=True, shadow=True)
+        ax1.grid(True, alpha=0.3)
         ax2.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=150)
         plt.close(fig)
 
     @staticmethod
