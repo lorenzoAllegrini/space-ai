@@ -21,8 +21,9 @@ from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
 from spaceai.benchmark import Benchmark, ESABenchmark
 from spaceai.models.anomaly_pipeline.anomaly_classifier import AnomalyDetectionPipeline, PipelineStep
 from spaceai.models.replay import TimeDecayReplayBuffer
+from spaceai.models.replay.buffer_handler import BufferHandler
 from spaceai.models.detectors import ThresholdDetector, MoLooKDEDetector
-
+from spaceai.model_selection.validation_splitter import ValidationSplitter
 warnings.simplefilter("ignore", FutureWarning)
 
 from utils.args import parse_exp_args
@@ -116,20 +117,24 @@ def run_exp(args, other_args=None):
             ) if getattr(args, 'replay', 'none') == 'time-decay' else None
 
         replay_detector_params = getattr(args, 'replay_detector_params', {})
-        replay_detector = ThresholdDetector(quantile=1.2, smoothing_alpha=0.4, threshold_alpha=0.7, **replay_detector_params)
+        replay_detector = ThresholdDetector(**replay_detector_params)
+        
+        buffer_handler = BufferHandler(buffer=replay_buffer, replay_detector=replay_detector)
         
         classifier, is_supervised = create_classifier(args, other_args)
 
         from spaceai.models.anomaly_pipeline.anomaly_classifier import PhaseConfig
         
+        validation_splitter = ValidationSplitter(eval_perc=eval_perc)
+
         pipeline = AnomalyDetectionPipeline(
             steps = [
                 PipelineStep(
                     name="ts_splitter", 
                     processor=ts_splitter,
                     phases={
-                        "train": None, "val": None, "predict": None, 
-                        "train_continual": None, "val_continual": None
+                        "train": None,  "predict": None, 
+                        "train_continual": None, 
                     }
                 ),
                 PipelineStep(
@@ -137,28 +142,36 @@ def run_exp(args, other_args=None):
                     processor=feature_extractor,
                     phases={
                         "train": PhaseConfig(method="fit_transform", supervised=True), 
-                        "val": PhaseConfig(method="transform", supervised=True),
+                        #"val": PhaseConfig(method="transform", supervised=True),
                         "predict": "transform", 
                         "train_continual": PhaseConfig(method="fit_transform", supervised=False),
-                        "val_continual": PhaseConfig(method="transform", supervised=False)
+                        #"val_continual": PhaseConfig(method="transform", supervised=False)
                     }
                 ),
                 PipelineStep(
-                    name="data_filter", 
-                    processor=replay_detector,
+                    name="validation_splitter", 
+                    processor=validation_splitter,
                     phases={
-                        "train": PhaseConfig(method="filter", supervised=True),
-                        "val": PhaseConfig(method="filter", supervised=True),
-                        "train_continual": PhaseConfig(method="filter", supervised=False),
-                        "val_continual": PhaseConfig(method="filter", supervised=False)
-                    }  
+                        "train": PhaseConfig(method="split", supervised=True), 
+                        "val": PhaseConfig(method="inject_val", supervised=True),
+                        "train_continual": PhaseConfig(method="split", supervised=False), 
+                        "val_continual": PhaseConfig(method="inject_val", supervised=False),
+                    }
                 ),
                 PipelineStep(
-                    name="replay_buffer", 
-                    processor=replay_buffer,
+                    name="buffer_collector",
+                    processor=buffer_handler,
                     phases={
-                        "train": PhaseConfig(method="fit_transform", supervised=True), 
-                        "train_continual": PhaseConfig(method="fit_transform", supervised=True),
+                        "val": PhaseConfig(method="collect", supervised=False),
+                        "val_continual": PhaseConfig(method="collect", supervised=False)
+                    }
+                ),
+                PipelineStep(
+                    name="buffer_sampler",
+                    processor=buffer_handler,
+                    phases={
+                        "train": PhaseConfig(method="sample", supervised=True),
+                        "train_continual": PhaseConfig(method="sample", supervised=False)
                     }
                 ),
                 PipelineStep(
@@ -181,11 +194,27 @@ def run_exp(args, other_args=None):
                     }  
                 ),
                 PipelineStep(
+                    name="buffer_thresholder",
+                    processor=buffer_handler,
+                    phases={
+                        "val": PhaseConfig(method="threshold", supervised=False),
+                        "val_continual": PhaseConfig(method="threshold", supervised=False)
+                    }
+                ),
+                PipelineStep(
+                    name="filter_trainer", 
+                    processor=replay_detector,
+                    phases={
+                        "val": PhaseConfig(method="filter", supervised=True),
+                        "val_continual": PhaseConfig(method="filter", supervised=False)
+                    }  
+                ),
+                PipelineStep(
                     name="detector", 
                     processor=detector,
                     phases={
-                        "val": PhaseConfig(method="fit", supervised=True), 
-                        "val_continual": PhaseConfig(method="fit", supervised=True),
+                        "val": PhaseConfig(method="fit", supervised=False), 
+                        "val_continual": PhaseConfig(method="fit", supervised=False),
                         "predict": "detect"
                     }  
                 ),

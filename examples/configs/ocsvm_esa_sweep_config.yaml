@@ -6,17 +6,17 @@ exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "pyod_ocsvm"
-detector: "threshold"
+detector: "none"
 segmentator: false
 challenge: false
 save_metadata: false
 
-detector_params:
-  threshold: [0.9, 0.95, 0.97, 1.0]
-  quantile: null
-  smoothing_alpha: [0.1, 0.3, 0.4, 1.0]
+calibration_perc: 0
 
-eval_perc: 0.4
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
 filter_valid: true
 
 # Feature Extraction
@@ -36,7 +36,7 @@ perc_step_size: 0.5
 channels: null
 
 base_classifier_params:
-  return_proba: true
+  return_labels: true
   dynamic_scaling: [true, false]
   scaler_window: 1000
   cache_size: 500

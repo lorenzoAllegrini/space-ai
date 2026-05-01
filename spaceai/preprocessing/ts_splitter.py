@@ -38,6 +38,8 @@ class TimeSeriesSplitter(CallbackMixin):
         max_window: int = 500,
         callback_handler: Optional[CallbackHandler] = None,
         apply_func: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        include_remainder: bool = True,
+        ignore_gaps: bool = False,
         **kwargs
     ) -> None:
         self.window_size_raw = window_size
@@ -46,6 +48,8 @@ class TimeSeriesSplitter(CallbackMixin):
         self.min_window = min_window or 50
         self.max_window = max_window or 500
         self.apply_func = apply_func
+        self.include_remainder = include_remainder
+        self.ignore_gaps = ignore_gaps
         super().__init__(callback_handler=callback_handler, **kwargs)
 
     def fit(self, X: Union[np.ndarray, AnomalyDataset], y: Optional[np.ndarray] = None, sampling_period: Optional[float] = None, **kwargs) -> TimeSeriesSplitter:
@@ -157,6 +161,10 @@ class TimeSeriesSplitter(CallbackMixin):
         
         all_segments, all_labels, all_indices = [], [], []
         
+        # Override intervals if ignore_gaps is True
+        if self.ignore_gaps:
+            intervals = [(0, len(data))]
+
         with self._callback_context("total_segmentation", results):
             for i, (s, e) in enumerate(intervals):
                 b_data = data[s:e]
@@ -173,10 +181,34 @@ class TimeSeriesSplitter(CallbackMixin):
                 lbl_data = p_labels[s:e]
                 lbls = self.split(lbl_data, sampling_period, results=None) if return_subsets else self.split_labels(lbl_data, sampling_period, results=None)
                 
+                # Global handling of remainder via sliding back
+                n_segs = len(segs)
+                last_end = (n_segs - 1) * self.step_size + self.window_size
+                remainder = len(b_data) - last_end
+                
+                if remainder > 0 and self.include_remainder:
+                    # Last window slides back to cover the very end of the block/data
+                    r_start = len(b_data) - self.window_size
+                    r_window = b_data[r_start:].reshape(1, -1)
+                    segs = np.vstack([segs, r_window])
+                    
+                    r_lbl_window = lbl_data[r_start:]
+                    if return_subsets:
+                        lbls = np.vstack([lbls, self.split(r_lbl_window, sampling_period, results=None)])
+                    else:
+                        r_lbl = 1 if np.any(r_lbl_window > 0) else 0
+                        lbls = np.concatenate([lbls, [r_lbl]])
+                    
+                    new_idx = np.array([[r_start + s, len(b_data) - 1 + s]])
+                    idxs = np.arange(n_segs) * self.step_size + s
+                    block_indices = np.vstack([np.column_stack((idxs, idxs + self.window_size - 1)), new_idx])
+                else:
+                    idxs = np.arange(len(segs)) * self.step_size + s
+                    block_indices = np.column_stack((idxs, idxs + self.window_size - 1))
+
                 all_segments.append(segs)
                 all_labels.append(lbls)
-                idxs = np.arange(len(segs)) * self.step_size + s
-                all_indices.append(np.column_stack((idxs, idxs + self.window_size - 1)))
+                all_indices.append(block_indices)
         
 
         if not all_segments:

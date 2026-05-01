@@ -52,7 +52,7 @@ class AnomalyDetectionPipeline:
                 phase_map: Optional[Dict[str, List[str]]] = None
                 ):
         self.steps = steps
-        self.eval_perc = eval_perc
+        #self.eval_perc = eval_perc
         
         # Default phase map if none provided
         self.phase_map = phase_map or {
@@ -82,30 +82,50 @@ class AnomalyDetectionPipeline:
         """
         Execute training by separating execution into phases defined in phase_map[phase].
         """
-        d_tr, d_vl, l_tr, l_vl = self._split_timeseries(channel_data, channel_labels, self.eval_perc)
-        metrics = {}
 
+        metrics = {}
         fit_phases = self.phase_map.get(phase, ["train", "val"])
         
         for i, p_name in enumerate(fit_phases):
-            
-            if i == 0 or d_vl is None or len(d_vl) == 0:
-                current_data, current_labels = d_tr, l_tr
+    
+            if i == 0:
+                state = PipelineState(data=channel_data, labels=channel_labels, metadata={"save_dir": results_dir})
             else:
-                current_data, current_labels = d_vl, l_vl
-                
-            state = PipelineState(data=current_data, labels=current_labels, metadata={"save_dir": results_dir})
+                state = PipelineState(data=None, labels=None, metadata={"save_dir": results_dir})
             
             for name, processor, config in self._get_steps_for_phase(p_name):
                 if hasattr(processor, "pipeline_step"):
                     is_node_fit = True if i == 0 else getattr(processor, "requires_calibration", False)
                     
-                    state = self._run_and_log_step(
+                    state = self._run_step(
                         processor, state, is_fit=is_node_fit, results=metrics, phase_config=config, **kwargs
                     )
 
+        metrics["metadata"] = state.metadata
         return metrics
         
+    def _map_state_to_points(self, state: PipelineState, channel_data: Any) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        total_len = len(channel_data) if hasattr(channel_data, "__len__") else 0
+        if total_len == 0:
+            return state.data, state.labels
+            
+        point_data = np.zeros(total_len)
+        point_labels = np.zeros(total_len, dtype=int) if state.labels is not None else None
+        data_arr = np.asarray(state.data)
+        labels_arr = np.asarray(state.labels) if state.labels is not None else None
+        
+        for i, (start, end) in enumerate(state.indices):
+            val = data_arr[i]
+            # Handle 2D data (e.g. from models returning probabilities for each class)
+            if hasattr(val, "__len__") and len(val) > 0:
+                val = val[0]
+                
+            point_data[int(start):int(end)+1] = np.maximum(point_data[int(start):int(end)+1], val)
+            if point_labels is not None:
+                point_labels[int(start):int(end)+1] = np.maximum(point_labels[int(start):int(end)+1], labels_arr[i])
+                
+        return point_data, point_labels
+
     def predict(
         self, 
         channel_data: Union[np.ndarray, List[np.ndarray], AnomalyDataset, Any],
@@ -123,32 +143,21 @@ class AnomalyDetectionPipeline:
         predict_phases = self.phase_map.get(phase, ["predict"])
         
         for p_pred in predict_phases:
-            
             for name, processor, config in self._get_steps_for_phase(p_pred):
                 if hasattr(processor, "pipeline_step"):
-                    state = self._run_and_log_step(
+                    state = self._run_step(
                         processor, state, is_fit=False, results=metrics, phase_config=config, **kwargs
                     )
             
+        metrics["metadata"] = state.metadata
+        
         if state.indices is not None:
-            total_len = len(channel_data) if hasattr(channel_data, "__len__") else 0
-            if total_len > 0:
-                point_data = np.zeros(total_len)
-                point_labels = np.zeros(total_len, dtype=int) if state.labels is not None else None
-                
-                for i, (start, end) in enumerate(state.indices):
-                    point_data[int(start):int(end)+1] = np.maximum(point_data[int(start):int(end)+1], state.data[i])
-                    if point_labels is not None:
-                        point_labels[int(start):int(end)+1] = np.maximum(point_labels[int(start):int(end)+1], state.labels[i])
-                
-                state.data = point_data
-                state.labels = point_labels
+            state.data, state.labels = self._map_state_to_points(state, channel_data)
 
         return state.data, state.labels, state.metrics
 
-    def _run_and_log_step(self, processor, state, is_fit, results, phase_config, **kwargs):
+    def _run_step(self, processor, state, is_fit, results, phase_config, **kwargs):
         """Execute a step, managing supervision and injecting the correct method."""
-        proc_name = type(processor).__name__
         
         if isinstance(phase_config, PhaseConfig):
             method_name = phase_config.method
@@ -168,9 +177,6 @@ class AnomalyDetectionPipeline:
                 metadata=state.metadata
             )
 
-        in_shape = self._get_shape(effective_state.data)
-        in_labels_shape = self._get_shape(effective_state.labels) if effective_state.labels is not None else "None"
-        
         step_kwargs = kwargs.copy()
         step_kwargs.pop("method_name", None)
         
@@ -179,11 +185,6 @@ class AnomalyDetectionPipeline:
         if not supervised and state.labels is not None and new_state.labels is None:
             new_state.labels = state.labels
 
-        out_shape = self._get_shape(new_state.data)
-        out_labels_shape = self._get_shape(new_state.labels) if new_state.labels is not None else "None"
-        
-        method_str = f"[{method_name}]" if method_name else "[default]"
-        
         return new_state
 
     def _get_shape(self, data):
@@ -273,6 +274,12 @@ class AnomalyDetectionPipeline:
                 time_intervals.append((int(s_idx) + offset, int(e_idx) + offset))
                 
         return time_intervals
+
+    def prepare_labels(self, channel_labels: Any) -> List[Tuple[int, int]]:
+        """Prepare ground truth labels as interval tuples."""
+        if hasattr(channel_labels, 'anomaly_sequences'):
+            return channel_labels.anomaly_sequences
+        return []
 
     def save(self, path: str) -> None:
         """Save the classifier to disk."""

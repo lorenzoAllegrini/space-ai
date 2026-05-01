@@ -1,5 +1,4 @@
 # dpmm_esa_global_config.yaml
-# Esperimenti su ESA con Modular Global Features
 
 base_dir: "./datasets"           
 exp_dir: "experiments_2.1"
@@ -14,10 +13,16 @@ challenge: false
 save_metadata: false
 
 detector_params:
-  quantile: [1.5, 2.0, 2.5]
+  quantile: [2.0, 2.5]
   smoothing_alpha: [0.1, 0.3, 0.4, 1.0]
 
-eval_perc: 0.4
+calibration_perc: 0.30
+
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+
 filter_valid: true
 # Modular Feature Extraction
 feature_extractor: 

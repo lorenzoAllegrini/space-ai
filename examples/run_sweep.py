@@ -134,10 +134,11 @@ def run_script_for_config(script: str, config: Dict[str, Any], index: int, total
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-parameter sweep for model selection.")
     parser.add_argument("--config", type=str, required=True, help="Path to base YAML config.")
-    parser.add_argument("--script", type=str, default="examples/run_pipeline.py", 
-                        help="Experiment script to run (default: run_pipeline.py).")
+    parser.add_argument("--script", type=str, default=None, 
+                        help="Experiment script to run (default: auto-detected).")
     parser.add_argument("--dry-run", action="store_true", help="Print combinations without running.")
     parser.add_argument("--stop-on-error", action="store_true", help="Stop if a run fails.")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip combinations that already have a results.csv file.")
     
     args, extra_args = parser.parse_known_args()
     return args, extra_args
@@ -153,6 +154,22 @@ def main():
     with open(config_path, "r") as f:
         base_config = yaml.safe_load(f) or {}
 
+    # Determine script path if not explicitly provided or if provided as '.'
+    script_path = args.script
+    if not script_path or script_path == ".":
+        replay_type = base_config.get("replay", "none")
+        if replay_type and replay_type != "none":
+            script_path = "examples/run_continual_pipeline.py"
+        else:
+            script_path = "examples/run_pipeline.py"
+        logger.info(f"Auto-selected script: {script_path}")
+    
+    if not os.path.exists(script_path):
+        # Try local path if examples/ prefix is missing
+        if not os.path.exists(script_path):
+            logger.error(f"Script not found: {script_path}")
+            sys.exit(1)
+
     combinations = list(build_combinations(base_config))
     total = len(combinations)
 
@@ -163,14 +180,26 @@ def main():
         return
 
     failed = []
+    skipped = []
     for i, cfg in enumerate(combinations, 1):
-        rc = run_script_for_config(args.script, cfg, i, total, extra_args)
+        if args.skip_existing:
+            exp_dir_name = cfg.get("exp_dir", "experiments")
+            run_id = cfg.get("run_id", "")
+            results_path = Path(exp_dir_name) / run_id / "results.csv"
+            if results_path.exists():
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Skipping combo {i}/{total}: {run_id} (results.csv found)")
+                logger.info(f"{'='*60}")
+                skipped.append(i)
+                continue
+                
+        rc = run_script_for_config(script_path, cfg, i, total, extra_args)
         if rc != 0:
             failed.append(i)
             if args.stop_on_error:
                 sys.exit(rc)
 
-    logger.info(f"\nSweep finished. Success: {total - len(failed)}/{total}")
+    logger.info(f"\nSweep finished. Success: {total - len(failed) - len(skipped)}/{total} (Skipped: {len(skipped)})")
     if failed:
         logger.warning(f"Failed combos: {failed}")
         sys.exit(1)

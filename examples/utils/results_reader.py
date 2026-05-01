@@ -271,6 +271,13 @@ def main():
         if out_df.empty:
             print(f"Nessun esperimento trovato con almeno {args.min_channels} canali.")
             return
+        return
+
+    if args.min_channels > 0:
+        out_df = out_df[out_df["channels"] >= args.min_channels]
+        if out_df.empty:
+            print(f"Nessun esperimento trovato con almeno {args.min_channels} canali.")
+            return
 
     render_and_export(
         out_df=out_df,

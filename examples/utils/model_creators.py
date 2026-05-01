@@ -2,10 +2,7 @@
 import torch
 
 from spaceai.models.detectors.telemanom import Telemanom
-from spaceai.models.predictors import (
-    ESN,
-    LSTM,
-)
+from spaceai.models.predictors import ESN, LSTM
 from sklearn.dummy import DummyClassifier  # type: ignore
 from sklearn.linear_model import RidgeClassifier  # type: ignore
 from sklearn.pipeline import Pipeline  # type: ignore
@@ -17,9 +14,7 @@ import pandas as pd
 from scipy.stats import iqr as scipy_iqr
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from spaceai.models.predictors import LSTM
-from spaceai.models.detectors import Telemanom
-from spaceai.models.legacy import SequenceModelClassifier
+from spaceai.models.predictors.sequence_model_classifier import SequenceModelClassifier
 
 from pyod.models.iforest import IForest  # type: ignore
 from pyod.models.pca import PCA as PyOD_PCA  # type: ignore
@@ -36,8 +31,7 @@ from spaceai.models.classifiers.dpmm_detector import (
     get_dpmm_argparser,
 )
 import os
-import logging
-import torch
+import torch.nn as nn
 
 from .config import Config
 
@@ -45,6 +39,27 @@ from .config import Config
 from spaceai.models.classifiers import SklearnClassifier
 from spaceai.models.utils.scalers import RollingRobustScalerWithPrior
 
+
+def _pop_wrapper_params(base_params):
+    """Pop wrapper/metadata parameters from base_params and return them."""
+    params = base_params.copy() if base_params else {}
+    wrapper_params = {
+        "dynamic_scaling": params.pop("dynamic_scaling", False),
+        "scaler_window": params.pop("scaler_window", 10),
+        "supervised": params.pop("supervised", False),
+        "return_proba": params.pop("return_proba", False),
+        "return_labels": params.pop("return_labels", False),
+    }
+    return params, wrapper_params
+
+
+def _get_scaler(wrapper_params):
+    """Helper to create the appropriate scaler."""
+    return (
+        RollingRobustScalerWithPrior(window=wrapper_params["scaler_window"])
+        if wrapper_params["dynamic_scaling"]
+        else RobustScaler(with_centering=False)
+    )
 
 def get_rockad_classifier(_num_kernels):
     """Get ROCKAD classifier."""
@@ -54,24 +69,21 @@ def get_rockad_classifier(_num_kernels):
 
 def get_xgboost_classifier(base_params=None):
     """Get XGBoost classifier."""
-    base_params = base_params.copy() if base_params else {}
-    dynamic_scaling = base_params.pop("dynamic_scaling", False)
-    scaler_window = base_params.pop("scaler_window", 10)
-    scaler = (
-        RollingRobustScalerWithPrior(window=scaler_window)
-        if dynamic_scaling
-        else RobustScaler(with_centering=False)
-    )
+    params, wp = _pop_wrapper_params(base_params)
+    scaler = _get_scaler(wp)
 
-    params = base_params if base_params else {
-        "eval_metric": "logloss", "base_score": 0.5}
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("xgb", SklearnClassifier(XGBClassifier(**params), supervised=True)),
+            ("xgboost", SklearnClassifier(
+                XGBClassifier(**params),
+                supervised=True,
+                return_labels=wp["return_labels"],
+                return_proba=wp["return_proba"]
+            )),
         ]
     )
-    return pipeline, True
+    return SklearnClassifier(pipeline, supervised=True), True
 
 
 def get_dpmm_classifier(model_type, mode, other_dpmm_args, base_params=None):
@@ -115,87 +127,125 @@ def get_ridge_regression_classifier(base_params=None):
 
 def get_iforest_classifier(base_params=None):
     """Get Isolation Forest (IForest) classifier."""
-    base_params = base_params.copy() if base_params else {}
-    dynamic_scaling = base_params.pop("dynamic_scaling", False)
-    scaler_window = base_params.pop("scaler_window", 10)
-    scaler = (
-        RollingRobustScalerWithPrior(window=scaler_window)
-        if dynamic_scaling
-        else RobustScaler(with_centering=False)
-    )
+    params, wp = _pop_wrapper_params(base_params)
+    scaler = _get_scaler(wp)
 
-    supervised = base_params.pop("supervised", False)
     pipeline = Pipeline(
         [
             ("scaler", scaler),
             ("iforest", SklearnClassifier(
-                IForest(**base_params), supervised=supervised)),
+                IForest(**params),
+                supervised=wp["supervised"],
+                return_proba=wp["return_proba"],
+                return_labels=wp["return_labels"]
+            )),
         ]
     )
-    return pipeline, supervised
+    return SklearnClassifier(pipeline, supervised=wp["supervised"]), wp["supervised"]
 
 
 def get_pca_classifier(base_params=None):
     """Get PCA anomaly detector classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(PyOD_PCA(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        PyOD_PCA(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def get_knn_classifier(base_params=None):
     """Get K-Nearest Neighbors (KNN) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(KNN(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        KNN(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def get_lof_classifier(base_params=None):
     """Get Local Outlier Factor (LOF) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(LOF(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    scaler = _get_scaler(wp)
+    pipeline = Pipeline(
+        [
+            ("scaler", scaler),
+            ("lof", SklearnClassifier(
+                LOF(**params),
+                supervised=wp["supervised"],
+                return_proba=wp["return_proba"],
+                return_labels=wp["return_labels"]
+            )),
+        ]
+    )
+    return SklearnClassifier(pipeline, supervised=wp["supervised"]), wp["supervised"]
 
 
 def get_pyod_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from PyOD."""
-    base_params = base_params.copy() if base_params else {}
-    dynamic_scaling = base_params.pop("dynamic_scaling", False)
-    scaler_window = base_params.pop("scaler_window", 10)
-    base_params.pop("random_state", None)  # OCSVM doesn't support random_state
-    scaler = (
-        RollingRobustScalerWithPrior(window=scaler_window)
-        if dynamic_scaling
-        else RobustScaler(with_centering=False)
-    )
+    params, wp = _pop_wrapper_params(base_params)
+    params.pop("random_state", None)  # OCSVM doesn't support random_state
+    scaler = _get_scaler(wp)
 
     pipeline = Pipeline(
         [
             ("scaler", scaler),
-            ("ocsvm", SklearnClassifier(OCSVM(**base_params))),
+            ("ocsvm", SklearnClassifier(
+                OCSVM(**params),
+                supervised=wp["supervised"],
+                return_proba=wp["return_proba"],
+                return_labels=wp["return_labels"]
+            )),
         ]
     )
-    return pipeline, False
+    return SklearnClassifier(pipeline, supervised=wp["supervised"]), wp["supervised"]
 
 
 def get_ecod_classifier(base_params=None):
     """Get Empirical Cumulative Distribution (ECOD) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(ECOD(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        ECOD(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def get_copod_classifier(base_params=None):
     """Get Copula-Based Outlier Detection (COPOD) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(COPOD(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        COPOD(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def get_cblof_classifier(base_params=None):
     """Get Cluster-based Local Outlier Factor (CBLOF) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(CBLOF(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        CBLOF(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def get_hbos_classifier(base_params=None):
     """Get Histogram-based Outlier Score (HBOS) classifier."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(HBOS(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        HBOS(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def format_str(s):
@@ -209,8 +259,13 @@ def format_str(s):
 
 def get_ocsvm_classifier(base_params=None):
     """Get One-Class SVM (OCSVM) classifier from sklearn."""
-    base_params = base_params if base_params else {}
-    return SklearnClassifier(OneClassSVM(**base_params)), False
+    params, wp = _pop_wrapper_params(base_params)
+    return SklearnClassifier(
+        OneClassSVM(**params),
+        supervised=wp["supervised"],
+        return_labels=wp["return_labels"],
+        return_proba=wp["return_proba"]
+    ), wp["supervised"]
 
 
 def create_classifier(args, other_args):
@@ -347,11 +402,12 @@ def get_telemanom_sequence_classifier(base_params=None):
         pred_buffer=base_params.get("l_s", 250)  # Fallback if present
     )
 
-    import torch.nn as nn
+    from spaceai.models.predictors.sequence_model_classifier import SequenceModelClassifier
     classifier = SequenceModelClassifier(
         predictor=predictor,
         detector=detector,
         fit_predictor_args=fit_predictor_args,
+        n_predictions=n_predictions
     )
     classifier._fit_args = {
         "criterion": nn.MSELoss(),
@@ -368,7 +424,7 @@ def get_telemanom_sequence_classifier(base_params=None):
 
 def get_dcvae_classifier(base_params=None):
     """Get DCVAE classifier."""
-    from spaceai.models.legacy.dcvae import DCVAEClassifier
+    from spaceai.models.predictors.dcvae import DCVAEClassifier
     return DCVAEClassifier(**(base_params if base_params else {})), False
 
 
