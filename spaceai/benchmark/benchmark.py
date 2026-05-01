@@ -181,7 +181,7 @@ class Benchmark:
             event_labels, predicted_events)
         report_results.update(efficacy_metrics)
 
-        logging.info("Global Event-Level Results: %s", report_results)
+        logging.debug("Global Event-Level Results: %s", report_results)
 
         self.all_results.append(report_results)
         pd.DataFrame.from_records(self.all_results).to_csv(
@@ -220,7 +220,7 @@ class Benchmark:
         """Trains the anomaly classifier for a given channel and saves it to state."""
 
         train_channel = self.load_channel(channel_id, train=True, **kwargs)
-        logging.info(
+        logging.debug(
             "Fitting the anomaly classifier for channel %s...", channel_id)
 
         chan_results_dir = os.path.join(
@@ -288,7 +288,7 @@ class Benchmark:
 
         self.processed_channels.add(channel_id)
 
-        logging.info("Results for channel %s: %s", channel_id, results)
+        logging.debug("Results for channel %s: %s", channel_id, results)
 
         self.all_results.append(results)
 
@@ -362,7 +362,7 @@ class Benchmark:
 
         test_channel = self.load_channel(channel_id, train=False, **kwargs)
 
-        logging.info("Predicting the test data for channel %s...", channel_id)
+        logging.debug("Predicting the test data for channel %s...", channel_id)
 
         chan_results_dir = os.path.join(
             self.run_dir, channel_id) if self.save_metadata else None
@@ -420,13 +420,13 @@ class Benchmark:
             start_time = timestamps[int(start_idx)] if timestamps is not None else f"idx={start_idx}"
             end_time = timestamps[int(end_idx)] if timestamps is not None else f"idx={end_idx}"
             
-            print(f"\n{'='*20}")
-            if prev_end_idx is not None:
-                gap_len = start_idx - prev_end_idx
-                if gap_len > 1:
-                    print(f"[EXPERIENCE GAP] Gap of {gap_len} samples between {prev_end_time} and {start_time}.")
-            print(f"[EXPERIENCE {i}] Size: {len(data)} samples | Period: {start_time} to {end_time}")
-            print(f"{'='*20}")
+            # print(f"\n{'='*20}")
+            # if prev_end_idx is not None:
+            #     gap_len = start_idx - prev_end_idx
+            #     if gap_len > 1:
+            #         print(f"[EXPERIENCE GAP] Gap of {gap_len} samples between {prev_end_time} and {start_time}.")
+            # print(f"[EXPERIENCE {i}] Size: {len(data)} samples | Period: {start_time} to {end_time}")
+            # print(f"{'='*20}")
             
             prev_end_idx = end_idx
             prev_end_time = end_time

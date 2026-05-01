@@ -152,7 +152,7 @@ class PhaseSplitter(CallbackMixin):
                 "intervals": phase_intervals,
             })
 
-        logging.info(
+        logging.debug(
             "[PhaseSplitter] Split %d samples → train=%d, %s",
             n_samples, train_end,
             ", ".join(
@@ -186,7 +186,7 @@ class PhaseSplitter(CallbackMixin):
         stored = self._stored[self._current_phase_idx]
         phase_name = self._phase_names[self._current_phase_idx]
 
-        logging.info(
+        logging.debug(
             "[PhaseSplitter] Switching to phase '%s' (%d/%d)",
             phase_name, self._current_phase_idx + 1, len(self._stored),
         )

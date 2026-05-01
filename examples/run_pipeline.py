@@ -188,7 +188,7 @@ def run_exp(args, other_args=None):
 
     # ── Pass 1: Temporal Validation (optional) ──
     if temporal_validation:
-        logging.info("=== Temporal Validation Pass ===")
+        logging.debug("=== Temporal Validation Pass ===")
         benchmark.results_filename = "validation_results.csv"
         benchmark.date_overrides["train_end_date"] = val_train_end
         benchmark.date_overrides["test_start_date"] = val_test_start
@@ -213,7 +213,7 @@ def run_exp(args, other_args=None):
         benchmark.reset()
 
     # ── Pass 2: Full Test ──
-    logging.info("=== Full Test Pass ===")
+    logging.debug("=== Full Test Pass ===")
     # Restore default date overrides (from original config or ESAMission defaults)
     benchmark.date_overrides = date_overrides.copy()
 
