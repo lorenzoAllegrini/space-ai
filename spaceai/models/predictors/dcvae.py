@@ -109,8 +109,26 @@ class Sampling(Layer):
 
 @keras.utils.register_keras_serializable()
 class DCVAELoss(Layer):
+
+    def __init__(self, variance_clip=10.0, **kwargs):
+        super().__init__(**kwargs)
+        self.variance_clip = variance_clip
+
+    def get_config(self):
+        config = super().get_config()
+        config["variance_clip"] = self.variance_clip
+        return config
+
     def call(self, inputs):
         outputs, x__mean, x_log_var, z_mean, z_log_var = inputs
+
+        # Keep the variance terms in a numerically stable range.
+        x_log_var = keras.ops.clip(
+            x_log_var, -self.variance_clip, self.variance_clip)
+        z_log_var = keras.ops.clip(
+            z_log_var, -self.variance_clip, self.variance_clip)
+
+        # Reconstruction term
         mse = -0.5 * keras.ops.mean(
             keras.ops.square((outputs - x__mean) / keras.ops.exp(x_log_var)),
             axis=-1,

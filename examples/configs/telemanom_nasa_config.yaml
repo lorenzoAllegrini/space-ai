@@ -1,9 +1,9 @@
-# telemanom_esa_config.yaml
+# telemanom_nasa_config.yaml
 # Test configuration for Telemanom integration
 
 base_dir: "./datasets"           
 exp_dir: "experiments_telemanom"
-dataset: "esa"               
+dataset: "nasa"               
 mission_id: 1
 model: "telemanom"
 feature_extractor: "none"
@@ -15,14 +15,6 @@ base_classifier_params:
   criterion: MSELoss
   optimizer: Adam
   n_predictions: 10
-  epochs: 1000
-  p: 0
-  patience: 20
-
-channels:
-  - "channel_41"
-  - "channel_42"
-  - "channel_43"
-  - "channel_44"
-  - "channel_45"
-  - "channel_46"
+  epochs: 35
+  p: 0.13
+  patience: 10

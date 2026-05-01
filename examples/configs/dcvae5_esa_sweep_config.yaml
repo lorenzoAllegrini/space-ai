@@ -1,0 +1,21 @@
+base_dir: datasets
+dataset: esa
+exp_dir: experiments
+model: "dcvae"
+detector: "none"
+segmentator: true
+feature_extractor: "none"
+
+window_size: 256
+step_size: 256
+
+calibration_perc: 0
+
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+
+base_classifier_params:
+  T: 256
+  alpha: 5

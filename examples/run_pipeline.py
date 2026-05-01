@@ -133,7 +133,7 @@ def run_exp(args, other_args=None):
                         name="ts_splitter",
                         processor=ts_splitter,
                         phases={"train": None, "predict": None}
-                    ),
+                    ) if args.segmentator else None,
                     PipelineStep(
                         name="feature_extractor",
                         processor=feature_extractor,
@@ -141,7 +141,7 @@ def run_exp(args, other_args=None):
                             "train": PhaseConfig(method="fit_transform", supervised=True),
                             "predict": "transform"
                         }
-                    ),
+                    ) if feature_extractor is not None else None,
                     PipelineStep(
                         name="phase_splitter",
                         processor=phase_splitter,
