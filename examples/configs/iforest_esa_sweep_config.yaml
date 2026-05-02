@@ -1,0 +1,45 @@
+# iforest_esa_sweep_config.yaml
+# Sweep ESP in comparazione diretta con DPMM
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "iforest"
+detector: "none"
+segmentator: false
+challenge: false
+save_metadata: false
+
+calibration_perc: 0
+
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+filter_valid: true
+
+# Feature Extraction
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  max_features: 5
+  selected_features: null
+  
+window_size: null
+step_size: null
+max_window: 500
+min_window: 150
+perc_step_size: 0.5
+
+channels: null
+
+base_classifier_params:
+  return_labels: true
+  dynamic_scaling: [true, false]
+  scaler_window: 1000
+  n_estimators: [50, 100, 200]
+  contamination: [0.001, 0.01, 0.05]
+  max_samples: "auto"
+  random_state: 42

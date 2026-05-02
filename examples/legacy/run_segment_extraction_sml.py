@@ -1,0 +1,253 @@
+"""Run SML E2E experiment module."""
+
+import argparse
+import warnings
+import logging
+from datetime import datetime
+import yaml
+import numpy as np
+
+from spaceai.preprocessing import (
+    TimeSeriesSplitter,
+    get_feature_extractor,
+)
+
+from utils.dataset_exp import (
+    get_dataset_benchmark,
+)
+from utils.model_creators import (
+    create_classifier,
+)
+from utils.reproducibility import set_seed
+from spaceai.benchmark.callbacks import SystemMonitorCallback, CallbackHandler
+from spaceai.models.legacy.rolling_window_classifier import RollingWindowClassifier
+from spaceai.models.legacy.sml_client_classifier import SMLClientClassifier
+from spaceai.benchmark import ESABenchmark
+warnings.simplefilter("ignore", FutureWarning)
+
+DATASET_LIST = ["ops", "nasa", "esa"]
+MODEL_LIST = ["ocsvm", "xgboost", "ridge_regression", "dpmm", "iforest", "pca", "knn", "lof", "pyod_ocsvm", "ecod", "copod", "cblof", "hbos", "ndpm"]
+FEATURE_EXTRACTOR_LIST = ["none", "base_statistics", "rocket"]
+
+def parse_sml_args(str_args=None):
+    """Parse args for SML experiment."""
+    conf_parser = argparse.ArgumentParser(add_help=False)
+    conf_parser.add_argument("--config", type=str, default=None)
+    args, remaining_argv = conf_parser.parse_known_args(str_args)
+
+    defaults = {
+        "exp_dir": "experiments_sml",
+        "mission_id": 1,
+        "feature_extractor": "none",
+        "window_size": 50,
+        "step_size": 50,
+        "seed": 42,
+        "server_ip": "localhost",
+        "server_port": 5555
+    }
+
+    if args.config:
+        with open(args.config, "r") as f:
+            yaml_config = yaml.safe_load(f)
+            if yaml_config: defaults.update(yaml_config)
+
+    parser = argparse.ArgumentParser(description="SML Bridge Experiment", parents=[conf_parser])
+    parser.add_argument("--base_dir", help="Base directory for the dataset")
+    parser.add_argument("--exp-dir", default="experiments", help="Experiments output directory")
+    parser.add_argument("--dataset", choices=DATASET_LIST)
+    parser.add_argument("--mission-id", type=int)
+    parser.add_argument("--model", choices=MODEL_LIST)
+    parser.add_argument("--feature-extractor", choices=FEATURE_EXTRACTOR_LIST)
+    parser.add_argument("--channels", type=str, nargs="+")
+    parser.add_argument("--window-size", type=int)
+    parser.add_argument("--step-size", type=int)
+    parser.add_argument("--detector", choices=["threshold", "molookde", "none"], default="threshold")
+    parser.add_argument("--server-port", "--port", type=int)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--challenge", action="store_true", help="Enable challenge mode")
+    parser.add_argument("--run-id", type=str, help="Experiment run ID")
+    parser.add_argument("--dpmm-type", choices=["full", "unit", "diagonal", "single", "isotropic"], help="DPMM covariance type")
+    parser.add_argument("--dpmm-mode", choices=["likelihood_threshold", "score_threshold"], help="DPMM anomaly detection mode")
+
+    parser.set_defaults(**defaults)
+    return parser.parse_known_args(remaining_argv)
+
+def run_sml_exp():
+    args, other_args = parse_sml_args()
+    set_seed(args.seed)
+
+    from spaceai.models.anomaly import ThresholdDetector, MoLooKDEDetector
+    detector_params = getattr(args, 'detector_params', {})
+    if args.detector == "threshold":
+        detector = ThresholdDetector(**{**dict(threshold=0.9), **detector_params})
+    elif args.detector == "molookde":
+        detector = MoLooKDEDetector(**{**dict(alpha=0.001), **detector_params})
+    else:
+        detector = None
+    
+    # Inject DPMM params into base_classifier_params if needed
+    if args.model == "dpmm":
+        base_params = getattr(args, 'base_classifier_params', {})
+        if args.dpmm_type: base_params['dpmm_type'] = args.dpmm_type
+        if args.dpmm_mode: base_params['dpmm_mode'] = args.dpmm_mode
+        args.base_classifier_params = base_params
+    
+    handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+
+    # Generate a more descriptive run_id including model type/mode
+    run_id = f"SML_{args.model}"
+    
+    # Add model-specific type/mode if present
+    for attr in ['type', 'mode']:
+        # Try both generic (e.g. 'type') and specific (e.g. 'dpmm_type')
+        val = getattr(args, f"{args.model}_{attr}", getattr(args, attr, None))
+        if val:
+            run_id += f"_{val}"
+            
+    run_id += f"_{args.detector}"
+    
+    # Check for dynamic scaling in classifier params
+    base_params = getattr(args, 'base_classifier_params', {})
+    if base_params.get('dynamic_scaling', False):
+        run_id += "_ds"
+    benchmark = get_dataset_benchmark(
+        dataset_name=args.dataset,
+        data_path=args.base_dir,
+        exp_dir=args.exp_dir,
+        run_id=run_id,
+        mission_id=args.mission_id,
+        save_metadata=getattr(args, 'save_metadata', True),
+    )
+    
+    channels = benchmark.channels if args.channels is None else args.channels
+    wrapper_params = getattr(args, 'wrapper_params', {})
+    eval_perc = getattr(args, 'eval_perc', wrapper_params.get('eval_perc', None))
+
+    for channel_name in channels:
+        logging.info("--- Starting SML Pipeline for Channel %s ---", channel_name)
+        
+        _minw = getattr(args, 'min_window', None) or 10
+        _maxw = getattr(args, 'max_window', None) or 300
+        _pss = getattr(args, 'perc_step_size', None) or 1.0
+        _fe_params = getattr(args, 'feature_extraction_params', getattr(args, 'fe_params', {}))
+        
+
+        ts_splitter = TimeSeriesSplitter(
+            window_size=args.window_size,
+            step_size=args.step_size,
+            min_window=_minw,
+            max_window=_maxw,
+            perc_step_size=_pss,
+        )
+        
+        feature_extractor = get_feature_extractor(
+            args.feature_extractor,
+            window_size=args.window_size,
+            stride=args.step_size,
+            n_kernel=getattr(args, 'n_kernel', None),
+            **_fe_params
+        )
+
+        base_classifier, is_supervised = create_classifier(args, other_args)
+
+        # Check if the returned classifier is a self-contained sequence model (like Telemanom)
+        from spaceai.models.legacy import SequenceModelClassifier
+        if isinstance(base_classifier, SequenceModelClassifier):
+            rolling_window_pipeline = base_classifier
+            logging.info("[CLIENT-FACTORY] SequenceModelClassifier detected. Bypassing RollingWindow wrapping.")
+        else:
+            # 1. Creiamo la pipeline locale (RollingWindowClassifier)
+            rolling_window_pipeline = RollingWindowClassifier(
+                base_classifier=base_classifier,
+                supervised_classifier=is_supervised,
+                ts_splitter=ts_splitter,
+                feature_extractor=feature_extractor,
+                callback_handler=handler,
+                detector=detector,
+                eval_perc=eval_perc,
+            )
+
+        # 2. Avvolgiamo tutto nello SMLClientClassifier
+        # Passiamo anche gli args per permettere al server di inizializzare la pipeline localmente
+        sml_client = SMLClientClassifier(
+            server_ip=args.server_ip,
+            port=args.server_port,
+            channel_id=channel_name,
+            base_classifier=rolling_window_pipeline,
+            args=(args, other_args) # Passiamo la "ricetta" completa
+        )
+
+        # Check for dataset-specific flags like use_telecommands
+        dataset_kwargs = {}
+        if hasattr(args, 'use_telecommands'):
+            dataset_kwargs['use_telecommands'] = args.use_telecommands
+        if hasattr(args, 'challenge'):
+            dataset_kwargs["challenge"] = getattr(args, 'challenge')
+        logging.info("[CLIENT] Requesting remote FIT for channel %s (via ARGS)...", channel_name)
+        start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fitted_client, fitting_metrics = benchmark.fit_channel(
+            channel_id=channel_name,
+            classifier=sml_client,
+            **dataset_kwargs
+        )
+        
+        logging.info("[CLIENT] Requesting remote TEST for channel %s...", channel_name)
+        test_results = benchmark.test_channel(
+            channel_id=channel_name,
+            classifier=fitted_client,
+            **dataset_kwargs
+        )
+        end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Merge all metrics for the final results.csv
+        final_results = {
+            "start_date": start_date,
+            "end_date": end_date,
+            **fitting_metrics,
+            **test_results[0]
+        }
+        
+        # Mapping fitting_time to fit_time if needed by the CSV writer
+        if "fit_time" not in final_results and "fitting_time" in final_results:
+            final_results["fit_time"] = final_results["fitting_time"]
+
+        
+        # 1. Aggiorna i risultati del singolo canale (questo lo facevi già)
+        for i, res in enumerate(benchmark.all_results):
+            if res.get('channel_id') == channel_name:
+                benchmark.all_results[i].update(final_results)
+                break
+                
+        # 2. INIETTA TUTTI I DATI CUSTOM NEL GLOBALE IN MODO INTELLIGENTE
+        for key, value in final_results.items():
+            # Ignoriamo le metriche che la classe globale ricalcola da sola alla fine
+            if key in ['n_anomalies', 'n_detected', 'true_positives', 'false_positives', 
+                       'false_negatives', 'precision', 'recall', 'f1', 'tnr', 
+                       'precision_corrected', 'corrected_f0.5', 'corrected_f1', 
+                       'adtqc_n_before', 'adtqc_n_after', 'adtqc_after_rate', 'adtqc_score']:
+                continue
+
+            # CASO A: Numeri (Memoria, tempi custom, ecc.) -> Li sommiamo
+            if isinstance(value, (int, float, np.number)):
+                benchmark.global_results[key] = benchmark.global_results.get(key, 0) + value
+
+            # CASO B: Date di inizio -> Vogliamo la data più vecchia in assoluto
+            elif "start_date" in key:
+                current_start = benchmark.global_results.get(key, value)
+                benchmark.global_results[key] = min(current_start, value) # Funziona anche con le stringhe ISO
+
+            # CASO C: Date di fine -> Vogliamo la data più recente in assoluto
+            elif "end_date" in key:
+                current_end = benchmark.global_results.get(key, value)
+                benchmark.global_results[key] = max(current_end, value)
+
+            # CASO D: Stringhe fisse o configurazioni (es. window_size) -> Ne basta uno
+            elif key not in benchmark.global_results:
+                benchmark.global_results[key] = value
+
+
+        results = benchmark.compute_global_event_metrics(channels=channels)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [SML-E2E] %(message)s")
+    run_sml_exp()

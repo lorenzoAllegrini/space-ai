@@ -1,0 +1,89 @@
+# --- Build Stage ---
+FROM --platform=linux/arm64 python:3.12-slim AS builder
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /build
+
+# Build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc g++ git make cmake \
+    libgomp1 libopenblas-dev \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools wheel pyinstaller
+
+# Optimized stack for Leopard DPU (Streaming & Continual Learning)
+RUN pip install \
+    numpy==2.2.1 \
+    pandas==2.2.3 \
+    scikit-learn==1.6.0 \
+    psutil==6.1.0 \
+    torch==2.5.1 \
+    pyzmq==27.1.0 \
+    pyyaml==6.0.2 \
+    xgboost==2.1.3 \
+    tqdm==4.66.5 \
+    more-itertools==10.5.0 \
+    requests==2.32.3 \
+    pyod==2.0.6 \
+    sktime==0.39.0 \
+    ripser==0.6.10 \
+    statsmodels==0.14.6 \
+    stumpy==1.14.1 \
+    numba==0.62.1 \
+    torchvision==0.20.1 \
+    tabulate==0.9.0 \
+    river==0.22.0
+
+# Copy source code and local dependencies
+COPY . /build/
+
+RUN echo "sono qui-----------------------------"
+RUN ls -la 
+# Install local project
+RUN pip install --no-deps ./torch-dpmm
+# Remove torchdyno from dependencies as it's not available for ARM64/Leopard
+RUN sed -i '/torchdyno/d' pyproject.toml
+RUN pip install --no-deps .
+
+# Generate standalone binary.
+ENV PYTHONPATH=/build:/build/examples
+RUN pyinstaller --onefile --clean --noconfirm --log-level INFO \
+    --name sml_server \
+    --hidden-import ipaddress \
+    --collect-all pandas \
+    --collect-all numpy \
+    --collect-all sklearn \
+    --collect-all xgboost \
+    --collect-all torch_dpmm \
+    --collect-all pyod \
+    --collect-all spaceai \
+    --collect-all sktime \
+    --collect-all statsmodels \
+    --collect-all stumpy \
+    --collect-all numba \
+    examples/sml_inference/sml_server.py
+
+# --- Runtime Stage ---
+FROM --platform=linux/arm64 python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+
+# Minimal runtime system libraries
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Extracted binary
+COPY --from=builder /build/dist/sml_server /app/
+
+# Environment
+ENV CLASSIFIER_DIR=/app/models
+RUN mkdir -p ${CLASSIFIER_DIR}
+
+EXPOSE 5555
+
+ENTRYPOINT ["/app/sml_server"]
+CMD ["--classifier_dir", "/app/models", "--port", "5555"]

@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     List,
-    Dict,
+    Optional,
+    Tuple,
 )
 
 from spaceai.data import (
@@ -17,7 +18,7 @@ from .benchmark import Benchmark
 
 if TYPE_CHECKING:
     from spaceai.models.predictors import SequenceModel
-    from spaceai.models.anomaly import AnomalyDetector
+    from spaceai.models.detectors.anomaly_detector import AnomalyDetector
     from .callbacks import Callback
 
 import pandas as pd
@@ -29,12 +30,10 @@ class ESABenchmark(Benchmark):
         self,
         run_id: str,
         exp_dir: str,
-        segmentator: Any = None,
         mission: Optional[ESAMission] = None,
-        feature_extractor: Optional[Any] = None,
-        seq_length: int = 250,
-        n_predictions: int = 1,
         data_root: str = "datasets",
+        save_metadata: bool = True,
+        **kwargs
     ):
         """Initializes a new benchmark run.
 
@@ -42,12 +41,13 @@ class ESABenchmark(Benchmark):
             run_id (str): A unique identifier for this run.
             exp_dir (str): The directory where the results of this run are stored.
             mission (Optional[ESAMission]): the ESA mission to use.
-            seq_length (int): The length of the sequences used for training and testing.
         """
-        super().__init__(run_id, exp_dir, segmentator, feature_extractor, seq_length, n_predictions, data_root)
+        super().__init__(run_id, exp_dir, data_root, save_metadata)
         self.mission = mission
+        self.date_overrides = kwargs
 
-    def get_default_channels(self) -> List[str]:
+    @property
+    def channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         if self.mission is None:
             raise ValueError("Mission must be set for ESABenchmark")
@@ -63,40 +63,16 @@ class ESABenchmark(Benchmark):
         return min_start_time, min_period
 
 
-    def load_channel(
-        self, channel_id: str, overlapping_train: bool = True
-    ) -> Tuple[ESA, ESA]:
-        """Load the training and testing datasets for a given channel.
-
-        Args:
-            channel_id (str): the ID of the channel to be used
-            overlapping_train (bool): whether to use overlapping sequences for the training dataset
-
-        Returns:
-            Tuple[ESA, ESA]: training and testing datasets
-        """
-        if self.mission is None:
-            raise ValueError("Mission must be set for ESABenchmark")
-        train_channel = ESA(
-            root=self.data_root,
-            mission=self.mission,
-            channel_id=channel_id,
-            mode="prediction",
-            overlapping=overlapping_train,
-            seq_length=self.seq_length,
-            n_predictions=self.n_predictions,
+    def load_channel(self, channel_id: str, train: bool = True, challenge: bool = False, continual: bool = False, overlapping_train: bool = True, **kwargs) -> ESA:
+        """Load the training or testing dataset for a given channel."""
+        if self.mission is None: raise ValueError("Mission must be set for ESABenchmark")
+            
+        return ESA(
+            root=self.data_root, mission=self.mission, channel_id=channel_id,
+            challenge=challenge,
+            continual=continual,
+            overlapping=overlapping_train if train else False,
+            train=train,
+            drop_last=train,
+            **{**self.date_overrides, **kwargs}
         )
-
-        test_channel = ESA(
-            root=self.data_root,
-            mission=self.mission,
-            channel_id=channel_id,
-            mode="anomaly",
-            overlapping=False,
-            seq_length=self.seq_length,
-            train=False,
-            drop_last=False,
-            n_predictions=1,
-        )
-
-        return train_channel, test_channel

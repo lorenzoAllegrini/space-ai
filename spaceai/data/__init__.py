@@ -1,4 +1,4 @@
-from .anomaly_dataset import AnomalyDataset
+from .anomaly_dataset import AnomalyDataset, AnomalyDatasetSubset
 from .nasa import NASA
 from .esa import (
     ESA,
@@ -7,4 +7,12 @@ from .esa import (
 )
 from .ops_sat import OPSSAT
 
-__all__ = ["AnomalyDataset", "NASA", "ESA", "ESAMissions", "ESAMission", "OPSSAT"]
+__all__ = [
+    "AnomalyDataset",
+    "AnomalyDatasetSubset",
+    "NASA",
+    "ESA",
+    "ESAMissions",
+    "ESAMission",
+    "OPSSAT",
+]

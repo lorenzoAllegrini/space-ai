@@ -1,11 +1,11 @@
 """OPS-SAT dataset module."""
 
+from __future__ import annotations
 import logging
 import math
 import os
 import zipfile
 from typing import (
-    Literal,
     Optional,
     Tuple,
     Union,
@@ -44,7 +44,6 @@ class OPSSAT(AnomalyDataset):
         self,
         root: str,
         channel_id: str,
-        mode: Literal["prediction", "anomaly"],
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
@@ -53,6 +52,7 @@ class OPSSAT(AnomalyDataset):
         drop_last: bool = True,
         max_gap_sigma: float = 3.0,
         split_percentage: Optional[float] = 0.6,
+        **kwargs,
     ):
         """Initialize the dataset for a given channel.
 
@@ -70,7 +70,6 @@ class OPSSAT(AnomalyDataset):
         super().__init__(root)
         if seq_length is None or seq_length < 1:
             raise ValueError(f"Invalid window size: {seq_length}")
-        self._mode: Literal["prediction", "anomaly"] = mode
         self.overlapping: bool = overlapping
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
@@ -97,7 +96,7 @@ class OPSSAT(AnomalyDataset):
     def load_channel(self, channel_id: str):
         """Load specific channel data into the dataset instance."""
         self.channel_id = channel_id
-        if self._mode == "anomaly" and self.overlapping:
+        if not self.train and self.overlapping:
             logging.warning(
                 "Channel %s is in anomaly mode and overlapping is set to True."
                 " Anomalies will be repeated in the dataset.",
@@ -363,7 +362,7 @@ class OPSSAT(AnomalyDataset):
         data = channel_df["value"].astype(np.float32).values
         anomalies = None
 
-        if self._mode == "prediction":
+        if self.train:
             return data, None, timestamps, start_time, end_time, block_intervals
 
         if "anomaly" in channel_df.columns:
@@ -385,17 +384,3 @@ class OPSSAT(AnomalyDataset):
         if self.data is None:
             return 1
         return self.data.shape[-1]
-
-    @property
-    def mode(self) -> str:
-        """Return the mode of the dataset."""
-        return self._mode
-
-    @mode.setter
-    def mode(self, mode: Literal["prediction", "anomaly"]):
-        """Set the mode of the dataset."""
-        if mode not in ["prediction", "anomaly"]:
-            raise ValueError(f"Invalid mode {mode}")
-        self._mode = mode
-        if self.channel_id:
-            self.load_channel(self.channel_id)

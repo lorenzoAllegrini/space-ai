@@ -1,0 +1,45 @@
+# ocsvm_esa_sweep_config.yaml
+# Sweep OCSVM in comparazione diretta con DPMM
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "pyod_ocsvm"
+detector: "none"
+segmentator: false
+challenge: false
+save_metadata: false
+
+calibration_perc: 0
+
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+filter_valid: true
+
+# Feature Extraction
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  max_features: 5
+  selected_features: null
+  
+window_size: null
+step_size: null
+max_window: 500
+min_window: 150
+perc_step_size: 0.5
+
+channels: null
+
+base_classifier_params:
+  return_labels: true
+  dynamic_scaling: [true, false]
+  scaler_window: 1000
+  cache_size: 500
+  kernel: ['rbf', 'sigmoid']
+  nu: [0.01, 0.1, 0.5]
+  gamma: ['scale', 'auto']

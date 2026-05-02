@@ -1,0 +1,68 @@
+# dpmm_esa_continual_sweep.yaml
+# Parameter sweep for ESA Continual Learning pipeline
+
+base_dir: "./datasets"           
+exp_dir: "experiments"
+dataset: "esa"               
+mission_id: 1
+model: "dpmm"
+dpmm_type: ["diagonal", "unit"]            
+dpmm_mode: "likelihood_threshold"
+detector: "threshold"
+segmentator: false
+challenge: false
+
+# Parametri per Continual Learning
+replay: "time-decay"
+buffer_size: 100000
+sample_size: 20000
+half_life: 10000
+experience_size: ["180D", "360D"]
+
+detector_params:
+  quantile: [0.9, 1.0, 1.5, 2.0]
+  smoothing_alpha: [0.7, 0.4]
+  threshold_alpha: 0.5
+
+replay_detector_params:
+  quantile: [0.75, 0.85, 1.0, 1.2]
+  smoothing_alpha: [0.7, 0.4]
+  threshold_alpha: 0.5
+
+calibration_perc: 0.6
+
+# Temporal Validation: train up to val_train_end, test from val_test_start to val_test_end
+temporal_validation: true
+val_train_end_date: "2005-01-01"
+val_test_start_date: "2005-01-01"
+val_test_end_date: "2007-01-01"
+
+filter_valid: true
+
+feature_extractor: 
+  - "base_statistics"
+
+feature_extraction_params:
+  max_features: 5
+  selected_features: null
+  
+window_size: null
+step_size: null
+max_window: 500
+min_window: 150
+perc_step_size: 0.5
+
+channels: null
+
+base_classifier_params:
+  dynamic_scaling: true
+  scaler_window: 1000
+  n_clusters: 100
+  num_iterations: 100
+  lr: 0.5
+  alpha_dp: 3.0
+  var_prior: 3.0
+  var_prior_strength: 1.0
+  mu_prior_strength: 0.001
+  quantile: 0.001
+  return_likelihood: true

@@ -6,7 +6,7 @@ import math
 import os
 import tarfile
 from typing import (
-    Literal,
+    List,
     Optional,
     Tuple,
     Union,
@@ -120,13 +120,14 @@ class NASA(AnomalyDataset):
         self,
         root: str,
         channel_id: str,
-        mode: Literal["prediction", "anomaly"],
         overlapping: bool = False,
         seq_length: Optional[int] = 250,
         n_predictions: int = 1,
+        feature_indices: Optional[List[int]] = [0],
         train: bool = True,
         download: bool = True,
         drop_last: bool = True,
+        **kwargs,
     ):
         """Initialize the dataset for a given channel.
 
@@ -142,12 +143,12 @@ class NASA(AnomalyDataset):
         if seq_length is None or seq_length < 1:
             raise ValueError(f"Invalid window size: {seq_length}")
         self.channel_id: str = channel_id
-        self._mode: Literal["prediction", "anomaly"] = mode
         self.overlapping: bool = overlapping
         self.window_size: int = seq_length if seq_length else 250
         self.train: bool = train
         self.drop_last: bool = drop_last
-        self.n_predictions: int = n_predictions
+        self.n_predictions: int = n_predictions if train else 1
+        self.feature_indices: Optional[List[int]] = feature_indices
 
         if not channel_id in self.channel_ids:
             raise ValueError(f"Channel ID {channel_id} is not valid")
@@ -160,7 +161,7 @@ class NASA(AnomalyDataset):
                 "Dataset not found. You can use download=True to download it"
             )
 
-        if self._mode == "anomaly" and self.overlapping:
+        if not self.train and self.overlapping:
             logging.warning(
                 "Channel %s is in anomaly mode and overlapping is set to True."
                 " Anomalies will be repeated in the dataset.",
@@ -196,6 +197,8 @@ class NASA(AnomalyDataset):
                 )
             ).T,
         )
+        if self.feature_indices is not None:
+            x = x[:, self.feature_indices]
         return x, y_true
 
     def __len__(self) -> int:
@@ -243,18 +246,18 @@ class NASA(AnomalyDataset):
         data = np.load(
             os.path.join(self.split_folder, f"{self.channel_id}.npy")
         ).astype(np.float32)
-        if self._mode == "prediction":
+        if self.train:
             return data, None
 
         anomalies: list[list[int]] = []  # Normal by default (train)
 
-        # Load the anomalies for the test data
         if not self.train:
             anomaly_df = pd.read_csv(os.path.join(self.split_folder, "anomalies.csv"))
             anomaly_df = anomaly_df[anomaly_df["chan_id"] == self.channel_id]
             anomaly_seq_df = anomaly_df["anomaly_sequences"]
             if len(anomaly_seq_df) > 0:
                 anomalies = ast.literal_eval(anomaly_seq_df.values[0])
+                logging.debug("NASA: Loaded %d anomaly sequences for channel %s", len(anomalies), self.channel_id)
             else:
                 logging.warning("No anomalies found for channel %s", self.channel_id)
 
@@ -268,17 +271,15 @@ class NASA(AnomalyDataset):
     @property
     def in_features_size(self) -> int:
         """Return the size of the input features."""
+        if self.feature_indices is not None:
+            return len(self.feature_indices)
         return self.data.shape[-1]
 
     @property
-    def mode(self) -> str:
-        """Return the mode of the dataset."""
-        return self._mode
-
-    @mode.setter
-    def mode(self, mode: Literal["prediction", "anomaly"]):
-        """Set the mode of the dataset."""
-        if mode not in ["prediction", "anomaly"]:
-            raise ValueError(f"Invalid mode {mode}")
-        self._mode = mode
-        self.data, self.anomalies = self.load_and_preprocess()
+    def labels(self) -> np.ndarray:
+        """Return the anomaly labels for the dataset."""
+        labels = np.zeros(len(self.data), dtype=int)
+        if self.anomalies:
+            for start, end in self.anomalies:
+                labels[int(start) : int(end) + 1] = 1
+        return labels

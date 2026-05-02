@@ -35,6 +35,10 @@ class CallbackHandler:
 
     def start(self):
         """Start the execution of the handler's thread."""
+        self.start_time = time.time()
+        for callback in self.callbacks:
+            callback()
+            
         self.thread = Thread(target=self.callback_loop)
         self.running = True
         self.thread.start()
@@ -44,7 +48,6 @@ class CallbackHandler:
 
         It activates the callbacks at the specified time interval.
         """
-        self.start_time = time.time()
         while self.running:
             for callback in self.callbacks:
                 callback()

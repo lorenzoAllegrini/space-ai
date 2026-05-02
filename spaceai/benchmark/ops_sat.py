@@ -16,7 +16,8 @@ class OPSSATBenchmark(Benchmark):
         super().__init__(**kwargs)
         self.split_percentage = split_percentage
 
-    def get_default_channels(self) -> List[str]:
+    @property
+    def channels(self) -> List[str]:
         """Get the default list of channels for the benchmark."""
         return OPSSAT.channel_ids
 
@@ -27,37 +28,15 @@ class OPSSATBenchmark(Benchmark):
         return min_start_time, min_period
 
     def load_channel(
-        self, channel_id: str, overlapping_train: bool = True
-    ) -> Tuple[OPSSAT, OPSSAT]:
-        """Load the training and testing datasets for a given channel.
-
-        Args:
-            channel_id (str): the ID of the channel to be used
-            overlapping_train (bool): whether to use overlapping sequences for training
-
-        Returns:
-            Tuple[OPSSAT, OPSSAT]: training and testing datasets
-        """
-        train_channel = OPSSAT(
+        self, channel_id: str, train: bool = True, overlapping_train: bool = True, **kwargs
+    ) -> OPSSAT:
+        """Load the training or testing dataset for a given channel."""
+        return OPSSAT(
             root=self.data_root,
             channel_id=channel_id,
-            mode="anomaly",
-            overlapping=overlapping_train,
-            seq_length=self.seq_length,
-            n_predictions=self.n_predictions,
+            overlapping=overlapping_train if train else False,
+            train=train,
+            drop_last=train,
             split_percentage=self.split_percentage,
+            **kwargs
         )
-
-        test_channel = OPSSAT(
-            root=self.data_root,
-            channel_id=channel_id,
-            mode="anomaly",
-            overlapping=False,
-            seq_length=self.seq_length,
-            train=False,
-            drop_last=False,
-            n_predictions=1,
-            split_percentage=self.split_percentage,
-        )
-
-        return train_channel, test_channel
