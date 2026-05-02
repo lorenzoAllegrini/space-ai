@@ -14,6 +14,7 @@ base_classifier_params:
   criterion: MSELoss
   optimizer: Adam
   n_predictions: 10
+  reduce_out: mean
   epochs: 35
   p: 0.13
   patience: 10
