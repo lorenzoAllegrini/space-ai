@@ -203,17 +203,46 @@ class ESA(
         )
 
     def __len__(self) -> int:
-        return self.data.shape[0]
+        if self.overlapping:
+            length = self.data.shape[0] - \
+                self.window_size - self.n_predictions + 1
+            return length
+        length = int(self.data.shape[0] /
+                     (self.window_size + self.n_predictions))
+        if self.drop_last:
+            return math.floor(length)
+        return math.ceil(length)
 
-    def __getitem__(self, index: Union[int, slice]) -> Union[torch.Tensor, List[torch.Tensor]]:
-        """Return the data at the given index or slice."""
-        if isinstance(index, slice):
-            return [self[i] for i in range(*index.indices(len(self)))]
-
+    def __getitem__(self, index: Union[int, slice]) -> Union[
+        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    ]:
+        """Return the data at the given index."""
         if index < 0 or index >= len(self):
             raise IndexError(f"Index {index} out of bounds")
-            
-        return torch.tensor(self.data[index])
+        first_idx = (
+            index
+            if self.overlapping
+            else index * (self.window_size + self.n_predictions - 1)
+        )
+        last_idx = first_idx + self.window_size
+        if last_idx > len(self.data) - self.n_predictions:
+            last_idx = len(self.data) - self.n_predictions
+
+        x, y_true = (
+            torch.tensor(self.data[first_idx:last_idx]),
+            torch.from_numpy(
+                np.stack(
+                    [
+                        self.data[first_idx + i + 1 : last_idx + i + 1, 0]
+                        for i in range(self.n_predictions)
+                    ]
+                )
+            ).T,
+        )
+        if self.feature_indices is not None:
+            x = x[:, self.feature_indices]
+        return x, y_true
 
     def download(self):
         """Download the dataset from the given URL and extract it to the given
