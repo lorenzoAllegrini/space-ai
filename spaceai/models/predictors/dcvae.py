@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 from typing import Optional, Any, List, Union, Tuple, Dict
 import tensorflow as tf
 from tensorflow.keras.layers import Layer, Input, Conv1D, BatchNormalization, Lambda
@@ -163,7 +164,10 @@ class DCVAE:
                  name='',
                  epsilon=1e-12,
                  summary=True,
+                 force_cpu=True,
                  ):
+        if force_cpu:
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
         input_shape = (T, M)
         self.M = M
         self.M_output = M_output
