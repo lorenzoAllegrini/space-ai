@@ -1,7 +1,7 @@
 # dpmm_esa_global_config.yaml
 
 base_dir: "./datasets"           
-exp_dir: "experiments_2.1"
+exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "dpmm"

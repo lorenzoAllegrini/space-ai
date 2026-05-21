@@ -2,7 +2,7 @@
 # Configurazione per Isolation Forest su ESA tramite SML Server
 
 base_dir: "./datasets"           
-exp_dir: "experiments_iforest"
+exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "iforest"

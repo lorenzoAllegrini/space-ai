@@ -15,8 +15,7 @@ max_window: 500
 min_window: 50
 perc_step_size: 0.5
 
-channels: 
-  - "channel_41"
+channels: null
 
 base_classifier_params:
   n_estimators: 100

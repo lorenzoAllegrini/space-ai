@@ -1,7 +1,7 @@
 # telemanom_nasa_config.yaml
 # Test configuration for Telemanom integration on NASA dataset
 base_dir: "./datasets"           
-exp_dir: "experiments_telemanom"
+exp_dir: "experiments"
 dataset: "nasa"               
 model: "telemanom"
 feature_extractor: "none"

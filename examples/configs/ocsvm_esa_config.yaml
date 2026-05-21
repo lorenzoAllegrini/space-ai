@@ -1,6 +1,6 @@
 
 base_dir: "./datasets"
-exp_dir: "experiments_ocsvm"
+exp_dir: "experiments"
 dataset: "esa"
 mission_id: 1
 model: "pyod_ocsvm"

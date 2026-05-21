@@ -2,7 +2,7 @@
 # Test configuration for Telemanom integration
 
 base_dir: "./datasets"           
-exp_dir: "experiments_telemanom"
+exp_dir: "experiments"
 dataset: "esa"               
 mission_id: 1
 model: "telemanom"
@@ -20,10 +20,4 @@ base_classifier_params:
   p: 0
   patience: 20
 
-channels:
-  - "channel_41"
-  - "channel_42"
-  - "channel_43"
-  - "channel_44"
-  - "channel_45"
-  - "channel_46"
+channels: null
