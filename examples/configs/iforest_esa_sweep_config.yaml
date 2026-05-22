@@ -7,7 +7,7 @@ dataset: "esa"
 mission_id: 1
 model: "iforest"
 detector: "none"
-segmentator: false
+segmentator: true
 challenge: false
 save_metadata: false
 

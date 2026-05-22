@@ -105,7 +105,10 @@ class AnomalyDetectionPipeline:
         return metrics
         
     def _map_state_to_points(self, state: PipelineState, channel_data: Any) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-        total_len = len(channel_data) if hasattr(channel_data, "__len__") else 0
+        if hasattr(channel_data, "data") and hasattr(channel_data.data, "shape"):
+            total_len = channel_data.data.shape[0]
+        else:
+            total_len = len(channel_data) if hasattr(channel_data, "__len__") else 0
         if total_len == 0:
             return state.data, state.labels
             

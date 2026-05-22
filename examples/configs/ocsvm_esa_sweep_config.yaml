@@ -7,7 +7,7 @@ dataset: "esa"
 mission_id: 1
 model: "pyod_ocsvm"
 detector: "none"
-segmentator: false
+segmentator: true
 challenge: false
 save_metadata: false
 
