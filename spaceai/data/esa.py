@@ -240,8 +240,6 @@ class ESA(
                 )
             ).T,
         )
-        if self.feature_indices is not None:
-            x = x[:, self.feature_indices]
         return x, y_true
 
     def download(self):
