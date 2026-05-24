@@ -353,6 +353,10 @@ def get_telemanom_sequence_classifier(base_params=None):
     n_predictions = base_params.pop("n_predictions", 1)
     reduce_out = base_params.pop("reduce_out", "first")
 
+    device = "cpu"
+    if base_params.get("device", None):
+        device = torch.device(base_params["device"])
+
     epochs = base_params.pop("epochs", 35)
     lr = base_params.pop("lr", 0.001)
     patience = base_params.pop("patience", 10)
@@ -382,6 +386,7 @@ def get_telemanom_sequence_classifier(base_params=None):
         "patience_before_stopping": patience,
         "min_delta": min_delta,
         "perc_eval": perc_eval,
+        "batch_size": batch_size,
     }
 
     predictor = LSTM(
@@ -390,6 +395,7 @@ def get_telemanom_sequence_classifier(base_params=None):
         output_size=n_predictions,
         reduce_out=reduce_out,
         dropout=dropout,
+        device=device,
     )
     predictor.build()
 
@@ -409,16 +415,6 @@ def get_telemanom_sequence_classifier(base_params=None):
         fit_predictor_args=fit_predictor_args,
         n_predictions=n_predictions
     )
-    classifier._fit_args = {
-        "criterion": nn.MSELoss(),
-        "optimizer_class": torch.optim.Adam,
-        "lr": lr,
-        "epochs": epochs,
-        "patience_before_stopping": patience,
-        "min_delta": min_delta,
-        "batch_size": batch_size,
-        "perc_eval": perc_eval,
-    }
     return classifier, False
 
 
