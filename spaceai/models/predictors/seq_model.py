@@ -139,7 +139,7 @@ class SequenceModel:
                 epoch_metrics: Dict[str, Any] = {
                     f"{name}_train": 0.0 for name in metrics_
                 }
-                for inputs, targets in train_loader:
+                for inputs, targets in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False):
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
                     optimizer.zero_grad()
                     outputs = self.model(inputs)
