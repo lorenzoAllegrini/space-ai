@@ -19,5 +19,7 @@ base_classifier_params:
   epochs: 1000
   p: 0
   patience: 20
+  batch_size: 32
+  device: cpu
 
 channels: null
