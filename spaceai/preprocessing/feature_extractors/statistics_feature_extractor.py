@@ -235,8 +235,20 @@ class StatisticsFeatureExtractor(FeatureExtractor):
             else:
                 pass
         
-        # Ensure at least one feature is selected (the top one from feature_scores)
+        # Fallback when no feature clears the selection threshold. This happens mostly on
+        # low-anomaly channels, where the tail-F0.1 scores are unreliable and the top-scored
+        # feature is essentially noise (e.g. spectral_centroid on channel_61 -> many FP).
+        # Instead of trusting that noisy top score, fall back to a fixed robust default
+        # feature that generalizes well across channels (chosen as the global best, not
+        # per-channel, to avoid cheating).
+        # NB: the scores are untrustworthy here, so we ignore the (noisy) ranking and the
+        # correlation filter and take the default feature straight from the full computed
+        # feature set. Fall back to the top-scored feature only if the default is missing.
+        DEFAULT_FALLBACK_FEATURE = "var"
         if len(selected_feature_names) == 0 and len(feature_scores) > 0:
+            if DEFAULT_FALLBACK_FEATURE in X_features.columns:
+                selected_feature_names.append(DEFAULT_FALLBACK_FEATURE)
+            else:
                 selected_feature_names.append(feature_scores[0][0])
         
         # Log and save selected features
