@@ -13,12 +13,12 @@ challenge: false
 save_metadata: false
 
 detector_params:
-  quantile: [2.0, 2.5]
-  smoothing_alpha: [0.1, 0.3, 0.4, 1.0]
+  quantile: [3.0, 3.5, 4.0, 4.5, 5.0]
+  smoothing_alpha: [0.3, 1.0]
 
 calibration_perc: 0.30
 
-temporal_validation: true
+temporal_validation: false
 val_train_end_date: "2005-01-01"
 val_test_start_date: "2005-01-01"
 val_test_end_date: "2007-01-01"
