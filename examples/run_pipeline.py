@@ -65,6 +65,8 @@ def run_exp(args, other_args=None):
         args.detector = "no_detector"
 
     handler = CallbackHandler([SystemMonitorCallback()], call_every_ms=100)
+    if detector is not None:
+        detector.callback_handler = handler
 
     if getattr(args, 'run_id', None) is not None:
         run_id = args.run_id
@@ -125,6 +127,7 @@ def run_exp(args, other_args=None):
         )
 
         clf, _ = create_classifier(args, other_args)
+        clf.callback_handler = handler
 
         fit_phases = ["train"]
         phase_percs = {}
