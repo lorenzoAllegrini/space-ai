@@ -70,8 +70,8 @@ def compute_experiment_scores(results_df: pd.DataFrame, include_efficiency: bool
                 return df[c].mean()
         return 0.0
 
-    predict_time = get_mean_time(results_df, ["predict_time", "detection_time", "segmentation_split_time"])
-    train_time = get_mean_time(results_df, ["train_time", "fitting_time"])
+    predict_time = get_mean_time(results_df, ["predict_time", "detection_time", "classifier_predict_time", "detector_detect_time", "segmentation_split_time"])
+    train_time = get_mean_time(results_df, ["train_time", "fitting_time", "classifier_fit_time"])
 
     out_dict = {
         "f1": float(
