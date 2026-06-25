@@ -96,7 +96,7 @@ def compute_experiment_scores(results_df: pd.DataFrame, include_efficiency: bool
     # Add extra metrics requested from GLOBAL row
     extra_metrics = [
         "n_anomalies", "n_detected", "true_positives", "false_positives", "false_negatives",
-        "precision", "recall", "f1", "tnr", "test_length", "test_negatives", "detected_negatives",
+        "precision", "recall", "f1", "f0.5", "tnr", "test_length", "test_negatives", "detected_negatives",
         "precision_corrected", "corrected_f0.5", "corrected_f1", "adtqc_n_before", "adtqc_n_after",
         "adtqc_after_rate", "adtqc_score", "total_segmentation_time", "total_segmentation_cpu",
         "total_segmentation_mem", "feature_extraction_time", "feature_extraction_cpu",

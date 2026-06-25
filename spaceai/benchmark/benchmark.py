@@ -661,6 +661,15 @@ class Benchmark:
             if results["precision"] + results["recall"] > 0
             else 0
         )
+        results["f0.5"] = (
+            (
+                (1 + 0.5**2)
+                * (results["precision"] * results["recall"])
+                / (0.5**2 * results["precision"] + results["recall"])
+            )
+            if results["precision"] + results["recall"] > 0
+            else 0
+        )
 
         if total_length is None:
             total_length = 0
