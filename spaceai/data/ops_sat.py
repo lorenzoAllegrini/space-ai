@@ -384,3 +384,12 @@ class OPSSAT(AnomalyDataset):
         if self.data is None:
             return 1
         return self.data.shape[-1]
+
+    @property
+    def labels(self) -> np.ndarray:
+        """Return the anomaly labels for the dataset."""
+        labels = np.zeros(len(self.data), dtype=int)
+        if self.anomalies:
+            for start, end in self.anomalies:
+                labels[int(start): int(end) + 1] = 1
+        return labels

@@ -490,3 +490,12 @@ class ESA(
     def in_features_size(self) -> int:
         """Return the size of the input features."""
         return self.data.shape[-1]
+    
+    @property
+    def labels(self) -> np.ndarray:
+        """Return the anomaly labels for the dataset."""
+        labels = np.zeros(len(self.data), dtype=int)
+        if self.anomalies:
+            for start, end in self.anomalies:
+                labels[int(start): int(end) + 1] = 1
+        return labels
