@@ -4,7 +4,7 @@ import argparse
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-from .run_segment_extraction_exp import (
+from examples.run_segment_extraction_exp import (
     DATASET_LIST,
     DPMM_MODE,
     DPMM_MODEL_TYPE,

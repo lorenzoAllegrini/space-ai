@@ -5,12 +5,12 @@ import warnings
 
 from spaceai.benchmark.callbacks import SystemMonitorCallback
 
-from .utils.config import Config
-from .utils.dataset_exp import (
+from examples.utils.config import Config
+from examples.utils.dataset_exp import (
     get_dataset_benchmark,
     run_prediction_experiment,
 )
-from .utils.model_creators import (
+from examples.utils.model_creators import (
     create_predictor,
     get_telemanom_detector,
 )
@@ -24,7 +24,7 @@ MODEL_LIST = ["esn", "lstm"]
 def parse_exp_args(str_args=None):
     """Parse experiment arguments."""
     parser = argparse.ArgumentParser(description="prediction experiments execution")
-    parser.add_argument("--base_dir", required=True)
+    parser.add_argument("--base_dir",required=True)
     parser.add_argument("--exp-dir", default="experiments")
     parser.add_argument("--dataset", choices=DATASET_LIST, required=True)
     parser.add_argument("--model", choices=MODEL_LIST, required=True)
@@ -35,6 +35,7 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--window-size", type=int)  # l_s / seq_length
     parser.add_argument("--prediction-steps", type=int)  # n_predictions
+    parser.add_argument("--device", type=str, default="cpu")
 
     return parser.parse_known_args(str_args)
 
@@ -44,16 +45,18 @@ def run_exp(args, _other_args=None):
     config = Config()
 
     # Override config with args
-    if args.epochs:
+    if args.epochs is not None:
         config.epochs = args.epochs
-    if args.batch_size:
+    if args.batch_size is not None:
         config.batch_size = args.batch_size
-    if args.learning_rate:
+    if args.learning_rate is not None:
         config.learning_rate = args.learning_rate
-    if args.window_size:
+    if args.window_size is not None:
         config.l_s = args.window_size
-    if args.prediction_steps:
+    if args.prediction_steps is not None:
         config.n_predictions = args.prediction_steps
+    if args.device is not None:
+        config.device = args.device
 
     predictor_factory = create_predictor(args.model, config)
     detector_factory = get_telemanom_detector(config)
