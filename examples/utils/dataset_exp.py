@@ -162,11 +162,12 @@ def run_prediction_experiment(
     detector_factory: Callable[[], Any],
     config: Any,
     callbacks: Optional[list] = None,
+    lightweight_channels: bool = False,
 ):
     """Run prediction experiment."""
     if isinstance(benchmark, ESABenchmark):
         run_esa_prediction_experiment(
-            benchmark, predictor_factory, detector_factory, config, callbacks
+            benchmark, predictor_factory, detector_factory, config, callbacks, lightweight_channels
         )
     elif isinstance(benchmark, NASABenchmark):
         run_nasa_prediction_experiment(
@@ -186,6 +187,7 @@ def run_esa_prediction_experiment(
     detector_factory: Callable[[], Any],
     config: Any,
     callbacks: Optional[list] = None,
+    lightweight_channels: bool = False,
 ):
     """Run ESA prediction experiment."""
     from torch import (
@@ -202,7 +204,8 @@ def run_esa_prediction_experiment(
 
         for channel_id in mission.target_channels:
             # Filter channels if needed
-            # if int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46: continue
+            if lightweight_channels and (int(channel_id.split("_")[1]) < 41 or int(channel_id.split("_")[1]) > 46):
+                continue
 
             esa_channel = ESA(
                 benchmark.data_root, mission, channel_id, mode="anomaly", train=False

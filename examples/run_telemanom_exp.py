@@ -36,6 +36,7 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--window-size", type=int)  # l_s / seq_length
     parser.add_argument("--prediction-steps", type=int)  # n_predictions
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--lightweight-channels", action="store_true")
 
     return parser.parse_known_args(str_args)
 
@@ -57,7 +58,10 @@ def run_exp(args, _other_args=None):
         config.n_predictions = args.prediction_steps
     if args.device is not None:
         config.device = args.device
-
+    if args.lightweight_channels:
+        lightweight_channels = True
+    else:
+        lightweight_channels = False
     predictor_factory = create_predictor(args.model, config)
     detector_factory = get_telemanom_detector(config)
 
@@ -77,6 +81,7 @@ def run_exp(args, _other_args=None):
         detector_factory=detector_factory,
         config=config,
         callbacks=callbacks,
+        lightweight_channels=lightweight_channels,
     )
 
 
