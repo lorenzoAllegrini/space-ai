@@ -116,6 +116,7 @@ def get_lstm_predictor(config: Config):
         output_size=config.n_predictions,
         reduce_out="first",
         dropout=config.dropout,
+        device=config.device,
     )
 
 

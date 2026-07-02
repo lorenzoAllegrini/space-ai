@@ -18,7 +18,7 @@ class Config:
         self.cuda_id: int = 0
         self.batch_size: int = 70  # number of values to evaluate in each batch
         self.window_size: int = (
-            30  # number of trailing batches to use in error calculation
+            2100  # number of trailing batches to use in error calculation
         )
         self.header: list = [  # Columns headers for output file
             "run_id",
@@ -57,7 +57,7 @@ class Config:
         self.esn_batch_number: int = 32
         self.weight_decay: float = 0
         self.epochs: int = (
-            1  # maximum number of epochs allowed
+            10  # maximum number of epochs allowed
             # (if early stopping criteria not met)
         )
         self.layers: list = [
@@ -66,7 +66,7 @@ class Config:
         ]  # network architecture
         # [<neurons in hidden layer>, <neurons in hidden layer>]
         self.patience: int = (
-            5  # Number of consequetive training iterations to allow without
+            20  # Number of consequetive training iterations to allow without
             # decreasing the val_loss by at least min_delta
         )
         self.min_delta: float = 0.0003
@@ -102,6 +102,8 @@ class Config:
 
         # The value of l2 regularization
         self.p: float = (
-            0.13  # minimum percent decrease between max errors in
+            0  # minimum percent decrease between max errors in
             # anomalous sequences (used for pruning)
         )
+
+        self.device: str = "cpu"  # device to use for training and inference (e.g. 'cpu', 'cuda:0')
