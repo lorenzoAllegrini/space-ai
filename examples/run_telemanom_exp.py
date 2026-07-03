@@ -32,6 +32,7 @@ def parse_exp_args(str_args=None):
     # Config overrides
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--lstm-batch-size", type=int)
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--window-size", type=int)  # l_s / seq_length
     parser.add_argument("--prediction-steps", type=int)  # n_predictions
@@ -52,6 +53,8 @@ def run_exp(args, _other_args=None):
         config.epochs = args.epochs
     if args.batch_size is not None:
         config.batch_size = args.batch_size
+    if args.lstm_batch_size is not None:
+        config.lstm_batch_size = args.lstm_batch_size
     if args.learning_rate is not None:
         config.learning_rate = args.learning_rate
     if args.window_size is not None:

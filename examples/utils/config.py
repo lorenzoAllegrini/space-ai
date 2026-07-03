@@ -53,7 +53,7 @@ class Config:
         self.learning_rate: float = 0.001
         self.validation_split: float = 0.2
         self.dropout: float = 0.3
-        self.lstm_batch_size: int = 64
+        self.lstm_batch_size: int = 70
         self.esn_batch_number: int = 32
         self.weight_decay: float = 0
         self.epochs: int = (
