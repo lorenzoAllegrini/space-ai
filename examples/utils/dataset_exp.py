@@ -228,7 +228,7 @@ def run_esa_prediction_experiment(
                     epochs=config.epochs,
                     patience_before_stopping=config.patience,
                     min_delta=config.min_delta,
-                    batch_size=config.batch_size,  # or esn_batch_number/lstm_batch_size
+                    batch_size=config.lstm_batch_size,  # or esn_batch_number/lstm_batch_size
                     restore_best=False,
                 ),
                 overlapping_train=True,
@@ -274,7 +274,7 @@ def run_nasa_prediction_experiment(
                 epochs=config.epochs,
                 patience_before_stopping=config.patience,
                 min_delta=config.min_delta,
-                batch_size=config.batch_size,
+                batch_size=config.lstm_batch_size,
                 restore_best=False,
             ),
             overlapping_train=True,
@@ -320,7 +320,7 @@ def run_ops_sat_prediction_experiment(
                 epochs=config.epochs,
                 patience_before_stopping=config.patience,
                 min_delta=config.min_delta,
-                batch_size=config.batch_size,
+                batch_size=config.lstm_batch_size,
                 restore_best=False,
             ),
             overlapping_train=True,
