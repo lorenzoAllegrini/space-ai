@@ -37,6 +37,8 @@ def parse_exp_args(str_args=None):
     parser.add_argument("--prediction-steps", type=int)  # n_predictions
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--lightweight-channels", action="store_true")
+    parser.add_argument("--patience", type=int)
+    parser.add_argument("--pruning-factor", type=float)
 
     return parser.parse_known_args(str_args)
 
@@ -60,6 +62,10 @@ def run_exp(args, _other_args=None):
         config.device = args.device
     if args.lightweight_channels:
         lightweight_channels = True
+    if args.patience is not None:
+        config.patience = args.patience
+    if args.pruning_factor is not None:
+        config.p = args.pruning_factor
     else:
         lightweight_channels = False
     predictor_factory = create_predictor(args.model, config)
