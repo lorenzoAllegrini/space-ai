@@ -29,9 +29,6 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         "false_positives",
         "false_negatives",
         "train_time",
-        "n_detected", #"detected_negatives",
-        "n_anomalies", #"test_negatives",
-        #"test_length",
     }
     if not req.issubset(results_df.columns):
         return None
@@ -48,34 +45,40 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         df["false_positives"].sum(),
         df["false_negatives"].sum(),
     )
-    tot_neg = df["n_anomalies"].sum()
-    tnr = (df["n_detected"].sum() / tot_neg) if tot_neg > 0 else 0.0
 
     precision = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
     recall = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
-    prec_corr = precision * tnr
 
     n = len(df)
-    return {
+    results = {
         "f1": float(
-            (2 * prec_corr * recall / (prec_corr + recall))
-            if (prec_corr + recall) > 0
+            (2 * precision * recall / (precision + recall))
+            if (precision + recall) > 0
             else 0.0
         ),
         "f0.5": float(
-            ((1 + 0.5**2) * prec_corr * recall / (0.5**2 * prec_corr + recall))
-            if (0.5**2 * prec_corr + recall) > 0
+            ((1 + 0.5**2) * precision * recall / (0.5**2 * precision + recall))
+            if (0.5**2 * precision + recall) > 0
             else 0.0
         ),
-        "precision": float(prec_corr),
+        "precision": float(precision),
         "recall": float(recall),
-        "tnr": float(tnr),
         "train_time": float(df["train_time"].mean()) if n else 0.0,
         "predict_time": float(df["predict_time"].mean()) if n else 0.0,
-        "total_negatives": int(tot_neg),
         "channels": int(df["channel"].nunique()),
     }
-
+    if "test_negatives" in df.columns and "detected_negatives" in df.columns:
+        tot_neg = df["test_negatives"].sum()
+        tnr = (df["detected_negatives"].sum() / tot_neg) if tot_neg > 0 else 0.0
+        prec_corr = precision * tnr
+        results.update({
+            "tnr": float(tnr),
+            "total_negatives": int(tot_neg),
+            "precision_corrected": float(prec_corr),
+            "f1_corrected": float((2 * prec_corr * recall / (prec_corr + recall)) if (prec_corr + recall) > 0 else 0.0),
+            "f0.5_corrected": float(((1 + 0.5**2) * prec_corr * recall / (0.5**2 * prec_corr + recall)) if (0.5**2 * prec_corr + recall) > 0 else 0.0),
+        })
+    return results
 
 def parse_args():
     """Parse command line arguments."""
