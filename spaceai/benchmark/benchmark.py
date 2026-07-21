@@ -465,6 +465,8 @@ class Benchmark:
         tn_e = total_length - len(indices_all_flat)
         for k, v in results.items():
             corrected_results[k] = v
+        corrected_results["test_negatives"] = n_e
+        corrected_results["detected_negatives"] = tn_e
         corrected_results["tnr"] = tn_e / n_e if n_e > 0 else 1
         corrected_results["precision_corrected"] = results["precision"] * corrected_results["tnr"]
         corrected_results["corrected_f0.5"] = (
