@@ -1,5 +1,6 @@
 """DPMM Detector module."""
 import argparse
+import torch
 from typing import Optional
 
 import numpy as np
@@ -31,6 +32,7 @@ def get_dpmm_argparser():
     parser.add_argument("--var-prior-strength", type=float, default=1.0)
     parser.add_argument("--mu-prior-strength", type=float, default=0.001)
     parser.add_argument("--quantile", type=float, default=0.05)
+    parser.add_argument("--device", type=str)
     return parser
 
 
@@ -112,17 +114,30 @@ class DPMMDetector(AnomalyClassifier):
         self.dpmm_model.init_var_params(x_t)
 
         optimizer = optim.SGD(self.dpmm_model.parameters(), lr=self.lr)
-
-        for _ in tqdm(
+        pbar = tqdm(
             range(self.num_iterations),
             desc=f"Fitting {self.model_type} DPMM",
             unit="epoch",
-        ):
+        )
+
+        best_loss = torch.inf
+        patience = 10
+        eps = torch.tensor(1e-3)
+        for _ in pbar:
             optimizer.zero_grad()
             # Assumo che il forward ritorni (pi, elbo_loss, extra)
             _, elbo_loss, _ = self.dpmm_model(x_t)
+            if elbo_loss < best_loss and torch.abs(elbo_loss - best_loss) > eps:
+                best_loss = elbo_loss
+                patience = 10
+            else:
+                patience -= 1
+                if patience == 0:
+                    break
+
             elbo_loss.backward()
             optimizer.step()
+            pbar.set_postfix({"elbo_loss": elbo_loss.item()})
 
         self.dpmm_model.eval()
         with th.no_grad():

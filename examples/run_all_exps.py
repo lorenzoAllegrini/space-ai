@@ -58,7 +58,7 @@ if __name__ == "__main__":
             sorted(
                 [
                     other_exp_args[i][2:].replace("_", "") + other_exp_args[i + 1]
-                    for i in range(0, len(other_exp_args), 2)
+                    for i in range(0, len(other_exp_args)-1, 2)
                 ]
             )
         )

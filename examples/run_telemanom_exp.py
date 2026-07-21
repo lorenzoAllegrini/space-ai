@@ -63,14 +63,16 @@ def run_exp(args, _other_args=None):
         config.n_predictions = args.prediction_steps
     if args.device is not None:
         config.device = args.device
+
     if args.lightweight_channels:
         lightweight_channels = True
+    else:
+        lightweight_channels = False
+
     if args.patience is not None:
         config.patience = args.patience
     if args.pruning_factor is not None:
         config.p = args.pruning_factor
-    else:
-        lightweight_channels = False
     predictor_factory = create_predictor(args.model, config)
     detector_factory = get_telemanom_detector(config)
 
