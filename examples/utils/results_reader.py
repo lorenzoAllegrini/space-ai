@@ -29,9 +29,9 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         "false_positives",
         "false_negatives",
         "train_time",
-        "detected_negatives",
-        "test_negatives",
-        "test_length",
+        "n_detected", #"detected_negatives",
+        "n_anomalies", #"test_negatives",
+        #"test_length",
     }
     if not req.issubset(results_df.columns):
         return None
@@ -156,17 +156,20 @@ def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    datasets_filter = [d.lower() for d in check_datasets(args.datasets)]
+    datasets_filter = [d.lower() for d in args.datasets.split(',')]
 
     rows = []
     for root, _, files in os.walk(args.base_dir):
-        if "results.csv" not in files:
-            continue
-
         rel = os.path.relpath(root, args.base_dir)
         folder = os.path.basename(rel)
         prefix = folder.split("_")[0].lower()
+        if "results.csv" not in files:
+            print(f"Skipping {root}: No results.csv found.")
+            continue
+
+
         if prefix not in datasets_filter:
+            print(f'Skipping {root}: Prefix dataset name {prefix} not in {datasets_filter}.')
             continue
 
         dataset_name = DATASET_ALIAS.get(prefix, prefix.upper())
@@ -176,10 +179,12 @@ def main():
 
         scores = compute_experiment_scores(results_df=res_df)
         if not scores:
+            print(f"Skipping {root}: No valid results found.")
             continue
 
-        rows.append({"dataset": dataset_name, "model": folder, **scores})
+        rows.append({"dataset": dataset_name, "model": folder, 'path': root, **scores})
 
+    print(len(rows), "esperimenti letti.")
     out_df = pd.DataFrame(rows)
     if out_df.empty:
         print("Nessun results.csv valido trovato.")
