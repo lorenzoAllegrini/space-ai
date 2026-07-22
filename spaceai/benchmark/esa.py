@@ -12,6 +12,7 @@ from spaceai.data import (
     ESA,
     ESAMission,
 )
+from spaceai.data.esa import ESAMissions
 
 from .benchmark import Benchmark
 
@@ -24,7 +25,7 @@ class ESABenchmark(Benchmark):
         run_id: str,
         exp_dir: str,
         segmentator: Any,
-        mission: Optional[ESAMission] = None,
+        mission: Optional[ESAMission] = ESAMissions.MISSION_1.value,
         feature_extractor: Optional[Any] = None,
         seq_length: int = 250,
         n_predictions: int = 1,

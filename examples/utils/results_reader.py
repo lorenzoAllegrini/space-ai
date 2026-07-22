@@ -80,6 +80,33 @@ def compute_experiment_scores(results_df: pd.DataFrame) -> Optional[dict]:
         })
     return results
 
+def integrate_if_missing(df: pd.DataFrame, dataset_name: str, csv_path: str, data_path: str) -> None:
+    missing_cols = ["test_negatives", "test_length", "detected_negatives"]
+    if dataset_name is not None and any(col not in df.columns for col in missing_cols):
+        from examples.utils.dataset_exp import get_dataset_benchmark  # type: ignore
+        from tqdm import tqdm  # type: ignore
+
+        benchmark = get_dataset_benchmark(
+            dataset_name=dataset_name.lower(),
+            data_path=data_path,
+            run_id="",
+            exp_dir="",
+        )
+        for channel in tqdm(df["channel_id"].unique(), desc=f"Integrating missing data for {dataset_name}"):
+            _, test = benchmark.load_channel(channel_id=channel)
+            total_length = len(test.data)
+            indices_true_grouped = [list(range(e[0], e[1] + 1)) for e in test.anomalies]
+            indices_true_flat = set([i for group in indices_true_grouped for i in group])
+            n_e = total_length - len(indices_true_flat)
+            df.loc[df["channel_id"] == channel, "test_negatives"] = int(n_e)
+            df.loc[df["channel_id"] == channel, "test_length"] = int(total_length)
+            tnr = df.loc[df["channel_id"] == channel, "tnr"].values[0] if "tnr" in df.columns else 1.0
+            df.loc[df["channel_id"] == channel, "detected_negatives"] = int(round(n_e * tnr))
+        
+        if csv_path is not None:
+            df.to_csv(csv_path, index=False)
+            
+
 def parse_args():
     """Parse command line arguments."""
     p = argparse.ArgumentParser(description="Aggrega risultati esperimenti AD.")
@@ -109,6 +136,11 @@ def parse_args():
         default=True,
         action="store_true",
         help="Stampa tabelle in console (tabulate).",
+    )
+    p.add_argument(
+        "--data_path",
+        default="datasets",
+        help="Percorso della cartella contenente i dataset.",
     )
     return p.parse_args()
 
@@ -179,6 +211,8 @@ def main():
 
         csv_path = os.path.join(root, "results.csv")
         res_df = pd.read_csv(csv_path)
+
+        integrate_if_missing(res_df, dataset_name=dataset_name, csv_path=csv_path, data_path=args.data_path)
 
         scores = compute_experiment_scores(results_df=res_df)
         if not scores:
